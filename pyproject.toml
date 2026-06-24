@@ -1,0 +1,32 @@
+[build-system]
+requires = ["setuptools>=68", "wheel"]
+build-backend = "setuptools.backends.legacy:build"
+
+[project]
+name = "stapel-cdn"
+version = "0.1.0"
+description = "Media/CDN management Django app for the Stapel framework"
+readme = "README.md"
+license = { text = "MIT" }
+requires-python = ">=3.11"
+keywords = ["django", "stapel", "cdn", "media", "storage"]
+classifiers = [
+    "Framework :: Django",
+    "Framework :: Django :: 4.2",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+]
+dependencies = [
+    "stapel-core>=0.1.0",
+]
+
+[project.optional-dependencies]
+s3 = ["boto3>=1.34"]
+all = ["stapel-cdn[s3]"]
+
+[tool.setuptools]
+package-dir = {"stapel_cdn" = "."}
+packages = ["stapel_cdn", "stapel_cdn.migrations"]
+
+[tool.setuptools.package-data]
+stapel_cdn = ["migrations/*.py", "migrations/**/*.py"]
