@@ -30,3 +30,7 @@ packages = ["stapel_cdn", "stapel_cdn.management", "stapel_cdn.management.comman
 
 [tool.setuptools.package-data]
 stapel_cdn = ["migrations/*.py", "migrations/**/*.py"]
+
+[tool.pytest.ini_options]
+django_find_project = false
+addopts = "--tb=short -q"
