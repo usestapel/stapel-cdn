@@ -3,10 +3,9 @@ Tests for CDN views.
 """
 import pytest
 from io import BytesIO
-from unittest.mock import patch, MagicMock
+from unittest.mock import patch
 from PIL import Image as PILImage
 from django.core.files.uploadedfile import SimpleUploadedFile
-from django.urls import reverse
 from rest_framework import status
 from rest_framework.test import APIClient
 from stapel_cdn.models import Image, Video

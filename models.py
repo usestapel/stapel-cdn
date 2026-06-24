@@ -107,20 +107,20 @@ class Image(models.Model):
 
     def __str__(self):
         return f"Image: {self.file_hash[:8]}... ({self.original_filename})"
-    
+
     def get_variant_url(self, variant_name):
         """Get URL for a specific variant. All WebP."""
         from django.conf import settings
         return f"{settings.MEDIA_URL}{self.type}/{self.file_hash}/{variant_name}.webp"
-    
+
     @property
     def variant_16_url(self):
         return self.get_variant_url('16')
-    
+
     @property
     def variant_32_url(self):
         return self.get_variant_url('32')
-    
+
     @property
     def variant_64_url(self):
         return self.get_variant_url('64')
@@ -132,15 +132,15 @@ class Image(models.Model):
     @property
     def variant_160_url(self):
         return self.get_variant_url('160')
-    
+
     @property
     def variant_240_url(self):
         return self.get_variant_url('240')
-    
+
     @property
     def variant_480_url(self):
         return self.get_variant_url('480')
-    
+
     @property
     def variant_720_url(self):
         return self.get_variant_url('720')
@@ -154,7 +154,7 @@ class Image(models.Model):
     @property
     def variant_1080_url(self):
         return self.get_variant_url('1080')
-    
+
     @staticmethod
     def calculate_file_hash(file):
         """Calculate SHA-256 hash of a file."""
@@ -163,7 +163,7 @@ class Image(models.Model):
             hash_sha256.update(chunk)
         file.seek(0)  # Reset file pointer after reading
         return hash_sha256.hexdigest()
-    
+
     def save(self, *args, **kwargs):
         """Override save to automatically extract metadata from uploaded file."""
         # Only process if this is a new object and we have an original file
@@ -171,18 +171,18 @@ class Image(models.Model):
             # Calculate file hash
             if not self.file_hash:
                 self.file_hash = self.calculate_file_hash(self.original)
-            
+
             # Get filename and extension
             if not self.original_filename:
                 self.original_filename = self.original.name
-            
+
             if not self.file_extension:
                 self.file_extension = os.path.splitext(self.original.name)[1].lower()
-            
+
             # Get file size
             if not self.original_size:
                 self.original_size = self.original.size
-            
+
             # Get image dimensions using pyvips (supports HEIC/HEIF)
             if not self.original_width or not self.original_height:
                 try:
@@ -196,7 +196,7 @@ class Image(models.Model):
                         self.original_width = 1
                     if not self.original_height:
                         self.original_height = 1
-        
+
         super().save(*args, **kwargs)
 
 
@@ -223,7 +223,7 @@ class Video(models.Model):
     original_height = models.IntegerField(null=True, blank=True)
     original_size = models.BigIntegerField(help_text="File size in bytes")
     duration = models.FloatField(null=True, blank=True, help_text="Duration in seconds")
-    
+
     # Resolution variants (auto-generated with watermark)
     # Note: Video processing will be implemented later with ffmpeg
     variant_16 = models.FileField(
@@ -303,7 +303,7 @@ class Video(models.Model):
         null=True,
         help_text="2160px height variant with watermark"
     )
-    
+
     # Processing status
     is_processed = models.BooleanField(
         default=False,
@@ -339,10 +339,10 @@ class Video(models.Model):
             models.Index(fields=['created_at']),
             models.Index(fields=['is_processed']),
         ]
-    
+
     def __str__(self):
         return f"Video: {self.file_hash[:8]}... ({self.original_filename})"
-    
+
     @staticmethod
     def calculate_file_hash(file):
         """Calculate SHA-256 hash of a file."""
@@ -351,30 +351,30 @@ class Video(models.Model):
             hash_sha256.update(chunk)
         file.seek(0)  # Reset file pointer after reading
         return hash_sha256.hexdigest()
-    
+
     def save(self, *args, **kwargs):
         """Override save to automatically extract metadata from uploaded file."""
         import os
-        
+
         # Only process if this is a new object and we have an original file
         if not self.pk and self.original:
             # Calculate file hash
             if not self.file_hash:
                 self.file_hash = self.calculate_file_hash(self.original)
-            
+
             # Get filename and extension
             if not self.original_filename:
                 self.original_filename = self.original.name
-            
+
             if not self.file_extension:
                 self.file_extension = os.path.splitext(self.original.name)[1].lower()
-            
+
             # Get file size
             if not self.original_size:
                 self.original_size = self.original.size
-            
+
             # TODO: Extract video dimensions and duration with ffmpeg
-        
+
         super().save(*args, **kwargs)
 
 

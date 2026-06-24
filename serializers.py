@@ -67,7 +67,7 @@ class ImageSerializer(serializers.ModelSerializer):
 
 class VideoSerializer(serializers.ModelSerializer):
     """Serializer for Video model."""
-    
+
     original_url = serializers.SerializerMethodField()
     variant_16p_url = serializers.SerializerMethodField()
     variant_32p_url = serializers.SerializerMethodField()
@@ -77,7 +77,7 @@ class VideoSerializer(serializers.ModelSerializer):
     variant_1080p_url = serializers.SerializerMethodField()
     variant_2160p_url = serializers.SerializerMethodField()
     uploaded_by_username = serializers.CharField(source='uploaded_by.username', read_only=True)
-    
+
     class Meta:
         model = Video
         fields = [
@@ -94,10 +94,10 @@ class VideoSerializer(serializers.ModelSerializer):
             'file_hash', 'original_width', 'original_height', 'original_size',
             'duration', 'is_processed', 'uploaded_by', 'created_at', 'updated_at'
         ]
-    
+
     def get_original_url(self, obj):
         return obj.original.url if obj.original else None
-    
+
     def get_variant_16p_url(self, obj):
         return obj.variant_16.url if obj.variant_16 else None
 

@@ -2,7 +2,6 @@
 Tests for CDN models.
 """
 import pytest
-from django.core.files.uploadedfile import SimpleUploadedFile
 from stapel_cdn.models import Image, Video
 from stapel_core.django.users.models import User
 

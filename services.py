@@ -116,7 +116,7 @@ class ImageProcessingService:
             log_lines.append(f"  Embedded thumbnail: {thumb.height}px ({embed_time}ms)")
             current = cls._resize(thumb, 120).copy_memory()
         else:
-            log_lines.append(f"  No embedded thumbnail, using shrink-on-load")
+            log_lines.append("  No embedded thumbnail, using shrink-on-load")
             start = time.perf_counter()
             current = pyvips.Image.thumbnail(file_path, 240, height=120, size='down')
             current = current.copy_memory()

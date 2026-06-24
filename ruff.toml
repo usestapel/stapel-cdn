@@ -1,0 +1,7 @@
+[lint]
+select = ["E", "F", "W"]
+ignore = ["E501"]
+
+[lint.per-file-ignores]
+"forms.py"             = ["F401"]
+"tests/test_services.py" = ["F401"]
