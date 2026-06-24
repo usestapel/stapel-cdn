@@ -3,12 +3,9 @@ Tests for CDN services.
 """
 import pytest
 import os
-import tempfile
 from io import BytesIO
-from unittest.mock import patch, MagicMock, PropertyMock
+from unittest.mock import patch, MagicMock
 from PIL import Image as PILImage
-from django.core.files.uploadedfile import SimpleUploadedFile
-from django.conf import settings
 from stapel_cdn.models import Image, Video
 from stapel_cdn.services import ImageProcessingService, VideoProcessingService
 from stapel_core.django.users.models import User
@@ -173,7 +170,7 @@ class TestImageProcessingService:
         mock_flattened = MagicMock()
         mock_composite.flatten.return_value = mock_flattened
 
-        result = ImageProcessingService._add_watermark(mock_img)
+        ImageProcessingService._add_watermark(mock_img)
 
         # Should not call bandjoin since already has alpha
         mock_img.bandjoin.assert_not_called()

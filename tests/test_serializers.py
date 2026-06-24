@@ -2,14 +2,11 @@
 Tests for CDN serializers.
 """
 import pytest
-from unittest.mock import MagicMock, PropertyMock
 from stapel_cdn.serializers import (
     ImageSerializer,
     VideoSerializer,
     FileUploadSerializer,
     FileExistsSerializer,
-    ImageUploadResponseSerializer,
-    VideoUploadResponseSerializer,
     FileExistsResponseSerializer,
 )
 from stapel_cdn.models import Image, Video

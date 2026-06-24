@@ -18,14 +18,14 @@ def validate_image_file(file):
         register_heif_opener()
     except ImportError:
         pass
-    
+
     # Check file extension
     file_extension = os.path.splitext(file.name)[1].lower()
     if file_extension not in settings.CDN_ALLOWED_IMAGE_EXTENSIONS:
         raise ValidationError(
             f"Invalid file extension. Allowed: {', '.join(settings.CDN_ALLOWED_IMAGE_EXTENSIONS)}"
         )
-    
+
     # Try to open with Pillow to verify it's a valid image
     try:
         # Open the file - handle both UploadedFile and FieldFile
@@ -44,5 +44,5 @@ def validate_image_file(file):
                 file.seek(0)
     except Exception as e:
         raise ValidationError(f"Invalid image file: {str(e)}")
-    
+
     return file

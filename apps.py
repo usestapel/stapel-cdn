@@ -8,7 +8,7 @@ class CdnConfig(AppConfig):
     name = 'stapel_cdn'
     label = 'cdn'
     verbose_name = 'CDN'
-    
+
     def ready(self):
         """Register HEIF support when the app is ready."""
         try:

@@ -8,8 +8,7 @@ from django.conf import settings
 from django.db import transaction
 from rest_framework import status
 from rest_framework.views import APIView
-from rest_framework.response import Response
-from rest_framework.permissions import IsAuthenticated, AllowAny
+from rest_framework.permissions import IsAuthenticated
 from stapel_core.django.permissions import IsServiceRequest
 from rest_framework.parsers import MultiPartParser, FormParser
 from drf_spectacular.utils import extend_schema, OpenApiExample, OpenApiParameter
