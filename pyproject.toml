@@ -26,7 +26,7 @@ all = ["stapel-cdn[s3]"]
 
 [tool.setuptools]
 package-dir = {"stapel_cdn" = "."}
-packages = ["stapel_cdn", "stapel_cdn.migrations"]
+packages = ["stapel_cdn", "stapel_cdn.management", "stapel_cdn.management.commands", "stapel_cdn.migrations", "stapel_cdn.tests"]
 
 [tool.setuptools.package-data]
 stapel_cdn = ["migrations/*.py", "migrations/**/*.py"]
