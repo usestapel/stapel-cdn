@@ -1,10 +1,12 @@
 """
-Custom validators for iron-cdn service.
+Custom validators for stapel-cdn service.
 """
-from django.core.exceptions import ValidationError
-from django.conf import settings
-from PIL import Image as PILImage
+
 import os
+
+from django.conf import settings
+from django.core.exceptions import ValidationError
+from PIL import Image as PILImage
 
 
 def validate_image_file(file):
@@ -15,6 +17,7 @@ def validate_image_file(file):
     # Register HEIF support for this validation
     try:
         from pillow_heif import register_heif_opener
+
         register_heif_opener()
     except ImportError:
         pass
@@ -29,9 +32,9 @@ def validate_image_file(file):
     # Try to open with Pillow to verify it's a valid image
     try:
         # Open the file - handle both UploadedFile and FieldFile
-        if hasattr(file, 'open'):
+        if hasattr(file, "open"):
             # FieldFile object - need to open it first
-            file.open('rb')
+            file.open("rb")
             img = PILImage.open(file)
             _ = img.size  # Access size to ensure it's valid
             file.close()
@@ -40,7 +43,7 @@ def validate_image_file(file):
             img = PILImage.open(file)
             _ = img.size  # Access size to ensure it's valid
             # Reset file pointer if possible
-            if hasattr(file, 'seek'):
+            if hasattr(file, "seek"):
                 file.seek(0)
     except Exception as e:
         raise ValidationError(f"Invalid image file: {str(e)}")
