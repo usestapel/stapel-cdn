@@ -18,6 +18,7 @@ classifiers = [
 ]
 dependencies = [
     "stapel-core>=0.1.0",
+    "Pillow>=9.0",
 ]
 
 [project.optional-dependencies]
@@ -33,4 +34,4 @@ stapel_cdn = ["migrations/*.py", "migrations/**/*.py"]
 
 [tool.pytest.ini_options]
 django_find_project = false
-addopts = "--tb=short -q"
+addopts = "--tb=short -q --import-mode=importlib"
