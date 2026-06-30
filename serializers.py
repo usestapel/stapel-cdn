@@ -3,7 +3,7 @@ Serializers for stapel-cdn service.
 """
 
 from rest_framework import serializers
-from stapel_core.django.api.errors import IronValidationError
+from stapel_core.django.api.errors import StapelValidationError
 from stapel_core.django.api.serializers import IronDataclassSerializer
 
 from .dto import (
@@ -200,7 +200,7 @@ class FileUploadSerializer(serializers.Serializer):
         )
 
         if f".{file_extension}" not in allowed_extensions:
-            raise IronValidationError(ERR_400_FILE_TYPE_NOT_ALLOWED)
+            raise StapelValidationError(ERR_400_FILE_TYPE_NOT_ALLOWED)
 
         return value
 
