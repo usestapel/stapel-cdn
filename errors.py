@@ -1,6 +1,6 @@
 """Custom error keys for the CDN service."""
 
-from stapel_core.django.errors import ErrorKeysView, register_service_errors
+from stapel_core.django.api.errors import ErrorKeysView, register_service_errors
 
 ERR_400_NO_FILE = 'error.400.no_file'
 ERR_400_INVALID_FORMAT = 'error.400.invalid_format'

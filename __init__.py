@@ -1,1 +1,1 @@
-"""CDN app for iron-cdn service."""
+"""CDN app for stapel-cdn service."""
