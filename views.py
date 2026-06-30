@@ -12,9 +12,9 @@ from rest_framework.parsers import FormParser, MultiPartParser
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.views import APIView
 from stapel_core.django.api.errors import (
-    IronErrorResponse,
-    IronErrorSerializer,
-    IronResponse,
+    StapelErrorResponse,
+    StapelErrorSerializer,
+    StapelResponse,
     error_500_internal,
 )
 from stapel_core.django.api.permissions import IsServiceRequest, IsStaffUser
@@ -127,9 +127,9 @@ class ImageUploadView(APIView):
                     "image": {"id": "...", "file_hash": "..."},
                 },
             ),
-            400: IronErrorSerializer,
-            401: IronErrorSerializer,
-            500: IronErrorSerializer,
+            400: StapelErrorSerializer,
+            401: StapelErrorSerializer,
+            500: StapelErrorSerializer,
         },
         examples=[
             OpenApiExample(
@@ -168,7 +168,7 @@ class ImageUploadView(APIView):
             file_hash=file_hash, type=ImageType.PRODUCT
         ).first()
         if existing_image:
-            return IronResponse(
+            return StapelResponse(
                 ImageUploadResponseSerializer(
                     ImageUploadResponse(
                         message="Image already exists", image=existing_image
@@ -182,7 +182,7 @@ class ImageUploadView(APIView):
 
         # Check if it's an image
         if file_extension not in settings.CDN_ALLOWED_IMAGE_EXTENSIONS:
-            return IronErrorResponse(400, ERR_400_INVALID_FORMAT)
+            return StapelErrorResponse(400, ERR_400_INVALID_FORMAT)
 
         # Create Image record
         # Dimensions are calculated in model.save() via pyvips
@@ -200,7 +200,7 @@ class ImageUploadView(APIView):
         except Exception:
             return error_500_internal()
 
-        return IronResponse(
+        return StapelResponse(
             ImageUploadResponseSerializer(
                 ImageUploadResponse(message="Image uploaded successfully", image=image)
             ),
@@ -252,9 +252,9 @@ class VideoUploadView(APIView):
         responses={
             201: VideoUploadResponseSerializer,
             200: VideoUploadResponseSerializer,
-            400: IronErrorSerializer,
-            401: IronErrorSerializer,
-            500: IronErrorSerializer,
+            400: StapelErrorSerializer,
+            401: StapelErrorSerializer,
+            500: StapelErrorSerializer,
         },
     )
     def post(self, request):
@@ -273,7 +273,7 @@ class VideoUploadView(APIView):
         # Check if file already exists
         existing_video = Video.objects.filter(file_hash=file_hash).first()
         if existing_video:
-            return IronResponse(
+            return StapelResponse(
                 VideoUploadResponseSerializer(
                     VideoUploadResponse(
                         message="Video already exists", video=existing_video
@@ -287,7 +287,7 @@ class VideoUploadView(APIView):
 
         # Check if it's a video
         if file_extension not in settings.CDN_ALLOWED_VIDEO_EXTENSIONS:
-            return IronErrorResponse(400, ERR_400_INVALID_FORMAT)
+            return StapelErrorResponse(400, ERR_400_INVALID_FORMAT)
 
         # Create Video record
         # Variants will be automatically generated via post_save signal (TODO: implement)
@@ -303,7 +303,7 @@ class VideoUploadView(APIView):
         except Exception:
             return error_500_internal()
 
-        return IronResponse(
+        return StapelResponse(
             VideoUploadResponseSerializer(
                 VideoUploadResponse(
                     message="Video uploaded successfully (variant generation not yet implemented)",
@@ -356,8 +356,8 @@ def calculate_file_hash(file_content: bytes) -> str:
         ],
         responses={
             200: FileExistsResponseSerializer,
-            400: IronErrorSerializer,
-            401: IronErrorSerializer,
+            400: StapelErrorSerializer,
+            401: StapelErrorSerializer,
         },
         examples=[
             OpenApiExample(
@@ -391,12 +391,12 @@ def calculate_file_hash(file_content: bytes) -> str:
         file_hash = request.query_params.get("file_hash")
 
         if not file_hash:
-            return IronErrorResponse(400, ERR_400_FILE_HASH_REQUIRED)
+            return StapelErrorResponse(400, ERR_400_FILE_HASH_REQUIRED)
 
         # Check if image exists
         image = Image.objects.filter(file_hash=file_hash).first()
         if image:
-            return IronResponse(
+            return StapelResponse(
                 FileExistsResponseSerializer(
                     FileExistsResponse(
                         exists=True, type="image", file=ImageSerializer(image).data
@@ -408,7 +408,7 @@ def calculate_file_hash(file_content: bytes) -> str:
         # Check if video exists
         video = Video.objects.filter(file_hash=file_hash).first()
         if video:
-            return IronResponse(
+            return StapelResponse(
                 FileExistsResponseSerializer(
                     FileExistsResponse(
                         exists=True, type="video", file=VideoSerializer(video).data
@@ -420,7 +420,7 @@ def calculate_file_hash(file_content: bytes) -> str:
         # Check if generic file exists
         file_obj = File.objects.filter(file_hash=file_hash).first()
         if file_obj:
-            return IronResponse(
+            return StapelResponse(
                 FileExistsResponseSerializer(
                     FileExistsResponse(
                         exists=True,
@@ -431,7 +431,7 @@ def calculate_file_hash(file_content: bytes) -> str:
                 status=status.HTTP_200_OK,
             )
 
-        return IronResponse(
+        return StapelResponse(
             FileExistsResponseSerializer(
                 FileExistsResponse(exists=False, type=None, file=None)
             ),
@@ -449,8 +449,8 @@ Useful when hash is very long or contains special characters.
         request=FileExistsSerializer,
         responses={
             200: FileExistsResponseSerializer,
-            400: IronErrorSerializer,
-            401: IronErrorSerializer,
+            400: StapelErrorSerializer,
+            401: StapelErrorSerializer,
         },
     )
     def post(self, request):
@@ -466,7 +466,7 @@ Useful when hash is very long or contains special characters.
         # Check if image exists
         image = Image.objects.filter(file_hash=file_hash).first()
         if image:
-            return IronResponse(
+            return StapelResponse(
                 FileExistsResponseSerializer(
                     FileExistsResponse(
                         exists=True, type="image", file=ImageSerializer(image).data
@@ -478,7 +478,7 @@ Useful when hash is very long or contains special characters.
         # Check if video exists
         video = Video.objects.filter(file_hash=file_hash).first()
         if video:
-            return IronResponse(
+            return StapelResponse(
                 FileExistsResponseSerializer(
                     FileExistsResponse(
                         exists=True, type="video", file=VideoSerializer(video).data
@@ -490,7 +490,7 @@ Useful when hash is very long or contains special characters.
         # Check if generic file exists
         file_obj = File.objects.filter(file_hash=file_hash).first()
         if file_obj:
-            return IronResponse(
+            return StapelResponse(
                 FileExistsResponseSerializer(
                     FileExistsResponse(
                         exists=True,
@@ -501,7 +501,7 @@ Useful when hash is very long or contains special characters.
                 status=status.HTTP_200_OK,
             )
 
-        return IronResponse(
+        return StapelResponse(
             FileExistsResponseSerializer(
                 FileExistsResponse(exists=False, type=None, file=None)
             ),
@@ -543,9 +543,9 @@ class AvatarUploadView(APIView):
         responses={
             201: ImageUploadResponseSerializer,
             200: ImageUploadResponseSerializer,
-            400: IronErrorSerializer,
-            401: IronErrorSerializer,
-            500: IronErrorSerializer,
+            400: StapelErrorSerializer,
+            401: StapelErrorSerializer,
+            500: StapelErrorSerializer,
         },
     )
     def post(self, request):
@@ -561,7 +561,7 @@ class AvatarUploadView(APIView):
             file_hash=file_hash, type=ImageType.AVATAR
         ).first()
         if existing_image:
-            return IronResponse(
+            return StapelResponse(
                 ImageUploadResponseSerializer(
                     ImageUploadResponse(
                         message="Avatar already exists", image=existing_image
@@ -572,7 +572,7 @@ class AvatarUploadView(APIView):
 
         file_extension = os.path.splitext(uploaded_file.name)[1].lower()
         if file_extension not in settings.CDN_ALLOWED_IMAGE_EXTENSIONS:
-            return IronErrorResponse(400, ERR_400_INVALID_FORMAT)
+            return StapelErrorResponse(400, ERR_400_INVALID_FORMAT)
 
         try:
             image = Image.objects.create(
@@ -587,7 +587,7 @@ class AvatarUploadView(APIView):
         except Exception:
             return error_500_internal()
 
-        return IronResponse(
+        return StapelResponse(
             ImageUploadResponseSerializer(
                 ImageUploadResponse(message="Avatar uploaded successfully", image=image)
             ),
@@ -629,9 +629,9 @@ class TypedImageUploadView(APIView):
         responses={
             201: ImageUploadResponseSerializer,
             200: ImageUploadResponseSerializer,
-            400: IronErrorSerializer,
-            401: IronErrorSerializer,
-            500: IronErrorSerializer,
+            400: StapelErrorSerializer,
+            401: StapelErrorSerializer,
+            500: StapelErrorSerializer,
         },
     )
     def post(self, request, image_type):
@@ -639,7 +639,7 @@ class TypedImageUploadView(APIView):
         # Validate image type
         valid_types = [choice[0] for choice in ImageType.choices]
         if image_type not in valid_types:
-            return IronErrorResponse(400, ERR_400_INVALID_IMAGE_TYPE)
+            return StapelErrorResponse(400, ERR_400_INVALID_IMAGE_TYPE)
 
         serializer = FileUploadSerializer(data=request.data)
         serializer.is_valid(raise_exception=True)
@@ -652,7 +652,7 @@ class TypedImageUploadView(APIView):
             file_hash=file_hash, type=image_type
         ).first()
         if existing_image:
-            return IronResponse(
+            return StapelResponse(
                 ImageUploadResponseSerializer(
                     ImageUploadResponse(
                         message="Image already exists", image=existing_image
@@ -663,7 +663,7 @@ class TypedImageUploadView(APIView):
 
         file_extension = os.path.splitext(uploaded_file.name)[1].lower()
         if file_extension not in settings.CDN_ALLOWED_IMAGE_EXTENSIONS:
-            return IronErrorResponse(400, ERR_400_INVALID_FORMAT)
+            return StapelErrorResponse(400, ERR_400_INVALID_FORMAT)
 
         try:
             image = Image.objects.create(
@@ -678,7 +678,7 @@ class TypedImageUploadView(APIView):
         except Exception:
             return error_500_internal()
 
-        return IronResponse(
+        return StapelResponse(
             ImageUploadResponseSerializer(
                 ImageUploadResponse(message="Image uploaded successfully", image=image)
             ),
@@ -705,10 +705,10 @@ class RandomImageView(APIView):
 """,
         responses={
             200: ImageSerializer,
-            400: IronErrorSerializer,
-            404: IronErrorSerializer,
-            401: IronErrorSerializer,
-            403: IronErrorSerializer,
+            400: StapelErrorSerializer,
+            404: StapelErrorSerializer,
+            401: StapelErrorSerializer,
+            403: StapelErrorSerializer,
         },
     )
     def get(self, request, image_type):
@@ -716,7 +716,7 @@ class RandomImageView(APIView):
         # Validate image type
         valid_types = [choice[0] for choice in ImageType.choices]
         if image_type not in valid_types:
-            return IronErrorResponse(400, ERR_400_INVALID_IMAGE_TYPE)
+            return StapelErrorResponse(400, ERR_400_INVALID_IMAGE_TYPE)
 
         # Get random image of this type
         image = (
@@ -725,9 +725,9 @@ class RandomImageView(APIView):
             .first()
         )
         if not image:
-            return IronErrorResponse(404, ERR_404_NO_IMAGES)
+            return StapelErrorResponse(404, ERR_404_NO_IMAGES)
 
-        return IronResponse(ImageSerializer(image), status=status.HTTP_200_OK)
+        return StapelResponse(ImageSerializer(image), status=status.HTTP_200_OK)
 
 
 MAX_GENERIC_FILE_SIZE = 50 * 1024 * 1024  # 50 MB
@@ -851,7 +851,7 @@ class RefSyncView(APIView):
         data = serializer.validated_data
 
         if not data.service or not data.entity_type or not data.entity_id:
-            return IronErrorResponse(400, ERR_400_MISSING_FIELDS)
+            return StapelErrorResponse(400, ERR_400_MISSING_FIELDS)
 
         from .services import apply_ref_sync
 
@@ -867,7 +867,7 @@ class RefSyncView(APIView):
             removed=result["removed"],
             errors=result["errors"],
         )
-        return IronResponse(RefSyncResponseSerializer(dto), status=status.HTTP_200_OK)
+        return StapelResponse(RefSyncResponseSerializer(dto), status=status.HTTP_200_OK)
 
 
 @extend_schema(tags=["Files"])
@@ -897,31 +897,31 @@ class GenericFileUploadView(APIView):
         responses={
             201: FileUploadResponseSerializer,
             200: FileUploadResponseSerializer,
-            400: IronErrorSerializer,
+            400: StapelErrorSerializer,
         },
     )
     def post(self, request):
         if "file" not in request.FILES:
-            return IronErrorResponse(400, ERR_400_NO_FILE)
+            return StapelErrorResponse(400, ERR_400_NO_FILE)
 
         uploaded_file = request.FILES["file"]
 
         if uploaded_file.size > MAX_GENERIC_FILE_SIZE:
-            return IronErrorResponse(400, ERR_400_INVALID_FORMAT)
+            return StapelErrorResponse(400, ERR_400_INVALID_FORMAT)
 
         file_extension = os.path.splitext(uploaded_file.name)[1].lower()
         if file_extension not in ALLOWED_FILE_EXTENSIONS:
-            return IronErrorResponse(400, ERR_400_INVALID_FORMAT)
+            return StapelErrorResponse(400, ERR_400_INVALID_FORMAT)
 
         content_type = (uploaded_file.content_type or "").lower()
         if content_type and content_type not in ALLOWED_MIME_TYPES:
-            return IronErrorResponse(400, ERR_400_INVALID_FORMAT)
+            return StapelErrorResponse(400, ERR_400_INVALID_FORMAT)
 
         file_hash = File.calculate_file_hash(uploaded_file)
 
         existing = File.objects.filter(file_hash=file_hash).first()
         if existing:
-            return IronResponse(
+            return StapelResponse(
                 FileUploadResponseSerializer(
                     FileUploadResponseDTO(message="File already exists", file=existing)
                 ),
@@ -941,7 +941,7 @@ class GenericFileUploadView(APIView):
         except Exception:
             return error_500_internal()
 
-        return IronResponse(
+        return StapelResponse(
             FileUploadResponseSerializer(
                 FileUploadResponseDTO(
                     message="File uploaded successfully", file=file_obj
