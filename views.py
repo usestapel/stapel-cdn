@@ -6,7 +6,6 @@ import logging
 import os
 
 from django.conf import settings
-from django.db import transaction
 from drf_spectacular.utils import OpenApiExample, OpenApiParameter, extend_schema
 from rest_framework import status
 from rest_framework.parsers import FormParser, MultiPartParser
