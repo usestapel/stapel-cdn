@@ -3,13 +3,19 @@ Service layer for stapel-cdn - handles file processing and variant generation.
 Uses pyvips for fast image processing with ladder downscaling optimization.
 """
 
+from __future__ import annotations
+
 import logging
 import os
 import time
 from datetime import datetime
 from typing import List
 
-import pyvips
+try:
+    import pyvips
+except ImportError:  # pragma: no cover
+    pyvips = None  # type: ignore[assignment]
+
 from django.conf import settings
 from django.db import transaction
 
