@@ -19,7 +19,7 @@ CDN_ERRORS = {
     ERR_400_INVALID_HASH: 'Invalid file hash',
     ERR_400_INVALID_IMAGE_TYPE: 'Invalid image type',
     ERR_404_NO_IMAGES: 'No processed images found',
-    ERR_400_FILE_HASH_REQUIRED: 'File hash is required',
+    ERR_400_FILE_HASH_REQUIRED: 'file_hash parameter is required',
     ERR_400_MISSING_FIELDS: 'Required fields are missing',
     ERR_400_FILE_TYPE_NOT_ALLOWED: 'File type not allowed',
 }

@@ -28,6 +28,12 @@ def pytest_configure(config):
             },
             # In-memory bus — no Kafka/Redis broker needed
             STAPEL_BUS_BACKEND="stapel_core.bus.backends.memory.MemoryBus",
+            REST_FRAMEWORK={
+                "DEFAULT_AUTHENTICATION_CLASSES": [
+                    "rest_framework.authentication.BasicAuthentication",
+                    "rest_framework.authentication.SessionAuthentication",
+                ],
+            },
             MEDIA_ROOT="/tmp/stapel_cdn_test_media",
             CDN_ALLOWED_IMAGE_EXTENSIONS=[
                 ".jpg", ".jpeg", ".png", ".gif", ".webp", ".bmp", ".heic", ".heif",
