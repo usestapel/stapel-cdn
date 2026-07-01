@@ -4,7 +4,7 @@ Serializers for stapel-cdn service.
 
 from rest_framework import serializers
 from stapel_core.django.api.errors import StapelValidationError
-from stapel_core.django.api.serializers import IronDataclassSerializer
+from stapel_core.django.api.serializers import StapelDataclassSerializer
 
 from .dto import (
     FileExistsResponse,
@@ -220,7 +220,7 @@ class FileExistsSerializer(serializers.Serializer):
 # =============================================================================
 
 
-class ImageUploadResponseSerializer(IronDataclassSerializer):
+class ImageUploadResponseSerializer(StapelDataclassSerializer):
     """Response for successful image upload."""
 
     image = ImageSerializer(help_text="Uploaded image details with variant URLs")
@@ -229,7 +229,7 @@ class ImageUploadResponseSerializer(IronDataclassSerializer):
         dataclass = ImageUploadResponse
 
 
-class VideoUploadResponseSerializer(IronDataclassSerializer):
+class VideoUploadResponseSerializer(StapelDataclassSerializer):
     """Response for successful video upload."""
 
     video = VideoSerializer(help_text="Uploaded video details with variant URLs")
@@ -238,7 +238,7 @@ class VideoUploadResponseSerializer(IronDataclassSerializer):
         dataclass = VideoUploadResponse
 
 
-class FileExistsResponseSerializer(IronDataclassSerializer):
+class FileExistsResponseSerializer(StapelDataclassSerializer):
     """Response for file existence check."""
 
     file = serializers.JSONField(
@@ -293,21 +293,21 @@ class FileModelSerializer(serializers.ModelSerializer):
         return obj.original.url if obj.original else None
 
 
-class RefSyncRequestSerializer(IronDataclassSerializer):
+class RefSyncRequestSerializer(StapelDataclassSerializer):
     """Serializer for ref sync request."""
 
     class Meta:
         dataclass = RefSyncRequest
 
 
-class RefSyncResponseSerializer(IronDataclassSerializer):
+class RefSyncResponseSerializer(StapelDataclassSerializer):
     """Serializer for ref sync response."""
 
     class Meta:
         dataclass = RefSyncResponse
 
 
-class FileUploadResponseSerializer(IronDataclassSerializer):
+class FileUploadResponseSerializer(StapelDataclassSerializer):
     """Response for successful file upload."""
 
     file = FileModelSerializer(help_text="Uploaded file details")
