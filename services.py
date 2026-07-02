@@ -18,6 +18,9 @@ except ImportError:  # pragma: no cover
 
 from django.conf import settings
 from django.db import transaction
+from stapel_core.signals import media_processed
+
+from .conf import cdn_settings
 
 logger = logging.getLogger(__name__)
 
@@ -27,6 +30,13 @@ _IMAGE_PREFIXES = {"product", "avatar"}
 class ImageProcessingService:
     """Service for processing and resizing images with watermarks using pyvips."""
 
+    # Heights up to this bound are thumbnails (high priority, no watermark),
+    # larger ones are previews.
+    THUMBNAIL_MAX_HEIGHT = 120
+
+    # Default splits of DEFAULT_VARIANT_SIZES, kept as class attributes for
+    # backwards compatibility. The pipeline itself reads the (overridable)
+    # conf-driven lists via get_thumbnail_sizes() / get_preview_sizes().
     # Thumbnail sizes (no watermark, high priority) - sorted large to small for ladder
     THUMBNAIL_SIZES = [
         ("120", 120),
@@ -47,6 +57,23 @@ class ImageProcessingService:
 
     WEBP_QUALITY = 85
     JPEG_QUALITY = 85
+
+    @classmethod
+    def get_variant_sizes(cls) -> List[int]:
+        """Configured variant heights (``STAPEL_CDN["VARIANT_SIZES"]``)."""
+        return [int(size) for size in cdn_settings.VARIANT_SIZES]
+
+    @classmethod
+    def get_thumbnail_sizes(cls) -> List[tuple]:
+        """(name, height) thumbnail pairs from conf, sorted large to small."""
+        sizes = [s for s in cls.get_variant_sizes() if s <= cls.THUMBNAIL_MAX_HEIGHT]
+        return [(str(s), s) for s in sorted(sizes, reverse=True)]
+
+    @classmethod
+    def get_preview_sizes(cls) -> List[tuple]:
+        """(name, height) preview pairs from conf, sorted large to small."""
+        sizes = [s for s in cls.get_variant_sizes() if s > cls.THUMBNAIL_MAX_HEIGHT]
+        return [(str(s), s) for s in sorted(sizes, reverse=True)]
 
     @classmethod
     def _resize(cls, img: pyvips.Image, target_height: int) -> pyvips.Image:
@@ -120,6 +147,12 @@ class ImageProcessingService:
         )
         os.makedirs(output_dir, exist_ok=True)
 
+        thumbnail_sizes = cls.get_thumbnail_sizes()
+        if not thumbnail_sizes:
+            log_lines.append("  No thumbnail sizes configured, skipping")
+            return "\n".join(log_lines)
+        max_height = thumbnail_sizes[0][1]
+
         total_start = time.perf_counter()
 
         # Try embedded thumbnail first (HEIF ~512px, JPEG shrink=8)
@@ -127,21 +160,23 @@ class ImageProcessingService:
         thumb = cls._extract_embedded_thumbnail(file_path)
         embed_time = int((time.perf_counter() - start) * 1000)
 
-        if thumb and thumb.height >= 120:
+        if thumb and thumb.height >= max_height:
             log_lines.append(f"  Embedded thumbnail: {thumb.height}px ({embed_time}ms)")
-            current = cls._resize(thumb, 120).copy_memory()
+            current = cls._resize(thumb, max_height).copy_memory()
         else:
             log_lines.append("  No embedded thumbnail, using shrink-on-load")
             start = time.perf_counter()
-            current = pyvips.Image.thumbnail(file_path, 240, height=120, size="down")
+            current = pyvips.Image.thumbnail(
+                file_path, max_height * 2, height=max_height, size="down"
+            )
             current = current.copy_memory()
             log_lines.append(
-                f"  Load 120px: {int((time.perf_counter() - start) * 1000)}ms"
+                f"  Load {max_height}px: {int((time.perf_counter() - start) * 1000)}ms"
             )
 
-        # Ladder: 120 -> 64 -> 32 -> 16
+        # Ladder: e.g. 120 -> 64 -> 32 -> 16
         sizes_generated = []
-        for name, height in cls.THUMBNAIL_SIZES:
+        for name, height in thumbnail_sizes:
             start = time.perf_counter()
             current = cls._resize(current, height)
             current.webpsave(
@@ -173,16 +208,22 @@ class ImageProcessingService:
         )
         os.makedirs(output_dir, exist_ok=True)
 
+        preview_sizes = cls.get_preview_sizes()
+        if not preview_sizes:
+            log_lines.append("  No preview sizes configured, skipping")
+            return "\n".join(log_lines)
+        max_height = preview_sizes[0][1]
+
         total_start = time.perf_counter()
 
-        # Load image - if > 1080p shrink, otherwise load as-is
+        # Load image - if > max preview height shrink, otherwise load as-is
         start = time.perf_counter()
         img_info = pyvips.Image.new_from_file(file_path, access="sequential")
         orig_height = img_info.height
 
-        if orig_height > 1080:
-            # Shrink to 1080p
-            current = pyvips.Image.thumbnail(file_path, 2160, height=1080)
+        if orig_height > max_height:
+            # Shrink to the largest preview size
+            current = pyvips.Image.thumbnail(file_path, max_height * 2, height=max_height)
             log_lines.append(
                 f"  Original: {img_info.width}x{orig_height}, shrunk to {current.width}x{current.height}"
             )
@@ -198,7 +239,7 @@ class ImageProcessingService:
         # Generate all preview sizes using ladder downscaling
         # For sizes >= loaded_height, save without resize (same quality, just different filename)
         sizes_generated = []
-        for name, target_height in cls.PREVIEW_SIZES:
+        for name, target_height in preview_sizes:
             start = time.perf_counter()
 
             if current.height > target_height:
@@ -264,6 +305,10 @@ class ImageProcessingService:
         image_model.is_processed = True
         image_model.processing_log = combined_log
         image_model.save(update_fields=["is_processed", "processing_log"])
+
+        # Business milestone: variants generated — in-process extension point
+        # for the host project (cache warm-up, denormalization, ...).
+        media_processed.send(sender=type(image_model), instance=image_model)
 
         return combined_log
 

@@ -46,7 +46,7 @@ class Migration(migrations.Migration):
                 ('file_hash', models.CharField(db_index=True, help_text='SHA-256 hash of the original file', max_length=64)),
                 ('original_filename', models.CharField(max_length=255)),
                 ('file_extension', models.CharField(max_length=10)),
-                ('type', models.CharField(choices=[('product', 'Product'), ('avatar', 'Avatar')], default='product', help_text='Type of image: product or avatar', max_length=10)),
+                ('type', models.CharField(choices=stapel_cdn.models.get_image_type_choices, default='product', help_text='Type of image: product or avatar', max_length=10)),
                 ('original', models.FileField(help_text='Original uploaded image', max_length=500, storage=stapel_cdn.storage.OverwriteStorage(), upload_to=stapel_cdn.models.image_upload_path)),
                 ('original_width', models.IntegerField(default=0)),
                 ('original_height', models.IntegerField(default=0)),

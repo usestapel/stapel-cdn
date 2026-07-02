@@ -4,13 +4,14 @@ Custom validators for stapel-cdn service.
 
 import os
 
-from django.conf import settings
 from django.core.exceptions import ValidationError
 from PIL import Image as PILImage
 
+from .conf import cdn_settings
+
 # Decompression-bomb cap: a tiny compressed file must not expand into
 # gigabytes of pixels. Pillow raises DecompressionBombError above 2x this.
-PILImage.MAX_IMAGE_PIXELS = getattr(settings, "CDN_MAX_IMAGE_PIXELS", 50_000_000)
+PILImage.MAX_IMAGE_PIXELS = cdn_settings.MAX_IMAGE_PIXELS
 
 
 def validate_image_file(file):
@@ -26,11 +27,15 @@ def validate_image_file(file):
     except ImportError:
         pass
 
+    # Refresh the decompression-bomb cap (conf may have changed since import)
+    PILImage.MAX_IMAGE_PIXELS = cdn_settings.MAX_IMAGE_PIXELS
+
     # Check file extension
+    allowed_extensions = cdn_settings.ALLOWED_IMAGE_EXTENSIONS
     file_extension = os.path.splitext(file.name)[1].lower()
-    if file_extension not in settings.CDN_ALLOWED_IMAGE_EXTENSIONS:
+    if file_extension not in allowed_extensions:
         raise ValidationError(
-            f"Invalid file extension. Allowed: {', '.join(settings.CDN_ALLOWED_IMAGE_EXTENSIONS)}"
+            f"Invalid file extension. Allowed: {', '.join(allowed_extensions)}"
         )
 
     # Try to open with Pillow to verify it's a valid image.

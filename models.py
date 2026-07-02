@@ -6,11 +6,12 @@ Uses pyvips for all image processing (supports JPEG, PNG, HEIC, etc.)
 import hashlib
 import os
 
+from django.conf import settings
 from django.db import models
 from django.db.models.signals import post_save
 from django.dispatch import receiver
-from stapel_core.django.users.models import User
 
+from .conf import DEFAULT_VARIANT_SIZES, cdn_settings
 from .storage import cdn_storage
 
 
@@ -30,10 +31,31 @@ def file_upload_path(instance, filename):
 
 
 class ImageType(models.TextChoices):
-    """Types of images (user-uploaded content with watermarks)."""
+    """Types of images (user-uploaded content with watermarks).
+
+    Kept for backwards compatibility; the authoritative, overridable list
+    lives in ``stapel_cdn.conf.cdn_settings.IMAGE_TYPES``.
+    """
 
     PRODUCT = "product", "Product"
     AVATAR = "avatar", "Avatar"
+
+
+def get_image_type_choices():
+    """Image type choices from conf (``STAPEL_CDN["IMAGE_TYPES"]``).
+
+    Accepts either (value, label) pairs or plain strings.
+    Referenced as a callable by the ``Image.type`` field so overriding
+    IMAGE_TYPES never produces a model/migration change.
+    """
+    choices = []
+    for entry in cdn_settings.IMAGE_TYPES:
+        if isinstance(entry, str):
+            choices.append((entry, entry.capitalize()))
+        else:
+            value, label = entry
+            choices.append((value, label))
+    return choices
 
 
 class Image(models.Model):
@@ -47,7 +69,7 @@ class Image(models.Model):
     file_extension = models.CharField(max_length=10)
     type = models.CharField(
         max_length=10,
-        choices=ImageType,
+        choices=get_image_type_choices,
         default=ImageType.PRODUCT,
         help_text="Type of image: product or avatar",
     )
@@ -80,7 +102,10 @@ class Image(models.Model):
 
     # User tracking
     uploaded_by = models.ForeignKey(
-        User, on_delete=models.SET_NULL, null=True, related_name="uploaded_images"
+        settings.AUTH_USER_MODEL,
+        on_delete=models.SET_NULL,
+        null=True,
+        related_name="uploaded_images",
     )
 
     # Timestamps
@@ -106,54 +131,23 @@ class Image(models.Model):
     def __str__(self):
         return f"Image: {self.file_hash[:8]}... ({self.original_filename})"
 
-    def get_variant_url(self, variant_name):
-        """Get URL for a specific variant. All WebP."""
-        from django.conf import settings
-
-        return f"{settings.MEDIA_URL}{self.type}/{self.file_hash}/{variant_name}.webp"
+    def get_variant_url(self, size):
+        """Get URL for a specific variant size (int or str). All WebP."""
+        return f"{settings.MEDIA_URL}{self.type}/{self.file_hash}/{size}.webp"
 
     @property
-    def variant_16_url(self):
-        return self.get_variant_url("16")
+    def variant_urls(self):
+        """Mapping ``size -> URL`` for all configured VARIANT_SIZES.
 
-    @property
-    def variant_32_url(self):
-        return self.get_variant_url("32")
-
-    @property
-    def variant_64_url(self):
-        return self.get_variant_url("64")
-
-    @property
-    def variant_120_url(self):
-        return self.get_variant_url("120")
-
-    @property
-    def variant_160_url(self):
-        return self.get_variant_url("160")
-
-    @property
-    def variant_240_url(self):
-        return self.get_variant_url("240")
-
-    @property
-    def variant_480_url(self):
-        return self.get_variant_url("480")
-
-    @property
-    def variant_720_url(self):
-        return self.get_variant_url("720")
+        Honors ``STAPEL_CDN["VARIANT_SIZES"]`` overrides; the named
+        ``variant_<size>_url`` properties below cover the default sizes.
+        """
+        return {int(size): self.get_variant_url(size) for size in cdn_settings.VARIANT_SIZES}
 
     @property
     def variant_720_jpg_url(self):
         """Get URL for 720p JPEG variant (legacy browser compatibility)."""
-        from django.conf import settings
-
         return f"{settings.MEDIA_URL}{self.type}/{self.file_hash}/720.jpg"
-
-    @property
-    def variant_1080_url(self):
-        return self.get_variant_url("1080")
 
     @staticmethod
     def calculate_file_hash(file):
@@ -201,6 +195,24 @@ class Image(models.Model):
                         self.original_height = 1
 
         super().save(*args, **kwargs)
+
+
+def _variant_url_property(size):
+    """Build a ``variant_<size>_url`` property delegating to get_variant_url."""
+
+    def getter(self):
+        return self.get_variant_url(size)
+
+    getter.__name__ = f"variant_{size}_url"
+    getter.__doc__ = f"URL of the {size}px WebP variant."
+    return property(getter)
+
+
+# Keep the historical `variant_16_url` ... `variant_1080_url` property names
+# working for the default sizes (generated from conf defaults).
+for _size in DEFAULT_VARIANT_SIZES:
+    setattr(Image, f"variant_{_size}_url", _variant_url_property(_size))
+del _size
 
 
 class Video(models.Model):
@@ -319,7 +331,10 @@ class Video(models.Model):
 
     # User tracking
     uploaded_by = models.ForeignKey(
-        User, on_delete=models.SET_NULL, null=True, related_name="uploaded_videos"
+        settings.AUTH_USER_MODEL,
+        on_delete=models.SET_NULL,
+        null=True,
+        related_name="uploaded_videos",
     )
 
     # Timestamps
@@ -407,7 +422,10 @@ class File(models.Model):
 
     # User tracking
     uploaded_by = models.ForeignKey(
-        User, on_delete=models.SET_NULL, null=True, related_name="uploaded_files"
+        settings.AUTH_USER_MODEL,
+        on_delete=models.SET_NULL,
+        null=True,
+        related_name="uploaded_files",
     )
 
     # Timestamps

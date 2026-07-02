@@ -5,10 +5,10 @@ Forms for stapel-cdn service.
 import os
 
 from django import forms
-from django.conf import settings
 from django.core.exceptions import ValidationError
 from PIL import Image as PILImage
 
+from .conf import cdn_settings
 from .models import Image
 
 # Import pillow_heif for direct usage
@@ -47,10 +47,11 @@ class ImageAdminForm(forms.ModelForm):
             return original
 
         # Check file extension first
+        allowed_extensions = cdn_settings.ALLOWED_IMAGE_EXTENSIONS
         file_extension = os.path.splitext(original.name)[1].lower()
-        if file_extension not in settings.CDN_ALLOWED_IMAGE_EXTENSIONS:
+        if file_extension not in allowed_extensions:
             raise ValidationError(
-                f"Invalid file extension '{file_extension}'. Allowed: {', '.join(settings.CDN_ALLOWED_IMAGE_EXTENSIONS)}"
+                f"Invalid file extension '{file_extension}'. Allowed: {', '.join(allowed_extensions)}"
             )
 
         # Handle HEIC/HEIF files - use a lenient approach

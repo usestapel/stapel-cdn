@@ -38,10 +38,11 @@ from .dto import (
     RefSyncResponse,
     VideoUploadResponse,
 )
+from .conf import cdn_settings
 from .dto import (
     FileUploadResponse as FileUploadResponseDTO,
 )
-from .models import File, Image, ImageType, Video
+from .models import File, Image, ImageType, Video, get_image_type_choices
 from .serializers import (
     FileExistsResponseSerializer,
     FileExistsSerializer,
@@ -58,8 +59,6 @@ from .serializers import (
 
 logger = logging.getLogger(__name__)
 
-MAX_IMAGE_SIZE = getattr(settings, "CDN_MAX_IMAGE_SIZE", 20 * 1024 * 1024)  # 20 MB
-
 
 def _validate_image_upload(uploaded_file):
     """Run cheap-to-expensive upload checks BEFORE hashing or storing.
@@ -70,11 +69,11 @@ def _validate_image_upload(uploaded_file):
 
     Returns an error response, or None when the file is acceptable.
     """
-    if uploaded_file.size and uploaded_file.size > MAX_IMAGE_SIZE:
+    if uploaded_file.size and uploaded_file.size > cdn_settings.MAX_IMAGE_SIZE:
         return StapelErrorResponse(413, ERR_413_FILE_TOO_LARGE)
 
     file_extension = os.path.splitext(uploaded_file.name)[1].lower()
-    if file_extension not in settings.CDN_ALLOWED_IMAGE_EXTENSIONS:
+    if file_extension not in cdn_settings.ALLOWED_IMAGE_EXTENSIONS:
         return StapelErrorResponse(400, ERR_400_INVALID_FORMAT)
 
     try:
@@ -668,7 +667,7 @@ class TypedImageUploadView(APIView):
     def post(self, request, image_type):
         """Upload an image file with the specified type."""
         # Validate image type
-        valid_types = [choice[0] for choice in ImageType.choices]
+        valid_types = [choice[0] for choice in get_image_type_choices()]
         if image_type not in valid_types:
             return StapelErrorResponse(400, ERR_400_INVALID_IMAGE_TYPE)
 
@@ -748,7 +747,7 @@ class RandomImageView(APIView):
     def get(self, request, image_type):
         """Get a random image of the given type."""
         # Validate image type
-        valid_types = [choice[0] for choice in ImageType.choices]
+        valid_types = [choice[0] for choice in get_image_type_choices()]
         if image_type not in valid_types:
             return StapelErrorResponse(400, ERR_400_INVALID_IMAGE_TYPE)
 

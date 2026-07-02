@@ -23,3 +23,8 @@ class CdnConfig(AppConfig):
         # Action subscriptions (in-process in a monolith, bus consumer in
         # microservices — same code, transport chosen by STAPEL_COMM).
         from . import actions  # noqa: F401
+
+        # comm Function providers (cdn.media_exists, cdn.refs_sync).
+        # Idempotent even if ready() runs more than once: the module import
+        # is cached and re-registering the same handler object is a no-op.
+        from . import functions  # noqa: F401
