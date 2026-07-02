@@ -19,6 +19,8 @@ from stapel_core.django.api.errors import (
 )
 from stapel_core.django.api.permissions import IsServiceRequest, IsStaffUser
 
+from django.core.exceptions import ValidationError
+
 from stapel_cdn.errors import (
     ERR_400_FILE_HASH_REQUIRED,
     ERR_400_INVALID_FORMAT,
@@ -26,7 +28,9 @@ from stapel_cdn.errors import (
     ERR_400_MISSING_FIELDS,
     ERR_400_NO_FILE,
     ERR_404_NO_IMAGES,
+    ERR_413_FILE_TOO_LARGE,
 )
+from stapel_cdn.validators import validate_image_file
 
 from .dto import (
     FileExistsResponse,
@@ -53,6 +57,31 @@ from .serializers import (
 )
 
 logger = logging.getLogger(__name__)
+
+MAX_IMAGE_SIZE = getattr(settings, "CDN_MAX_IMAGE_SIZE", 20 * 1024 * 1024)  # 20 MB
+
+
+def _validate_image_upload(uploaded_file):
+    """Run cheap-to-expensive upload checks BEFORE hashing or storing.
+
+    Order matters: size cap first (hashing an unbounded body is a DoS),
+    then extension allowlist, then content verification (Pillow decode) —
+    a .jpg containing HTML/scripts must never reach storage.
+
+    Returns an error response, or None when the file is acceptable.
+    """
+    if uploaded_file.size and uploaded_file.size > MAX_IMAGE_SIZE:
+        return StapelErrorResponse(413, ERR_413_FILE_TOO_LARGE)
+
+    file_extension = os.path.splitext(uploaded_file.name)[1].lower()
+    if file_extension not in settings.CDN_ALLOWED_IMAGE_EXTENSIONS:
+        return StapelErrorResponse(400, ERR_400_INVALID_FORMAT)
+
+    try:
+        validate_image_file(uploaded_file)
+    except ValidationError:
+        return StapelErrorResponse(400, ERR_400_INVALID_FORMAT)
+    return None
 
 
 @extend_schema(tags=["Images"])
@@ -160,6 +189,10 @@ class ImageUploadView(APIView):
 
         uploaded_file = serializer.validated_data["file"]
 
+        error = _validate_image_upload(uploaded_file)
+        if error:
+            return error
+
         # Calculate file hash
         file_hash = Image.calculate_file_hash(uploaded_file)
 
@@ -177,12 +210,7 @@ class ImageUploadView(APIView):
                 status=status.HTTP_200_OK,
             )
 
-        # Get file extension
         file_extension = os.path.splitext(uploaded_file.name)[1].lower()
-
-        # Check if it's an image
-        if file_extension not in settings.CDN_ALLOWED_IMAGE_EXTENSIONS:
-            return StapelErrorResponse(400, ERR_400_INVALID_FORMAT)
 
         # Create Image record
         # Dimensions are calculated in model.save() via pyvips
@@ -394,7 +422,7 @@ def calculate_file_hash(file_content: bytes) -> str:
             return StapelErrorResponse(400, ERR_400_FILE_HASH_REQUIRED)
 
         # Check if image exists
-        image = Image.objects.filter(file_hash=file_hash).first()
+        image = Image.objects.filter(file_hash=file_hash, uploaded_by=request.user).first()
         if image:
             return StapelResponse(
                 FileExistsResponseSerializer(
@@ -406,7 +434,7 @@ def calculate_file_hash(file_content: bytes) -> str:
             )
 
         # Check if video exists
-        video = Video.objects.filter(file_hash=file_hash).first()
+        video = Video.objects.filter(file_hash=file_hash, uploaded_by=request.user).first()
         if video:
             return StapelResponse(
                 FileExistsResponseSerializer(
@@ -418,7 +446,7 @@ def calculate_file_hash(file_content: bytes) -> str:
             )
 
         # Check if generic file exists
-        file_obj = File.objects.filter(file_hash=file_hash).first()
+        file_obj = File.objects.filter(file_hash=file_hash, uploaded_by=request.user).first()
         if file_obj:
             return StapelResponse(
                 FileExistsResponseSerializer(
@@ -464,7 +492,7 @@ Useful when hash is very long or contains special characters.
         file_hash = serializer.validated_data["file_hash"]
 
         # Check if image exists
-        image = Image.objects.filter(file_hash=file_hash).first()
+        image = Image.objects.filter(file_hash=file_hash, uploaded_by=request.user).first()
         if image:
             return StapelResponse(
                 FileExistsResponseSerializer(
@@ -476,7 +504,7 @@ Useful when hash is very long or contains special characters.
             )
 
         # Check if video exists
-        video = Video.objects.filter(file_hash=file_hash).first()
+        video = Video.objects.filter(file_hash=file_hash, uploaded_by=request.user).first()
         if video:
             return StapelResponse(
                 FileExistsResponseSerializer(
@@ -488,7 +516,7 @@ Useful when hash is very long or contains special characters.
             )
 
         # Check if generic file exists
-        file_obj = File.objects.filter(file_hash=file_hash).first()
+        file_obj = File.objects.filter(file_hash=file_hash, uploaded_by=request.user).first()
         if file_obj:
             return StapelResponse(
                 FileExistsResponseSerializer(
@@ -554,6 +582,11 @@ class AvatarUploadView(APIView):
         serializer.is_valid(raise_exception=True)
 
         uploaded_file = serializer.validated_data["file"]
+
+        error = _validate_image_upload(uploaded_file)
+        if error:
+            return error
+
         file_hash = Image.calculate_file_hash(uploaded_file)
 
         # Check for existing avatar with same hash
@@ -571,8 +604,6 @@ class AvatarUploadView(APIView):
             )
 
         file_extension = os.path.splitext(uploaded_file.name)[1].lower()
-        if file_extension not in settings.CDN_ALLOWED_IMAGE_EXTENSIONS:
-            return StapelErrorResponse(400, ERR_400_INVALID_FORMAT)
 
         try:
             image = Image.objects.create(
@@ -645,6 +676,11 @@ class TypedImageUploadView(APIView):
         serializer.is_valid(raise_exception=True)
 
         uploaded_file = serializer.validated_data["file"]
+
+        error = _validate_image_upload(uploaded_file)
+        if error:
+            return error
+
         file_hash = Image.calculate_file_hash(uploaded_file)
 
         # Check for existing image with same hash AND type
@@ -662,8 +698,6 @@ class TypedImageUploadView(APIView):
             )
 
         file_extension = os.path.splitext(uploaded_file.name)[1].lower()
-        if file_extension not in settings.CDN_ALLOWED_IMAGE_EXTENSIONS:
-            return StapelErrorResponse(400, ERR_400_INVALID_FORMAT)
 
         try:
             image = Image.objects.create(

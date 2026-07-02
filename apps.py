@@ -19,3 +19,7 @@ class CdnConfig(AppConfig):
         from stapel_core.gdpr import gdpr_registry
         from .gdpr import CDNGDPRProvider
         gdpr_registry.register(CDNGDPRProvider())
+
+        # Action subscriptions (in-process in a monolith, bus consumer in
+        # microservices — same code, transport chosen by STAPEL_COMM).
+        from . import actions  # noqa: F401

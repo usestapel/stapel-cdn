@@ -8,6 +8,10 @@ from django.conf import settings
 from django.core.exceptions import ValidationError
 from PIL import Image as PILImage
 
+# Decompression-bomb cap: a tiny compressed file must not expand into
+# gigabytes of pixels. Pillow raises DecompressionBombError above 2x this.
+PILImage.MAX_IMAGE_PIXELS = getattr(settings, "CDN_MAX_IMAGE_PIXELS", 50_000_000)
+
 
 def validate_image_file(file):
     """
@@ -29,23 +33,18 @@ def validate_image_file(file):
             f"Invalid file extension. Allowed: {', '.join(settings.CDN_ALLOWED_IMAGE_EXTENSIONS)}"
         )
 
-    # Try to open with Pillow to verify it's a valid image
+    # Try to open with Pillow to verify it's a valid image.
+    # Never close the file: callers keep using it (hashing, storage) —
+    # only rewind the pointer.
     try:
-        # Open the file - handle both UploadedFile and FieldFile
-        if hasattr(file, "open"):
-            # FieldFile object - need to open it first
-            file.open("rb")
-            img = PILImage.open(file)
-            _ = img.size  # Access size to ensure it's valid
-            file.close()
-        else:
-            # UploadedFile object
-            img = PILImage.open(file)
-            _ = img.size  # Access size to ensure it's valid
-            # Reset file pointer if possible
-            if hasattr(file, "seek"):
-                file.seek(0)
+        if hasattr(file, "seek"):
+            file.seek(0)
+        img = PILImage.open(file)
+        _ = img.size  # Access size to ensure it's valid
     except Exception as e:
         raise ValidationError(f"Invalid image file: {str(e)}")
+    finally:
+        if hasattr(file, "seek") and not getattr(file, "closed", False):
+            file.seek(0)
 
     return file

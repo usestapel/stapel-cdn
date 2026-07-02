@@ -12,7 +12,7 @@ requires-python = ">=3.11"
 keywords = ["django", "stapel", "cdn", "media", "storage"]
 classifiers = [
     "Framework :: Django",
-    "Framework :: Django :: 4.2",
+    "Framework :: Django :: 5.2",
     "Programming Language :: Python :: 3.11",
     "Programming Language :: Python :: 3.12",
 ]
@@ -30,7 +30,7 @@ package-dir = {"stapel_cdn" = "."}
 packages = ["stapel_cdn", "stapel_cdn.management", "stapel_cdn.management.commands", "stapel_cdn.migrations", "stapel_cdn.tests"]
 
 [tool.setuptools.package-data]
-stapel_cdn = ["migrations/*.py", "migrations/**/*.py"]
+stapel_cdn = ["migrations/*.py", "schemas/**/*.json", "migrations/**/*.py"]
 
 [tool.pytest.ini_options]
 django_find_project = false

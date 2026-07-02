@@ -455,7 +455,11 @@ class File(models.Model):
 def generate_image_variants_on_save(sender, instance, created, **kwargs):
     """
     Trigger image variant generation when an Image is created.
-    Try async first, fallback to sync if Celery is not available.
+
+    Async only: falling back to synchronous processing would run the full
+    pyvips pipeline inside the upload request whenever the broker is down —
+    a trivial CPU DoS. Unprocessed images are picked up later by the
+    ``retry_unprocessed`` management command.
     """
     if created and instance.original and not instance.is_processed:
         try:
@@ -466,16 +470,11 @@ def generate_image_variants_on_save(sender, instance, created, **kwargs):
             import logging
 
             logger = logging.getLogger(__name__)
-            logger.warning(
-                f"Celery not available, processing image {instance.id} synchronously: {e}"
+            logger.error(
+                "Could not enqueue processing for image %s (broker down?): %s. "
+                "Run `manage.py retry_unprocessed` to pick it up.",
+                instance.id, e,
             )
-
-            from .services import ImageProcessingService
-
-            try:
-                ImageProcessingService.process_image(instance)
-            except Exception as proc_error:
-                logger.error(f"Failed to process image {instance.id}: {proc_error}")
 
 
 @receiver(post_save, sender=Video)
