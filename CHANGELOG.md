@@ -4,7 +4,7 @@ All notable changes to this project will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
-## [Unreleased] - 2026-07-02
+## [0.2.0] - 2026-07-02
 
 ### Added
 - `stapel_cdn.conf.cdn_settings` — `AppSettings("STAPEL_CDN")` namespace with
