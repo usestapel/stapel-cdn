@@ -7,6 +7,8 @@ def pytest_configure(config):
                 "django.contrib.contenttypes",
                 "django.contrib.auth",
                 "django.contrib.sessions",
+                "django.contrib.messages",
+                "django.contrib.admin",
                 "stapel_core.django.users",
                 "rest_framework",
                 "stapel_cdn",

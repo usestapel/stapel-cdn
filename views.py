@@ -60,6 +60,27 @@ from .serializers import (
 logger = logging.getLogger(__name__)
 
 
+class SerializerSeamMixin:
+    """Overridable request/response serializer seams for CDN APIViews.
+
+    Subclasses (or host projects) can swap ``request_serializer_class`` /
+    ``response_serializer_class`` — or override the getters for per-request
+    logic — without copying view bodies. ``None`` means the direction has no
+    serializer (e.g. raw ``request.FILES`` access).
+    """
+
+    request_serializer_class = None
+    response_serializer_class = None
+
+    def get_request_serializer_class(self):
+        """Serializer class used to validate incoming request data."""
+        return self.request_serializer_class
+
+    def get_response_serializer_class(self):
+        """Serializer class used to render the response envelope."""
+        return self.response_serializer_class
+
+
 def _validate_image_upload(uploaded_file):
     """Run cheap-to-expensive upload checks BEFORE hashing or storing.
 
@@ -84,11 +105,13 @@ def _validate_image_upload(uploaded_file):
 
 
 @extend_schema(tags=["Images"])
-class ImageUploadView(APIView):
+class ImageUploadView(SerializerSeamMixin, APIView):
     """API endpoint for uploading images."""
 
     permission_classes = [IsAuthenticated]
     parser_classes = [MultiPartParser, FormParser]
+    request_serializer_class = FileUploadSerializer
+    response_serializer_class = ImageUploadResponseSerializer
 
     @extend_schema(
         operation_id="upload_image",
@@ -183,7 +206,7 @@ class ImageUploadView(APIView):
         Upload an image file.
         Variants are automatically generated via Django signals.
         """
-        serializer = FileUploadSerializer(data=request.data)
+        serializer = self.get_request_serializer_class()(data=request.data)
         serializer.is_valid(raise_exception=True)
 
         uploaded_file = serializer.validated_data["file"]
@@ -195,13 +218,15 @@ class ImageUploadView(APIView):
         # Calculate file hash
         file_hash = Image.calculate_file_hash(uploaded_file)
 
+        response_serializer_class = self.get_response_serializer_class()
+
         # Check if file already exists (default type is 'product')
         existing_image = Image.objects.filter(
             file_hash=file_hash, type=ImageType.PRODUCT
         ).first()
         if existing_image:
             return StapelResponse(
-                ImageUploadResponseSerializer(
+                response_serializer_class(
                     ImageUploadResponse(
                         message="Image already exists", image=existing_image
                     )
@@ -228,7 +253,7 @@ class ImageUploadView(APIView):
             return error_500_internal()
 
         return StapelResponse(
-            ImageUploadResponseSerializer(
+            response_serializer_class(
                 ImageUploadResponse(message="Image uploaded successfully", image=image)
             ),
             status=status.HTTP_201_CREATED,
@@ -236,11 +261,13 @@ class ImageUploadView(APIView):
 
 
 @extend_schema(tags=["Videos"])
-class VideoUploadView(APIView):
+class VideoUploadView(SerializerSeamMixin, APIView):
     """API endpoint for uploading videos."""
 
     permission_classes = [IsAuthenticated]
     parser_classes = [MultiPartParser, FormParser]
+    request_serializer_class = FileUploadSerializer
+    response_serializer_class = VideoUploadResponseSerializer
 
     @extend_schema(
         operation_id="upload_video",
@@ -289,7 +316,7 @@ class VideoUploadView(APIView):
         Upload a video file.
         Variants will be automatically generated via Django signals (TODO: implement ffmpeg processing).
         """
-        serializer = FileUploadSerializer(data=request.data)
+        serializer = self.get_request_serializer_class()(data=request.data)
         serializer.is_valid(raise_exception=True)
 
         uploaded_file = serializer.validated_data["file"]
@@ -297,11 +324,13 @@ class VideoUploadView(APIView):
         # Calculate file hash
         file_hash = Video.calculate_file_hash(uploaded_file)
 
+        response_serializer_class = self.get_response_serializer_class()
+
         # Check if file already exists
         existing_video = Video.objects.filter(file_hash=file_hash).first()
         if existing_video:
             return StapelResponse(
-                VideoUploadResponseSerializer(
+                response_serializer_class(
                     VideoUploadResponse(
                         message="Video already exists", video=existing_video
                     )
@@ -331,7 +360,7 @@ class VideoUploadView(APIView):
             return error_500_internal()
 
         return StapelResponse(
-            VideoUploadResponseSerializer(
+            response_serializer_class(
                 VideoUploadResponse(
                     message="Video uploaded successfully (variant generation not yet implemented)",
                     video=video,
@@ -342,10 +371,62 @@ class VideoUploadView(APIView):
 
 
 @extend_schema(tags=["Files"])
-class FileExistsView(APIView):
+class FileExistsView(SerializerSeamMixin, APIView):
     """API endpoint for checking if a file exists by hash."""
 
     permission_classes = [IsAuthenticated | IsServiceRequest]
+    # Request serializer applies to the POST body variant; GET reads query params.
+    request_serializer_class = FileExistsSerializer
+    response_serializer_class = FileExistsResponseSerializer
+
+    def _exists_response(self, request, file_hash):
+        """Resolve ``file_hash`` for the requesting user and build the response."""
+        response_serializer_class = self.get_response_serializer_class()
+
+        # Check if image exists
+        image = Image.objects.filter(file_hash=file_hash, uploaded_by=request.user).first()
+        if image:
+            return StapelResponse(
+                response_serializer_class(
+                    FileExistsResponse(
+                        exists=True, type="image", file=ImageSerializer(image).data
+                    )
+                ),
+                status=status.HTTP_200_OK,
+            )
+
+        # Check if video exists
+        video = Video.objects.filter(file_hash=file_hash, uploaded_by=request.user).first()
+        if video:
+            return StapelResponse(
+                response_serializer_class(
+                    FileExistsResponse(
+                        exists=True, type="video", file=VideoSerializer(video).data
+                    )
+                ),
+                status=status.HTTP_200_OK,
+            )
+
+        # Check if generic file exists
+        file_obj = File.objects.filter(file_hash=file_hash, uploaded_by=request.user).first()
+        if file_obj:
+            return StapelResponse(
+                response_serializer_class(
+                    FileExistsResponse(
+                        exists=True,
+                        type="file",
+                        file=FileModelSerializer(file_obj).data,
+                    )
+                ),
+                status=status.HTTP_200_OK,
+            )
+
+        return StapelResponse(
+            response_serializer_class(
+                FileExistsResponse(exists=False, type=None, file=None)
+            ),
+            status=status.HTTP_200_OK,
+        )
 
     @extend_schema(
         operation_id="check_file_exists_get",
@@ -420,50 +501,7 @@ def calculate_file_hash(file_content: bytes) -> str:
         if not file_hash:
             return StapelErrorResponse(400, ERR_400_FILE_HASH_REQUIRED)
 
-        # Check if image exists
-        image = Image.objects.filter(file_hash=file_hash, uploaded_by=request.user).first()
-        if image:
-            return StapelResponse(
-                FileExistsResponseSerializer(
-                    FileExistsResponse(
-                        exists=True, type="image", file=ImageSerializer(image).data
-                    )
-                ),
-                status=status.HTTP_200_OK,
-            )
-
-        # Check if video exists
-        video = Video.objects.filter(file_hash=file_hash, uploaded_by=request.user).first()
-        if video:
-            return StapelResponse(
-                FileExistsResponseSerializer(
-                    FileExistsResponse(
-                        exists=True, type="video", file=VideoSerializer(video).data
-                    )
-                ),
-                status=status.HTTP_200_OK,
-            )
-
-        # Check if generic file exists
-        file_obj = File.objects.filter(file_hash=file_hash, uploaded_by=request.user).first()
-        if file_obj:
-            return StapelResponse(
-                FileExistsResponseSerializer(
-                    FileExistsResponse(
-                        exists=True,
-                        type="file",
-                        file=FileModelSerializer(file_obj).data,
-                    )
-                ),
-                status=status.HTTP_200_OK,
-            )
-
-        return StapelResponse(
-            FileExistsResponseSerializer(
-                FileExistsResponse(exists=False, type=None, file=None)
-            ),
-            status=status.HTTP_200_OK,
-        )
+        return self._exists_response(request, file_hash)
 
     @extend_schema(
         operation_id="check_file_exists_post",
@@ -485,63 +523,22 @@ Useful when hash is very long or contains special characters.
         Check if a file exists by its hash (POST method).
         Body parameter: file_hash
         """
-        serializer = FileExistsSerializer(data=request.data)
+        serializer = self.get_request_serializer_class()(data=request.data)
         serializer.is_valid(raise_exception=True)
 
         file_hash = serializer.validated_data["file_hash"]
 
-        # Check if image exists
-        image = Image.objects.filter(file_hash=file_hash, uploaded_by=request.user).first()
-        if image:
-            return StapelResponse(
-                FileExistsResponseSerializer(
-                    FileExistsResponse(
-                        exists=True, type="image", file=ImageSerializer(image).data
-                    )
-                ),
-                status=status.HTTP_200_OK,
-            )
-
-        # Check if video exists
-        video = Video.objects.filter(file_hash=file_hash, uploaded_by=request.user).first()
-        if video:
-            return StapelResponse(
-                FileExistsResponseSerializer(
-                    FileExistsResponse(
-                        exists=True, type="video", file=VideoSerializer(video).data
-                    )
-                ),
-                status=status.HTTP_200_OK,
-            )
-
-        # Check if generic file exists
-        file_obj = File.objects.filter(file_hash=file_hash, uploaded_by=request.user).first()
-        if file_obj:
-            return StapelResponse(
-                FileExistsResponseSerializer(
-                    FileExistsResponse(
-                        exists=True,
-                        type="file",
-                        file=FileModelSerializer(file_obj).data,
-                    )
-                ),
-                status=status.HTTP_200_OK,
-            )
-
-        return StapelResponse(
-            FileExistsResponseSerializer(
-                FileExistsResponse(exists=False, type=None, file=None)
-            ),
-            status=status.HTTP_200_OK,
-        )
+        return self._exists_response(request, file_hash)
 
 
 @extend_schema(tags=["Images"])
-class AvatarUploadView(APIView):
+class AvatarUploadView(SerializerSeamMixin, APIView):
     """API endpoint for uploading avatar images."""
 
     permission_classes = [IsAuthenticated]
     parser_classes = [MultiPartParser, FormParser]
+    request_serializer_class = FileUploadSerializer
+    response_serializer_class = ImageUploadResponseSerializer
 
     @extend_schema(
         operation_id="upload_avatar",
@@ -577,7 +574,7 @@ class AvatarUploadView(APIView):
     )
     def post(self, request):
         """Upload an avatar image file. Sets type to 'avatar'."""
-        serializer = FileUploadSerializer(data=request.data)
+        serializer = self.get_request_serializer_class()(data=request.data)
         serializer.is_valid(raise_exception=True)
 
         uploaded_file = serializer.validated_data["file"]
@@ -588,13 +585,15 @@ class AvatarUploadView(APIView):
 
         file_hash = Image.calculate_file_hash(uploaded_file)
 
+        response_serializer_class = self.get_response_serializer_class()
+
         # Check for existing avatar with same hash
         existing_image = Image.objects.filter(
             file_hash=file_hash, type=ImageType.AVATAR
         ).first()
         if existing_image:
             return StapelResponse(
-                ImageUploadResponseSerializer(
+                response_serializer_class(
                     ImageUploadResponse(
                         message="Avatar already exists", image=existing_image
                     )
@@ -618,7 +617,7 @@ class AvatarUploadView(APIView):
             return error_500_internal()
 
         return StapelResponse(
-            ImageUploadResponseSerializer(
+            response_serializer_class(
                 ImageUploadResponse(message="Avatar uploaded successfully", image=image)
             ),
             status=status.HTTP_201_CREATED,
@@ -626,11 +625,13 @@ class AvatarUploadView(APIView):
 
 
 @extend_schema(tags=["Images"])
-class TypedImageUploadView(APIView):
+class TypedImageUploadView(SerializerSeamMixin, APIView):
     """API endpoint for uploading images with a specific type."""
 
     permission_classes = [IsAuthenticated]
     parser_classes = [MultiPartParser, FormParser]
+    request_serializer_class = FileUploadSerializer
+    response_serializer_class = ImageUploadResponseSerializer
 
     @extend_schema(
         operation_id="upload_typed_image",
@@ -671,7 +672,7 @@ class TypedImageUploadView(APIView):
         if image_type not in valid_types:
             return StapelErrorResponse(400, ERR_400_INVALID_IMAGE_TYPE)
 
-        serializer = FileUploadSerializer(data=request.data)
+        serializer = self.get_request_serializer_class()(data=request.data)
         serializer.is_valid(raise_exception=True)
 
         uploaded_file = serializer.validated_data["file"]
@@ -682,13 +683,15 @@ class TypedImageUploadView(APIView):
 
         file_hash = Image.calculate_file_hash(uploaded_file)
 
+        response_serializer_class = self.get_response_serializer_class()
+
         # Check for existing image with same hash AND type
         existing_image = Image.objects.filter(
             file_hash=file_hash, type=image_type
         ).first()
         if existing_image:
             return StapelResponse(
-                ImageUploadResponseSerializer(
+                response_serializer_class(
                     ImageUploadResponse(
                         message="Image already exists", image=existing_image
                     )
@@ -712,7 +715,7 @@ class TypedImageUploadView(APIView):
             return error_500_internal()
 
         return StapelResponse(
-            ImageUploadResponseSerializer(
+            response_serializer_class(
                 ImageUploadResponse(message="Image uploaded successfully", image=image)
             ),
             status=status.HTTP_201_CREATED,
@@ -720,10 +723,12 @@ class TypedImageUploadView(APIView):
 
 
 @extend_schema(tags=["Images"])
-class RandomImageView(APIView):
+class RandomImageView(SerializerSeamMixin, APIView):
     """API endpoint for getting a random image of a specific type."""
 
     permission_classes = [IsStaffUser]
+    request_serializer_class = None  # GET only — no request body
+    response_serializer_class = ImageSerializer
 
     @extend_schema(
         operation_id="random_image",
@@ -760,7 +765,9 @@ class RandomImageView(APIView):
         if not image:
             return StapelErrorResponse(404, ERR_404_NO_IMAGES)
 
-        return StapelResponse(ImageSerializer(image), status=status.HTTP_200_OK)
+        return StapelResponse(
+            self.get_response_serializer_class()(image), status=status.HTTP_200_OK
+        )
 
 
 MAX_GENERIC_FILE_SIZE = 50 * 1024 * 1024  # 50 MB
@@ -866,10 +873,12 @@ def _batch_resolve_media(ref_strings, for_update=False):
 
 
 @extend_schema(tags=["Refs"])
-class RefSyncView(APIView):
+class RefSyncView(SerializerSeamMixin, APIView):
     """Sync CDN references for media files."""
 
     permission_classes = [IsServiceRequest]
+    request_serializer_class = RefSyncRequestSerializer
+    response_serializer_class = RefSyncResponseSerializer
 
     @extend_schema(
         operation_id="sync_refs",
@@ -879,7 +888,7 @@ class RefSyncView(APIView):
         responses={200: RefSyncResponseSerializer},
     )
     def post(self, request):
-        serializer = RefSyncRequestSerializer(data=request.data)
+        serializer = self.get_request_serializer_class()(data=request.data)
         serializer.is_valid(raise_exception=True)
         data = serializer.validated_data
 
@@ -900,15 +909,19 @@ class RefSyncView(APIView):
             removed=result["removed"],
             errors=result["errors"],
         )
-        return StapelResponse(RefSyncResponseSerializer(dto), status=status.HTTP_200_OK)
+        return StapelResponse(
+            self.get_response_serializer_class()(dto), status=status.HTTP_200_OK
+        )
 
 
 @extend_schema(tags=["Files"])
-class GenericFileUploadView(APIView):
+class GenericFileUploadView(SerializerSeamMixin, APIView):
     """API endpoint for uploading generic files (documents, archives, etc.)."""
 
     permission_classes = [IsAuthenticated]
     parser_classes = [MultiPartParser, FormParser]
+    request_serializer_class = None  # reads request.FILES["file"] directly
+    response_serializer_class = FileUploadResponseSerializer
 
     @extend_schema(
         operation_id="upload_file",
@@ -952,10 +965,12 @@ class GenericFileUploadView(APIView):
 
         file_hash = File.calculate_file_hash(uploaded_file)
 
+        response_serializer_class = self.get_response_serializer_class()
+
         existing = File.objects.filter(file_hash=file_hash).first()
         if existing:
             return StapelResponse(
-                FileUploadResponseSerializer(
+                response_serializer_class(
                     FileUploadResponseDTO(message="File already exists", file=existing)
                 ),
                 status=status.HTTP_200_OK,
@@ -975,7 +990,7 @@ class GenericFileUploadView(APIView):
             return error_500_internal()
 
         return StapelResponse(
-            FileUploadResponseSerializer(
+            response_serializer_class(
                 FileUploadResponseDTO(
                     message="File uploaded successfully", file=file_obj
                 )
