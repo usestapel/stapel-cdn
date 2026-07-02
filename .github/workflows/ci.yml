@@ -20,6 +20,9 @@ jobs:
           python-version: ${{ matrix.python-version }}
           cache: pip
 
+      - name: Install libvips (pyvips runtime dependency)
+        run: sudo apt-get update && sudo apt-get install -y libvips-dev
+
       - name: Install stapel-core
         run: pip install git+https://github.com/usestapel/stapel-core.git
 

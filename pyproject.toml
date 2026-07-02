@@ -24,7 +24,10 @@ dependencies = [
 
 [project.optional-dependencies]
 s3 = ["boto3>=1.34"]
-all = ["stapel-cdn[s3]"]
+# libvips binding for image processing (lazily imported in tasks.py). Needs the
+# system libvips library present at runtime (apt: libvips-dev).
+images = ["pyvips>=2.2"]
+all = ["stapel-cdn[s3,images]"]
 
 [tool.setuptools]
 package-dir = {"stapel_cdn" = "."}
