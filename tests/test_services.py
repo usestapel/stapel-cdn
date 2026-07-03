@@ -8,6 +8,7 @@ from unittest.mock import patch, MagicMock
 from PIL import Image as PILImage
 from stapel_cdn.models import Image, Video
 from stapel_cdn.services import ImageProcessingService, VideoProcessingService
+from stapel_cdn.watermarks import text_watermark
 from stapel_core.django.users.models import User
 
 
@@ -118,7 +119,27 @@ class TestImageProcessingService:
 
         assert result is None
 
-    @patch('stapel_cdn.services.pyvips')
+    def test_watermark_disabled_by_default(self):
+        """No engine configured — image passes through unchanged."""
+        mock_img = MagicMock()
+        assert ImageProcessingService._add_watermark(mock_img) is mock_img
+
+    def test_watermark_engine_from_settings(self, settings):
+        """The STAPEL_CDN['WATERMARK'] callable is applied by the pipeline."""
+        mock_img, marked = MagicMock(), MagicMock()
+        settings.STAPEL_CDN = {"WATERMARK": lambda img: marked}
+        assert ImageProcessingService._add_watermark(mock_img) is marked
+
+    def test_watermark_engine_dotted_path_empty_text(self, settings):
+        """A dotted-path engine resolves; the built-in text engine without
+        WATERMARK_TEXT is a no-op."""
+        mock_img = MagicMock()
+        settings.STAPEL_CDN = {
+            "WATERMARK": "stapel_cdn.watermarks.text_watermark",
+        }
+        assert ImageProcessingService._add_watermark(mock_img) is mock_img
+
+    @patch('stapel_cdn.watermarks.pyvips')
     def test_add_watermark(self, mock_pyvips):
         """Test that watermark is added to image."""
         mock_img = MagicMock()
@@ -143,12 +164,12 @@ class TestImageProcessingService:
         mock_flattened = MagicMock()
         mock_composite.flatten.return_value = mock_flattened
 
-        result = ImageProcessingService._add_watermark(mock_img, "Test")
+        result = text_watermark(mock_img, "Test")
 
         mock_pyvips.Image.text.assert_called_once()
         assert result == mock_flattened
 
-    @patch('stapel_cdn.services.pyvips')
+    @patch('stapel_cdn.watermarks.pyvips')
     def test_add_watermark_with_alpha(self, mock_pyvips):
         """Test that watermark works with images that already have alpha."""
         mock_img = MagicMock()
@@ -170,7 +191,7 @@ class TestImageProcessingService:
         mock_flattened = MagicMock()
         mock_composite.flatten.return_value = mock_flattened
 
-        ImageProcessingService._add_watermark(mock_img)
+        text_watermark(mock_img, "Test")
 
         # Should not call bandjoin since already has alpha
         mock_img.bandjoin.assert_not_called()

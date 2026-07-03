@@ -10,12 +10,15 @@ in Django or requires configured settings):
   (``stapel_cdn.functions``).
 - ``validate_image_file`` — upload validator: extension allowlist, Pillow
   decode check, decompression-bomb cap (``stapel_cdn.validators``).
+- ``text_watermark`` — built-in reference watermark engine for the
+  ``STAPEL_CDN["WATERMARK"]`` seam (``stapel_cdn.watermarks``).
 """
 
 __all__ = [
     "cdn_settings",
     "media_exists",
     "refs_sync",
+    "text_watermark",
     "validate_image_file",
 ]
 
@@ -25,6 +28,7 @@ _LAZY_EXPORTS = {
     "cdn_settings": ".conf",
     "media_exists": ".functions",
     "refs_sync": ".functions",
+    "text_watermark": ".watermarks",
     "validate_image_file": ".validators",
 }
 

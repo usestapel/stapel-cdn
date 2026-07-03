@@ -14,6 +14,7 @@ class TestLazyExports:
             'cdn_settings',
             'media_exists',
             'refs_sync',
+            'text_watermark',
             'validate_image_file',
         ]
 

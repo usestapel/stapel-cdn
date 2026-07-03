@@ -22,7 +22,7 @@ Depends on `stapel-core` only · Optional extras: `images` (pyvips), `s3` (boto3
 - **Image processing pipeline** (`stapel_cdn.services.ImageProcessingService`): libvips
   via `pyvips` — ladder downscaling, WebP variants at conf-driven heights (plus a
   `720.jpg` legacy fallback), embedded-thumbnail fast path (HEIC `heifload(thumbnail=True)`,
-  JPEG `shrink=8`), optional text watermark. Runs async on Celery queues `thumbnails`
+  JPEG `shrink=8`), optional watermark via a pluggable engine (off by default). Runs async on Celery queues `thumbnails`
   (high priority, sizes ≤ 120px) and `previews`; `retry_unprocessed` task re-queues stuck
   images. Variants are written to `MEDIA_ROOT/<type>/<hash>/<size>.webp` and exposed as
   URL properties, not as FileFields.
@@ -58,19 +58,19 @@ name → environment variable → built-in default. Test-safe: caches invalidate
 | `MAX_IMAGE_SIZE` | `20 * 1024 * 1024` (20 MiB) | Upload size cap, checked before hashing (legacy alias `CDN_MAX_IMAGE_SIZE`). |
 | `ALLOWED_IMAGE_EXTENSIONS` | `.jpg .jpeg .png .gif .webp .bmp .heic .heif` | Image extension allowlist in views, serializers and `validate_image_file` (legacy alias `CDN_ALLOWED_IMAGE_EXTENSIONS`). |
 | `MAX_IMAGE_PIXELS` | `50_000_000` | Pillow decompression-bomb cap (`PIL.Image.MAX_IMAGE_PIXELS`; legacy alias `CDN_MAX_IMAGE_PIXELS`). |
+| `WATERMARK` | `""` (**off**) | Watermark engine: dotted path to (or directly a) callable `(pyvips.Image) -> pyvips.Image` applied to preview variants. Empty disables watermarking. Built-in reference engine: `stapel_cdn.watermarks.text_watermark`. Legacy alias `CDN_WATERMARK`. |
+| `WATERMARK_TEXT` | `""` | Label rendered by the built-in `text_watermark` engine (bottom-right corner). Ignored by custom engines unless they read it. Legacy alias `CDN_WATERMARK_TEXT`. |
 
 Flat setting outside the namespace (required, no default — host project must define it):
 `CDN_ALLOWED_VIDEO_EXTENSIONS` (used by `FileUploadSerializer` and `VideoUploadView`).
-
-Note: `cdn_settings` currently declares **no `import_strings`** — the `STAPEL_CDN`
-namespace has no dotted-path (swap-a-class) keys yet. Adding one is an upstream change.
 
 ### Storage / processing backends (dotted paths)
 
 | Seam | Current state | Fork-free? |
 |---|---|---|
 | File storage | `stapel_cdn.storage.cdn_storage` — a module-level `OverwriteStorage(FileSystemStorage)` instance baked into `Image.original` / `File.original` `FileField(storage=...)` | **No dotted-path seam.** Not selectable via `STAPEL_CDN`; S3/remote storage support (the `s3` extra exists in `pyproject.toml` but is unused by code) is an upstream contribution. |
-| Image pipeline | `services.ImageProcessingService` classmethods (`process_image`, `generate_thumbnails_only`, `generate_previews_only`, `_add_watermark`, `WEBP_QUALITY=85`, `JPEG_QUALITY=85`) | Subclassable, but call sites (`tasks.py`, `models.py` post_save signal, `admin.py`) import the class directly — a replacement class cannot be injected via settings. Behavior *is* conf-driven through `VARIANT_SIZES`. Anything else (quality, watermark text, formats) is upstream. |
+| Watermark engine | `STAPEL_CDN["WATERMARK"]` — dotted path (via `import_strings`) or direct callable `(pyvips.Image) -> pyvips.Image`; off by default | **Yes.** The only dotted-path key in the namespace. Built-in reference: `stapel_cdn.watermarks.text_watermark` (renders `WATERMARK_TEXT`). |
+| Image pipeline | `services.ImageProcessingService` classmethods (`process_image`, `generate_thumbnails_only`, `generate_previews_only`, `WEBP_QUALITY=85`, `JPEG_QUALITY=85`) | Subclassable, but call sites (`tasks.py`, `models.py` post_save signal, `admin.py`) import the class directly — a replacement class cannot be injected via settings. Behavior *is* conf-driven through `VARIANT_SIZES` and `WATERMARK`. Anything else (quality, formats) is upstream. |
 | Upload throttling | `upload_handlers.SpeedLimitUploadHandler` | Yes — plain Django upload handler; enable/replace via `FILE_UPLOAD_HANDLERS` in the host project. Its constants (`UPLOAD_MAX_TIME=300`, `UPLOAD_MIN_SPEED=2048`) are module-level, not conf keys. |
 
 ### Swappable models
@@ -165,11 +165,11 @@ your own app.
 
 **Upstream contribution** (this repo, via `contrib_open` → review origin → PyPI release)
 if it needs: a new settings key or a dotted-path `import_strings` seam (e.g. making the
-storage backend, watermark, or processing service class configurable); S3/presigned
+storage backend or processing service class configurable); S3/presigned
 uploads (`s3` extra is declared but unwired); video variant generation (ffmpeg — currently
 a `process_video` stub that just marks `is_processed`); emitting `media_processed` from
 the Celery task path; new endpoints, model fields, or migrations; changing WebP/JPEG
-quality, watermark text, or upload-handler thresholds (all currently hardcoded constants).
+quality or upload-handler thresholds (currently hardcoded constants).
 
 Litmus test: if you'd have to monkeypatch, copy a module file, or edit code inside
 `stapel_cdn/` to get the behavior — it's upstream. If a setting, subclass, receiver, or

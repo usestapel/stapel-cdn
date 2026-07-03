@@ -39,6 +39,14 @@ DEFAULTS = {
     # Decompression-bomb cap: Pillow raises DecompressionBombError above
     # 2x this pixel count.
     "MAX_IMAGE_PIXELS": 50_000_000,
+    # Watermark engine: dotted path to (or directly a) callable
+    # ``(pyvips.Image) -> pyvips.Image`` applied to preview variants.
+    # Empty (the default) disables watermarking entirely. The built-in
+    # reference engine is "stapel_cdn.watermarks.text_watermark", which
+    # renders WATERMARK_TEXT in the bottom-right corner; host projects
+    # supply their own callable for designed watermarks.
+    "WATERMARK": "",
+    "WATERMARK_TEXT": "",
 }
 
 _UNSET = object()
@@ -51,6 +59,8 @@ class CdnAppSettings(AppSettings):
         "MAX_IMAGE_SIZE": "CDN_MAX_IMAGE_SIZE",
         "ALLOWED_IMAGE_EXTENSIONS": "CDN_ALLOWED_IMAGE_EXTENSIONS",
         "MAX_IMAGE_PIXELS": "CDN_MAX_IMAGE_PIXELS",
+        "WATERMARK": "CDN_WATERMARK",
+        "WATERMARK_TEXT": "CDN_WATERMARK_TEXT",
     }
 
     def _connect_reload(self):
@@ -82,7 +92,9 @@ class CdnAppSettings(AppSettings):
         return super()._raw(key)
 
 
-cdn_settings = CdnAppSettings("STAPEL_CDN", defaults=DEFAULTS)
+cdn_settings = CdnAppSettings(
+    "STAPEL_CDN", defaults=DEFAULTS, import_strings=("WATERMARK",)
+)
 
 __all__ = [
     "cdn_settings",

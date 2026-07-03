@@ -4,6 +4,21 @@ All notable changes to this project will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [Unreleased]
+
+### Changed
+- **Watermarking is now a pluggable engine, off by default.**
+  `STAPEL_CDN["WATERMARK"]` (legacy alias `CDN_WATERMARK`) names a callable
+  `(pyvips.Image) -> pyvips.Image` via dotted path; empty (the default)
+  disables watermarking. The previous behavior — a hardcoded "Iron" text
+  label rendered by pyvips — is gone; the text renderer survives as the
+  reference engine `stapel_cdn.watermarks.text_watermark`, configured via
+  `STAPEL_CDN["WATERMARK_TEXT"]` (`CDN_WATERMARK_TEXT`). To restore a text
+  watermark: `STAPEL_CDN = {"WATERMARK": "stapel_cdn.watermarks.text_watermark",
+  "WATERMARK_TEXT": "..."}`.
+- `ImageProcessingService._add_watermark` now dispatches to the configured
+  engine and takes no `text` argument.
+
 ## 0.3.0 — 2026-07-03
 
 No functional changes — version alignment with the Stapel 0.3

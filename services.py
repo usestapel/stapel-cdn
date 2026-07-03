@@ -110,25 +110,14 @@ class ImageProcessingService:
         return None
 
     @classmethod
-    def _add_watermark(cls, img: pyvips.Image, text: str = "Iron") -> pyvips.Image:
-        """Add watermark text to image."""
-        font_size = max(12, int(img.height * 0.05))
+    def _add_watermark(cls, img: pyvips.Image) -> pyvips.Image:
+        """Apply the configured watermark engine, if any.
 
-        markup = f'<span foreground="white" background="black">{text}</span>'
-        text_img = pyvips.Image.text(
-            markup, font=f"DejaVu Sans Bold {font_size}", dpi=72, rgba=True
-        )
-
-        padding = max(5, int(img.height * 0.02))
-        x = max(padding, img.width - text_img.width - padding)
-        y = max(padding, img.height - text_img.height - padding)
-
-        if img.bands == 3:
-            img = img.bandjoin(255)
-
-        text_positioned = text_img.embed(x, y, img.width, img.height, extend="black")
-        result = img.composite2(text_positioned, "over")
-        return result.flatten(background=[255, 255, 255])
+        Off by default: ``STAPEL_CDN["WATERMARK"]`` is empty unless the
+        host project points it at a callable (see stapel_cdn.watermarks).
+        """
+        engine = cdn_settings.WATERMARK
+        return engine(img) if engine else img
 
     @classmethod
     def generate_thumbnails_only(cls, image_model) -> str:
