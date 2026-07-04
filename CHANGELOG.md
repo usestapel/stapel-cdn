@@ -4,8 +4,7 @@ All notable changes to this project will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
-## [Unreleased]
-
+## 0.4.0 — 2026-07-04
 ### Changed
 - **Watermarking is now a pluggable engine, off by default.**
   `STAPEL_CDN["WATERMARK"]` (legacy alias `CDN_WATERMARK`) names a callable
