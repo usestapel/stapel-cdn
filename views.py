@@ -137,23 +137,19 @@ class ImageUploadView(SerializerSeamMixin, APIView):
 
 **Maximum file size:** 100MB
 """,
-        request={
-            "multipart/form-data": {
-                "type": "object",
-                "properties": {
-                    "file": {
-                        "type": "string",
-                        "format": "binary",
-                        "description": "Image file to upload (jpg, png, gif, webp, bmp, heic, heif)",
-                    }
-                },
-                "required": ["file"],
-            }
-        },
+        request=FileUploadSerializer,
         responses={
-            201: OpenApiExample(
-                name="Image uploaded",
+            201: ImageUploadResponseSerializer,
+            200: ImageUploadResponseSerializer,
+            400: StapelErrorSerializer,
+            401: StapelErrorSerializer,
+            500: StapelErrorSerializer,
+        },
+        examples=[
+            OpenApiExample(
+                name="Image uploaded successfully",
                 response_only=True,
+                status_codes=["201"],
                 value={
                     "message": "Image uploaded successfully",
                     "image": {
@@ -170,33 +166,13 @@ class ImageUploadView(SerializerSeamMixin, APIView):
                     },
                 },
             ),
-            200: OpenApiExample(
+            OpenApiExample(
                 name="Image already exists",
                 response_only=True,
+                status_codes=["200"],
                 value={
                     "message": "Image already exists",
                     "image": {"id": "...", "file_hash": "..."},
-                },
-            ),
-            400: StapelErrorSerializer,
-            401: StapelErrorSerializer,
-            500: StapelErrorSerializer,
-        },
-        examples=[
-            OpenApiExample(
-                name="Image uploaded successfully",
-                response_only=True,
-                status_codes=["201"],
-                value={
-                    "message": "Image uploaded successfully",
-                    "image": {
-                        "id": "550e8400-e29b-41d4-a716-446655440000",
-                        "file_hash": "a1b2c3d4e5f6789...",
-                        "original_filename": "photo.jpg",
-                        "original_width": 1920,
-                        "original_height": 1080,
-                        "variant_720_url": "/media/cdn/images/720/a1b2c3d4.webp",
-                    },
                 },
             ),
         ],

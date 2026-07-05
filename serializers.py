@@ -2,6 +2,8 @@
 Serializers for stapel-cdn service.
 """
 
+from drf_spectacular.types import OpenApiTypes
+from drf_spectacular.utils import extend_schema_field
 from rest_framework import serializers
 from stapel_core.django.api.errors import StapelValidationError
 from stapel_core.django.api.serializers import StapelDataclassSerializer
@@ -30,20 +32,28 @@ class ImageSerializer(serializers.ModelSerializer):
     original_url = serializers.SerializerMethodField(
         help_text="URL to original uploaded image"
     )
-    variant_16_url = serializers.ReadOnlyField(help_text="16px thumbnail (WebP)")
-    variant_32_url = serializers.ReadOnlyField(help_text="32px thumbnail (WebP)")
-    variant_64_url = serializers.ReadOnlyField(help_text="64px thumbnail (WebP)")
-    variant_120_url = serializers.ReadOnlyField(help_text="120px thumbnail (WebP)")
-    variant_160_url = serializers.ReadOnlyField(help_text="160px preview (WebP)")
-    variant_240_url = serializers.ReadOnlyField(help_text="240px preview (WebP)")
-    variant_480_url = serializers.ReadOnlyField(help_text="480px medium (WebP)")
-    variant_720_url = serializers.ReadOnlyField(help_text="720px HD (WebP)")
-    variant_720_jpg_url = serializers.ReadOnlyField(
-        help_text="720px HD (JPEG fallback)"
+    # Variants 16..1080 (+ 720 JPEG fallback) are backed by ``variant_<size>_url``
+    # model properties. A read-only ``URLField`` reads that property and gives
+    # drf-spectacular an explicit ``string/uri`` type (a bare ``ReadOnlyField``
+    # left the type unresolved and warned).
+    variant_16_url = serializers.URLField(read_only=True, help_text="16px thumbnail (WebP)")
+    variant_32_url = serializers.URLField(read_only=True, help_text="32px thumbnail (WebP)")
+    variant_64_url = serializers.URLField(read_only=True, help_text="64px thumbnail (WebP)")
+    variant_120_url = serializers.URLField(read_only=True, help_text="120px thumbnail (WebP)")
+    variant_160_url = serializers.URLField(read_only=True, help_text="160px preview (WebP)")
+    variant_240_url = serializers.URLField(read_only=True, help_text="240px preview (WebP)")
+    variant_480_url = serializers.URLField(read_only=True, help_text="480px medium (WebP)")
+    variant_720_url = serializers.URLField(read_only=True, help_text="720px HD (WebP)")
+    variant_720_jpg_url = serializers.URLField(
+        read_only=True, help_text="720px HD (JPEG fallback)"
     )
-    variant_1080_url = serializers.ReadOnlyField(help_text="1080px Full HD (WebP)")
-    variant_1440_url = serializers.ReadOnlyField(help_text="1440px 2K (WebP)")
-    variant_2160_url = serializers.ReadOnlyField(help_text="2160px 4K (WebP)")
+    variant_1080_url = serializers.URLField(read_only=True, help_text="1080px Full HD (WebP)")
+    # 1440/2160 have no ``variant_<size>_url`` model property (not in
+    # DEFAULT_VARIANT_SIZES), so a ReadOnlyField silently dropped them and
+    # drf-spectacular errored resolving them against the model. Compute the
+    # URL directly via ``Image.get_variant_url``.
+    variant_1440_url = serializers.SerializerMethodField(help_text="1440px 2K (WebP)")
+    variant_2160_url = serializers.SerializerMethodField(help_text="2160px 4K (WebP)")
     uploaded_by_username = serializers.CharField(
         source="uploaded_by.username", read_only=True
     )
@@ -91,11 +101,21 @@ class ImageSerializer(serializers.ModelSerializer):
             "updated_at",
         ]
 
+    @extend_schema_field(OpenApiTypes.STR)
     def get_prefix(self, obj):
         return f"{obj.type}/{obj.file_hash}"
 
+    @extend_schema_field(OpenApiTypes.URI)
     def get_original_url(self, obj):
         return obj.original.url if obj.original else None
+
+    @extend_schema_field(OpenApiTypes.URI)
+    def get_variant_1440_url(self, obj):
+        return obj.get_variant_url(1440)
+
+    @extend_schema_field(OpenApiTypes.URI)
+    def get_variant_2160_url(self, obj):
+        return obj.get_variant_url(2160)
 
 
 class VideoSerializer(serializers.ModelSerializer):
@@ -150,27 +170,35 @@ class VideoSerializer(serializers.ModelSerializer):
             "updated_at",
         ]
 
+    @extend_schema_field(OpenApiTypes.URI)
     def get_original_url(self, obj):
         return obj.original.url if obj.original else None
 
+    @extend_schema_field(OpenApiTypes.URI)
     def get_variant_16p_url(self, obj):
         return obj.variant_16.url if obj.variant_16 else None
 
+    @extend_schema_field(OpenApiTypes.URI)
     def get_variant_32p_url(self, obj):
         return obj.variant_32.url if obj.variant_32 else None
 
+    @extend_schema_field(OpenApiTypes.URI)
     def get_variant_240p_url(self, obj):
         return obj.variant_240.url if obj.variant_240 else None
 
+    @extend_schema_field(OpenApiTypes.URI)
     def get_variant_480p_url(self, obj):
         return obj.variant_480.url if obj.variant_480 else None
 
+    @extend_schema_field(OpenApiTypes.URI)
     def get_variant_720p_url(self, obj):
         return obj.variant_720.url if obj.variant_720 else None
 
+    @extend_schema_field(OpenApiTypes.URI)
     def get_variant_1080p_url(self, obj):
         return obj.variant_1080.url if obj.variant_1080 else None
 
+    @extend_schema_field(OpenApiTypes.URI)
     def get_variant_2160p_url(self, obj):
         return obj.variant_2160.url if obj.variant_2160 else None
 
@@ -287,9 +315,11 @@ class FileModelSerializer(serializers.ModelSerializer):
             "updated_at",
         ]
 
+    @extend_schema_field(OpenApiTypes.STR)
     def get_prefix(self, obj):
         return f"file/{obj.file_hash}"
 
+    @extend_schema_field(OpenApiTypes.URI)
     def get_original_url(self, obj):
         return obj.original.url if obj.original else None
 

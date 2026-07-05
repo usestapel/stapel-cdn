@@ -4,6 +4,27 @@ All notable changes to this project will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## 0.4.2 — 2026-07-05
+
+### Fixed
+- OpenAPI: type hints on Image/Video/FileModel serializer URL fields +
+  request schema for `ImageUploadView`. `ImageSerializer`,
+  `VideoSerializer` and `FileModelSerializer` URL fields now carry explicit
+  `string`/`uri` types (via `URLField(read_only=True)` for the
+  property-backed image variants and `@extend_schema_field` on the method
+  getters), silencing drf-spectacular "unable to resolve type hint"
+  warnings. `ImageSerializer.variant_1440_url` / `variant_2160_url` — which
+  have no backing `variant_<size>_url` model property (not in
+  `DEFAULT_VARIANT_SIZES`) and were silently dropped from responses while
+  making drf-spectacular error resolving them against the model — are now
+  `SerializerMethodField`s computed from `Image.get_variant_url`.
+  `ImageUploadView`'s `@extend_schema` no longer passes `OpenApiExample`
+  objects as `responses` values (which drf-spectacular could not resolve);
+  201/200 now point at `ImageUploadResponseSerializer` (what the view
+  returns) with the example bodies moved into `examples`, and `request` is
+  the real `FileUploadSerializer`.
+
+
 ## 0.4.1 — 2026-07-05
 
 ### Fixed
