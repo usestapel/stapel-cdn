@@ -126,6 +126,19 @@ Error keys: `errors.py` registers `error.400.*` / `error.413.*` / `error.404.*` 
 `stapel_core` `register_service_errors`; `CdnErrorKeysView.get_service_errors()` is an
 overridable listing seam.
 
+## Admin categories (`stapel_core.access`)
+
+`Image`, `Video`, `File` are left **undecorated** — implicit `@access.standard`
+(business). All three are staff-facing moderation tables (the admin exposes preview
+thumbnails, orphan filters, variant regeneration actions), not machinery nobody is
+meant to open, so `@access.ops` does not apply; `file_hash` is a content-addressing
+SHA-256 digest, not a credential, and no model in this package carries a signing key,
+upload token, or other secret field, so `@access.secret` does not apply either. The
+SSRF-hardened `cdn.import_from_url` fetcher (`fetch.py`) is stateless — it persists no
+job/log/audit row of its own (it writes a normal `Image` on success) — so there is no
+additional ops-shaped model to classify. Net result of the AS-5 sweep for this package:
+zero decorators added.
+
 ## Anti-patterns
 
 - **Forking to add an image type or variant size.** Both are settings
