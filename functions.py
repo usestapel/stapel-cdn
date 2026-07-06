@@ -12,6 +12,7 @@ idempotent). Other modules call these by name via
     call("cdn.refs_sync", {"service": "shop", "entity_type": "product",
                            "entity_id": "42", "new_hashes": [...]})
 """
+import hashlib
 import logging
 
 from stapel_core.comm import function
@@ -41,6 +42,22 @@ REFS_SYNC_SCHEMA = {
     "required": ["service", "entity_type", "entity_id"],
 }
 
+IMPORT_FROM_URL_SCHEMA = {
+    "type": "object",
+    "properties": {
+        "url": {"type": "string", "description": "https:// URL of the image to import"},
+        "image_type": {
+            "type": "string",
+            "description": "CDN image type, e.g. 'avatar' or 'product'",
+        },
+        "caller": {
+            "type": ["string", "null"],
+            "description": "Opaque caller id for per-caller rate limiting (e.g. user id)",
+        },
+    },
+    "required": ["url", "image_type"],
+}
+
 
 @function("cdn.media_exists", schema=MEDIA_EXISTS_SCHEMA)
 def media_exists(payload: dict) -> dict:
@@ -56,6 +73,86 @@ def media_exists(payload: dict) -> dict:
     ref = payload["ref"]
     resolved = _batch_resolve_media([ref])
     return {"exists": ref in resolved}
+
+
+@function("cdn.import_from_url", schema=IMPORT_FROM_URL_SCHEMA)
+def import_from_url(payload: dict) -> dict:
+    """Fetch an external image over an SSRF-hardened path and store it on CDN.
+
+    Payload: ``{"url": "https://...", "image_type": "avatar",
+    "caller": "<opaque id>"}``. Returns ``{"ref": "<image_type>/<hash>"}``
+    pointing at a stored asset with resize variants generated exactly like a
+    normal upload.
+
+    Security posture (this is an outbound-egress SSRF sink — the URL is
+    attacker-influenced): all hardening lives in :mod:`stapel_cdn.fetch`
+    (https-only, DNS→IP allowlisting re-run per redirect, IP-pinned connect
+    to defeat rebinding, size/timeout caps, magic-byte content check,
+    per-caller rate limit). This function is intentionally a comm Function,
+    **not** an HTTP endpoint, so it cannot be driven as an open proxy from
+    the outside.
+
+    Fails closed: any validation/fetch/format problem raises
+    ``ImageImportError`` (surfaced to the caller as a ``FunctionCallError``);
+    there is no code path that returns a ref for an unvalidated source.
+    """
+    from django.core.files.base import ContentFile
+
+    from .conf import cdn_settings
+    from .fetch import (
+        ImageImportError,
+        detect_image_extension,
+        enforce_rate_limit,
+        fetch_image_bytes,
+    )
+    from .models import Image
+    from .validators import validate_image_file
+
+    url = payload["url"]
+    image_type = payload["image_type"]
+    caller = payload.get("caller")
+
+    # image_type must be a configured CDN image type (product, avatar, ...).
+    valid_types = set()
+    for entry in cdn_settings.IMAGE_TYPES:
+        valid_types.add(entry if isinstance(entry, str) else entry[0])
+    if image_type not in valid_types:
+        raise ImageImportError("invalid_image_type", f"unknown image_type {image_type!r}")
+
+    # Rate-limit BEFORE any DNS/network work — open-proxy / amplification guard.
+    enforce_rate_limit(caller)
+
+    data = fetch_image_bytes(url)
+    ext = detect_image_extension(data)
+
+    file_hash = hashlib.sha256(data).hexdigest()
+
+    # Content-addressed dedup: the same bytes for the same type reuse the ref.
+    existing = Image.objects.filter(file_hash=file_hash, type=image_type).first()
+    if existing:
+        return {"ref": f"{image_type}/{file_hash}"}
+
+    content = ContentFile(data, name=f"import_{file_hash[:16]}{ext}")
+
+    # Route through the same validator the upload endpoints use
+    # (ALLOWED_IMAGE_EXTENSIONS + Pillow decode) for parity/defence-in-depth.
+    from django.core.exceptions import ValidationError
+
+    try:
+        validate_image_file(content)
+    except ValidationError as exc:
+        raise ImageImportError("invalid_image_file", str(exc)) from exc
+
+    image = Image.objects.create(
+        file_hash=file_hash,
+        original_filename=content.name,
+        file_extension=ext,
+        type=image_type,
+        original=content,
+        original_size=content.size,
+        uploaded_by=None,
+    )
+    return {"ref": f"{image_type}/{image.file_hash}"}
 
 
 @function("cdn.refs_sync", schema=REFS_SYNC_SCHEMA)

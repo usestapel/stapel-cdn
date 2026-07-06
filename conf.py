@@ -47,6 +47,17 @@ DEFAULTS = {
     # supply their own callable for designed watermarks.
     "WATERMARK": "",
     "WATERMARK_TEXT": "",
+    # --- cdn.import_from_url (SSRF-hardened egress fetcher) ---------------
+    # Body size cap for a fetched image (bytes). Aborts the stream mid-flight
+    # once crossed — kept below MAX_IMAGE_SIZE since avatars are small and a
+    # tighter cap shrinks the DoS surface of the outbound fetch.
+    "IMPORT_FROM_URL_MAX_BYTES": 10 * 1024 * 1024,
+    # Connect/read timeout (seconds) for the fetch.
+    "IMPORT_FROM_URL_TIMEOUT": 5.0,
+    # Max redirect hops; each hop is re-validated (scheme + DNS + IP).
+    "IMPORT_FROM_URL_MAX_REDIRECTS": 3,
+    # Per-caller fixed-window quota ("N/s|m|h|d") — open-proxy defence.
+    "IMPORT_FROM_URL_RATE": "10/h",
 }
 
 _UNSET = object()

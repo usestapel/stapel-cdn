@@ -4,6 +4,36 @@ All notable changes to this project will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## 0.5.0 — 2026-07-06
+
+### Added
+- **`cdn.import_from_url` comm Function** — SSRF-hardened server-side image
+  import. Input `{url, image_type, caller?}`, output `{ref: "<type>/<hash>"}`
+  pointing at a stored asset with resize variants generated exactly like a
+  normal upload. Deliberately a comm Function, **not** an HTTP endpoint, so it
+  cannot be driven as an open proxy from outside.
+- `stapel_cdn/fetch.py` — the hardened egress fetcher. Controls (each with a
+  dedicated adversarial test in `tests/test_import_from_url.py`): https-only
+  (enforced on every redirect hop); DNS resolution with allowlisting of **all**
+  returned IPs against private RFC1918/ULA, loopback, link-local (incl. the
+  `169.254.169.254` cloud-metadata endpoint), multicast, reserved and
+  unspecified ranges, plus IPv4-mapped-IPv6 unwrapping; **anti-DNS-rebinding**
+  via IP pinning — resolve once, validate, connect to that exact IP while
+  presenting the hostname for TLS SNI/`Host`; redirects driven manually with
+  per-hop re-validation and a hop cap; streaming body read with a hard size cap
+  that aborts before buffering; connect/read timeout; magic-byte content check
+  (Pillow decode) routed through the existing
+  `validate_image_file`/`ALLOWED_IMAGE_EXTENSIONS`; per-caller fixed-window
+  rate limit (Django cache) as an open-proxy/amplification defence. Fails
+  closed — no path returns a ref for an unvalidated source.
+- New `STAPEL_CDN` settings: `IMPORT_FROM_URL_MAX_BYTES` (10 MB),
+  `IMPORT_FROM_URL_TIMEOUT` (5 s), `IMPORT_FROM_URL_MAX_REDIRECTS` (3),
+  `IMPORT_FROM_URL_RATE` (`"10/h"`).
+
+Consumed by stapel-profiles' `user.registered` handler to re-host OAuth
+provider avatars onto the CDN.
+
+
 ## 0.4.4 — 2026-07-06
 
 ### Changed
