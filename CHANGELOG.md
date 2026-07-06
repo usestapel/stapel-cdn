@@ -4,6 +4,30 @@ All notable changes to this project will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## 0.5.1 — 2026-07-06
+
+### Security
+- `cdn.import_from_url` SSRF hardening: `_ip_is_forbidden` was **not**
+  unwrapping the NAT64 well-known prefix (`64:ff9b::/96`, RFC 6052) before
+  checking `is_global`, so a forbidden IPv4 address (loopback, RFC1918, the
+  `169.254.169.254` cloud-metadata address, or CGNAT) smuggled in as e.g.
+  `64:ff9b::a9fe:a9fe` read as an ordinary global IPv6 address and sailed
+  past the DNS/IP allowlist — only the unrelated `::ffff:0:0/96`
+  (`ipv4_mapped`) and `2002::/16` (`sixtofour`) IPv6 forms were unwrapped.
+  `_ip_is_forbidden` now also unwraps the NAT64 prefix to its embedded IPv4
+  address and validates that. Also added an explicit `100.64.0.0/10` (RFC
+  6598 CGNAT shared address space) check rather than relying solely on
+  `ipaddress.is_global` for it, matching the existing "spell the ranges out
+  for auditability" approach used for the other forbidden ranges.
+- New adversarial tests: NAT64-encoded loopback/RFC1918/metadata/CGNAT
+  addresses; plain CGNAT addresses and their range boundaries; and tests
+  that exercise the real (non-mocked) `_open()` to confirm `conn.sock`
+  pinning stops `http.client` from ever re-resolving/re-connecting via its
+  own `auto_open` path (per redirect hop too), and that `HTTP(S)_PROXY`
+  environment variables have no effect — the connection always goes
+  directly to the pre-validated, pinned IP.
+
+
 ## 0.5.0 — 2026-07-06
 
 ### Added

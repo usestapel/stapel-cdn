@@ -13,8 +13,11 @@ Every network step is guarded, and each guard has a dedicated test:
 * **DNS → IP allowlisting** — the hostname is resolved once with
   ``socket.getaddrinfo`` and *all* returned addresses are validated against
   the forbidden ranges (private RFC1918/ULA, loopback, link-local incl. the
-  169.254.169.254 cloud-metadata endpoint, multicast, reserved,
-  unspecified). If *any* resolved address is forbidden the whole fetch is
+  169.254.169.254 cloud-metadata endpoint, multicast, reserved, unspecified,
+  CGNAT ``100.64.0.0/10``). IPv4-mapped, 6to4, and NAT64 (``64:ff9b::/96``)
+  IPv6 forms are unwrapped to their embedded IPv4 address before validation,
+  so a private/metadata address cannot sneak past the allowlist re-encoded
+  as IPv6. If *any* resolved address is forbidden the whole fetch is
   refused — a name that answers with a mix of public and private records is
   treated as hostile, not as "pick the good one".
 * **Anti-DNS-rebinding via IP pinning** — we resolve once, validate, then
@@ -111,16 +114,45 @@ def _max_redirects() -> int:
 # --------------------------------------------------------------------------- #
 # IP / DNS validation
 # --------------------------------------------------------------------------- #
+_NAT64_WELL_KNOWN_PREFIX = ipaddress.ip_network("64:ff9b::/96")
+_CGNAT_RANGE = ipaddress.ip_network("100.64.0.0/10")
+
+
+def _nat64_embedded_ipv4(ip: ipaddress.IPv6Address) -> ipaddress.IPv4Address | None:
+    """Extract the embedded IPv4 address from a NAT64 (RFC 6052) address.
+
+    Only the *well-known* prefix ``64:ff9b::/96`` is unwrapped — this is the
+    prefix a NAT64/DNS64 resolver synthesizes AAAA records under for
+    IPv4-only names. ``ipaddress.IPv6Address.ipv4_mapped``/``.sixtofour``
+    have no idea this prefix exists, so e.g. ``64:ff9b::a9fe:a9fe`` (NAT64
+    encoding of the 169.254.169.254 cloud-metadata address) reads as a
+    perfectly ordinary global IPv6 address to ``is_global`` unless it is
+    unwrapped here first, same as the mapped/6to4 forms above it.
+    """
+    if ip in _NAT64_WELL_KNOWN_PREFIX:
+        return ipaddress.IPv4Address(int(ip) & 0xFFFFFFFF)
+    return None
+
+
 def _ip_is_forbidden(ip: ipaddress._BaseAddress) -> bool:
     """True if *ip* is anything but a normal, routable public address.
 
-    Unwraps IPv4-mapped/6to4 IPv6 forms first so an attacker cannot smuggle
-    ``169.254.169.254`` in as ``::ffff:a9fe:a9fe``. ``is_global`` alone would
-    reject all of these, but the flags are spelled out for auditability and
-    because ``is_global`` semantics have shifted across CPython versions.
+    Unwraps IPv4-mapped/6to4/NAT64 IPv6 forms first so an attacker cannot
+    smuggle ``169.254.169.254`` in as ``::ffff:a9fe:a9fe`` or
+    ``64:ff9b::a9fe:a9fe``. ``is_global`` alone would reject all of these
+    *if* it recognized them as embedded IPv4, but it does not know the
+    NAT64 prefix at all, so that one is unwrapped explicitly. The
+    RFC1918/loopback/etc. flags below are spelled out for auditability and
+    because ``is_global`` semantics have shifted across CPython versions;
+    CGNAT (RFC 6598, ``100.64.0.0/10``) is likewise checked explicitly
+    rather than trusted to ``is_global`` alone, for the same reason.
     """
     if ip.version == 6:
-        mapped = getattr(ip, "ipv4_mapped", None) or getattr(ip, "sixtofour", None)
+        mapped = (
+            getattr(ip, "ipv4_mapped", None)
+            or getattr(ip, "sixtofour", None)
+            or _nat64_embedded_ipv4(ip)
+        )
         if mapped is not None:
             ip = mapped
 
@@ -132,6 +164,7 @@ def _ip_is_forbidden(ip: ipaddress._BaseAddress) -> bool:
         or ip.is_multicast
         or ip.is_reserved
         or ip.is_unspecified      # 0.0.0.0, ::
+        or (ip.version == 4 and ip in _CGNAT_RANGE)  # RFC 6598 CGNAT shared space
     )
 
 

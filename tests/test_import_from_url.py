@@ -11,10 +11,19 @@ The network is faked at two seams:
   * ``stapel_cdn.fetch._open`` — returns a fake HTTP response instead of a
     real pinned TLS connection, so the redirect/streaming/status logic is
     exercised without egress.
+
+``TestConnSockPinningRealOpen`` deliberately does *not* use the ``_open``
+seam: it runs the real :func:`stapel_cdn.fetch._open` and only fakes the
+primitives below it (``socket.create_connection``, ``ssl.create_default_context``,
+``http.client.HTTPSConnection.request``/``.getresponse``) so the
+conn.sock-pinning behaviour itself — the thing that defeats DNS rebinding —
+is exercised rather than assumed.
 """
 import hashlib
+import http.client
 import io
 import socket
+import ssl
 
 import pytest
 from PIL import Image as PILImage
@@ -60,6 +69,20 @@ class FakeResponse:
 
     def close(self):
         pass
+
+
+class _FakeRawSocket:
+    """Stand-in for the object ``socket.create_connection`` would return."""
+
+    def close(self):
+        pass
+
+
+class _FakeSSLContext:
+    """Stand-in for ``ssl.SSLContext`` — ``wrap_socket`` is a pass-through."""
+
+    def wrap_socket(self, raw, server_hostname=None):
+        return raw
 
 
 @pytest.fixture
@@ -140,6 +163,62 @@ class TestForbiddenIPs:
             fetch_image_bytes("https://evil.example/a.png")
         assert exc.value.code == "blocked_ip"
 
+    @pytest.mark.parametrize(
+        "ip",
+        [
+            "64:ff9b::7f00:1",   # NAT64 well-known prefix wrapping 127.0.0.1 (loopback)
+            "64:ff9b::a9fe:a9fe",  # NAT64-mapped 169.254.169.254 (cloud metadata)
+            "64:ff9b::a00:1",    # NAT64-mapped 10.0.0.1 (RFC1918)
+            "64:ff9b::6440:101",  # NAT64-mapped 100.64.1.1 (CGNAT)
+        ],
+    )
+    def test_nat64_mapped_private_rejected(self, monkeypatch, ip):
+        # 64:ff9b::/96 (RFC 6052 well-known NAT64 prefix) embeds an IPv4
+        # address in the low 32 bits. Unlike ::ffff:0:0/96 (ipv4_mapped) or
+        # 2002::/16 (6to4), plain ipaddress.IPv6Address.is_global does NOT
+        # know this prefix and treats it as an ordinary global address —
+        # so a forbidden IPv4 smuggled in this encoding must still be
+        # unwrapped and rejected by _ip_is_forbidden.
+        monkeypatch.setattr(socket, "getaddrinfo", lambda *a, **k: _addrinfo(ip))
+        with pytest.raises(ImageImportError) as exc:
+            fetch_image_bytes("https://evil.example/a.png")
+        assert exc.value.code == "blocked_ip"
+
+    @pytest.mark.parametrize(
+        "ip",
+        [
+            "100.64.0.1",     # start of CGNAT range
+            "100.64.1.1",
+            "100.100.100.1",
+            "100.127.255.254",  # end of CGNAT range
+        ],
+    )
+    def test_cgnat_shared_address_space_rejected(self, monkeypatch, ip):
+        # RFC 6598 Shared Address Space (100.64.0.0/10), used by carriers for
+        # CGNAT. Must never be treated as a normal public address.
+        monkeypatch.setattr(socket, "getaddrinfo", lambda *a, **k: _addrinfo(ip))
+        with pytest.raises(ImageImportError) as exc:
+            fetch_image_bytes("https://evil.example/a.png")
+        assert exc.value.code == "blocked_ip"
+
+    @pytest.mark.parametrize(
+        "ip",
+        [
+            "100.63.255.255",  # just below the CGNAT range — ordinary public
+            "100.128.0.0",     # just above the CGNAT range — ordinary public
+        ],
+    )
+    def test_addresses_adjacent_to_cgnat_range_allowed(self, monkeypatch, ip):
+        # Boundary check: addresses immediately outside 100.64.0.0/10 are
+        # normal public IPv4 and must NOT be caught by the CGNAT carve-out.
+        monkeypatch.setattr(socket, "getaddrinfo", lambda *a, **k: _addrinfo(ip))
+        monkeypatch.setattr(
+            fetch,
+            "_open",
+            lambda *a: FakeResponse(200, {"Content-Type": "image/png"}, _png_bytes()),
+        )
+        fetch_image_bytes("https://public.example/a.png")  # must not raise
+
 
 # --------------------------------------------------------------------------- #
 # Anti-rebinding: connection is pinned to the validated IP
@@ -176,6 +255,122 @@ class TestIpPinning:
         with pytest.raises(ImageImportError) as exc:
             fetch_image_bytes("https://public.example/a.png")
         assert exc.value.code == "blocked_ip"
+
+
+# --------------------------------------------------------------------------- #
+# Anti-rebinding, exercised through the *real* _open() — no fake seam
+# --------------------------------------------------------------------------- #
+class TestConnSockPinningRealOpen:
+    """These tests run the actual :func:`stapel_cdn.fetch._open`, faking
+    only ``socket.create_connection``, ``ssl.create_default_context`` and
+    ``http.client.HTTPSConnection.request``/``.getresponse`` — the seam used
+    everywhere else in this file (``fetch._open`` itself) would hide exactly
+    the behaviour under test: that pre-setting ``conn.sock`` stops
+    ``http.client`` from ever re-resolving/re-connecting on its own.
+    """
+
+    def _patch_real_network(self, monkeypatch, resolved_ip):
+        getaddrinfo_calls = []
+        create_connection_calls = []
+
+        def fake_getaddrinfo(host, port, *a, **k):
+            getaddrinfo_calls.append((host, port))
+            return _addrinfo(resolved_ip, port)
+
+        def fake_create_connection(address, timeout=None, **k):
+            create_connection_calls.append(address)
+            return _FakeRawSocket()
+
+        def connect_should_never_be_called(self):
+            raise AssertionError(
+                "HTTPSConnection.connect() was called — conn.sock pinning "
+                "failed and http.client fell back to its auto_open path"
+            )
+
+        monkeypatch.setattr(socket, "getaddrinfo", fake_getaddrinfo)
+        monkeypatch.setattr(socket, "create_connection", fake_create_connection)
+        monkeypatch.setattr(ssl, "create_default_context", lambda: _FakeSSLContext())
+        # HTTPSConnection overrides HTTPConnection.connect() (it wraps the
+        # socket in TLS), so that's the method that would actually run if
+        # conn.sock were left unset — patch it directly rather than the base
+        # class method, which would silently not be hit via the MRO.
+        monkeypatch.setattr(http.client.HTTPSConnection, "connect", connect_should_never_be_called)
+        monkeypatch.setattr(
+            http.client.HTTPSConnection,
+            "request",
+            lambda self, method, path, headers=None: None,
+        )
+        return getaddrinfo_calls, create_connection_calls
+
+    def test_no_reconnect_or_reresolve_once_sock_pinned(self, monkeypatch):
+        getaddrinfo_calls, create_connection_calls = self._patch_real_network(
+            monkeypatch, "93.184.216.34"
+        )
+        monkeypatch.setattr(
+            http.client.HTTPSConnection,
+            "getresponse",
+            lambda self: FakeResponse(200, {"Content-Type": "image/png"}, _png_bytes()),
+        )
+
+        result = fetch_image_bytes("https://host.example/a.png")
+
+        assert result == _png_bytes()
+        # Exactly one resolution and one raw connect for the single hop.
+        # HTTPSConnection.connect() (the auto_open path, which would
+        # re-resolve the hostname itself via socket.create_connection(host,
+        # ...)) was never invoked because conn.sock was pinned before
+        # conn.request()/getresponse() ran.
+        assert getaddrinfo_calls == [("host.example", 443)]
+        assert create_connection_calls == [("93.184.216.34", 443)]
+
+    def test_no_reconnect_or_reresolve_per_redirect_hop(self, monkeypatch):
+        getaddrinfo_calls, create_connection_calls = self._patch_real_network(
+            monkeypatch, "93.184.216.34"
+        )
+        responses = iter(
+            [
+                FakeResponse(302, {"Location": "https://host2.example/b.png"}, b""),
+                FakeResponse(200, {"Content-Type": "image/png"}, _png_bytes()),
+            ]
+        )
+        monkeypatch.setattr(
+            http.client.HTTPSConnection, "getresponse", lambda self: next(responses)
+        )
+
+        result = fetch_image_bytes("https://host.example/a.png")
+
+        assert result == _png_bytes()
+        # One getaddrinfo call and one raw connect per hop — two hops here,
+        # never more (no hop reconnects/re-resolves on top of its own).
+        assert getaddrinfo_calls == [("host.example", 443), ("host2.example", 443)]
+        assert create_connection_calls == [
+            ("93.184.216.34", 443),
+            ("93.184.216.34", 443),
+        ]
+
+    def test_proxy_env_vars_are_ignored(self, monkeypatch):
+        # A fake attacker-controlled proxy in every variable urllib/requests
+        # would normally honor. _open() talks raw sockets directly to the
+        # pinned IP, so none of this may have any effect.
+        for var in ("HTTP_PROXY", "HTTPS_PROXY", "http_proxy", "https_proxy", "ALL_PROXY"):
+            monkeypatch.setenv(var, "http://attacker-proxy.example:8080")
+
+        getaddrinfo_calls, create_connection_calls = self._patch_real_network(
+            monkeypatch, "93.184.216.34"
+        )
+        monkeypatch.setattr(
+            http.client.HTTPSConnection,
+            "getresponse",
+            lambda self: FakeResponse(200, {"Content-Type": "image/png"}, _png_bytes()),
+        )
+
+        fetch_image_bytes("https://host.example/a.png")
+
+        # socket.create_connection targets the pinned IP directly — no
+        # proxy CONNECT tunnel, no env-driven proxy host — despite every
+        # common proxy env var pointing at an attacker-controlled host.
+        assert create_connection_calls == [("93.184.216.34", 443)]
+        assert getaddrinfo_calls == [("host.example", 443)]
 
 
 # --------------------------------------------------------------------------- #
