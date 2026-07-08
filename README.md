@@ -2,6 +2,7 @@
 
 [![CI](https://github.com/usestapel/stapel-cdn/actions/workflows/ci.yml/badge.svg)](https://github.com/usestapel/stapel-cdn/actions/workflows/ci.yml)
 [![codecov](https://codecov.io/gh/usestapel/stapel-cdn/graph/badge.svg)](https://codecov.io/gh/usestapel/stapel-cdn)
+[![PyPI](https://img.shields.io/pypi/v/stapel-cdn.svg)](https://pypi.org/project/stapel-cdn/)
 
 > Media management — image/video/file upload, processing, CDN ref tracking
 
