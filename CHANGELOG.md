@@ -4,6 +4,14 @@ All notable changes to this project will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## 0.6.1 — 2026-07-17
+
+### Changed
+- `stapel-core` ceiling raised `>=0.10,<0.11` → `>=0.10,<0.12` (core 0.11
+  fleet re-pin: default bus, nav, config-checks, error params/language —
+  additive for modules). Suite green against core 0.11.2 (incl. the
+  `images`/`s3`/`celery` extras), no code changes needed.
+
 ## 0.6.0 — 2026-07-16
 
 Breaking tier semantics (pre-1.0: minor = breaking). Implements the
