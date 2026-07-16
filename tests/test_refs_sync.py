@@ -50,7 +50,7 @@ def _make_file(file_hash=FIL_HASH, refs=None):
 def _service_post(payload):
     """POST to RefSyncView as an internal service request."""
     factory = APIRequestFactory()
-    request = factory.post('/cdn/api/refs/sync/', payload, format='json')
+    request = factory.post('/cdn/api/v1/refs/sync/', payload, format='json')
     request.is_service_request = True
     return RefSyncView.as_view()(request)
 
@@ -62,7 +62,7 @@ class TestRefSyncView:
     def test_rejected_without_service_marker(self):
         client = APIClient()
         response = client.post(
-            '/cdn/api/refs/sync/',
+            '/cdn/api/v1/refs/sync/',
             {
                 'service': 'shop', 'entity_type': 'product', 'entity_id': '1',
                 'old_hashes': [], 'new_hashes': [],

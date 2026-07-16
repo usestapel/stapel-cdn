@@ -3,7 +3,12 @@ Tests for conf-driven settings (STAPEL_CDN namespace, stapel_cdn.conf).
 """
 from django.test import override_settings
 
-from stapel_cdn.conf import DEFAULT_VARIANT_SIZES, cdn_settings
+from stapel_cdn.conf import (
+    DEFAULT_PREVIEW_SIZES,
+    DEFAULT_THUMBNAIL_SIZES,
+    DEFAULT_VARIANT_SIZES,
+    cdn_settings,
+)
 from stapel_cdn.models import Image, get_image_type_choices
 from stapel_cdn.services import ImageProcessingService
 
@@ -11,8 +16,12 @@ from stapel_cdn.services import ImageProcessingService
 class TestDefaults:
     """With no overrides, conf must match the historical hardcoded values."""
 
-    def test_variant_sizes_default(self):
-        assert list(cdn_settings.VARIANT_SIZES) == [16, 32, 64, 120, 160, 240, 480, 720, 1080]
+    def test_tier_lists_default(self):
+        # images-and-cdn.md §2.1: 560 inserted between 480 and 720; the
+        # ladder splits into thumbnail (min-side) and preview (w/h) classes.
+        assert list(cdn_settings.THUMBNAIL_SIZES) == [16, 32, 64, 120]
+        assert list(cdn_settings.PREVIEW_SIZES) == [160, 240, 480, 560, 720, 1080]
+        assert list(DEFAULT_VARIANT_SIZES) == [16, 32, 64, 120, 160, 240, 480, 560, 720, 1080]
 
     def test_image_types_default(self):
         assert get_image_type_choices() == [("product", "Product"), ("avatar", "Avatar")]
@@ -34,10 +43,12 @@ class TestDefaults:
 
     def test_default_variant_properties_exist(self):
         image = Image(file_hash="a" * 64, type="product")
-        for size in DEFAULT_VARIANT_SIZES:
+        for size in DEFAULT_THUMBNAIL_SIZES:
             url = getattr(image, f"variant_{size}_url")
             assert url.endswith(f"product/{'a' * 64}/{size}.webp")
-        assert image.variant_720_jpg_url.endswith(f"product/{'a' * 64}/720.jpg")
+        for size in DEFAULT_PREVIEW_SIZES:
+            url = getattr(image, f"variant_{size}_url")
+            assert url.endswith(f"product/{'a' * 64}/{size}w.webp")
 
     def test_get_variant_url_accepts_int_and_str(self):
         image = Image(file_hash="a" * 64, type="avatar")
@@ -47,9 +58,10 @@ class TestDefaults:
 class TestOverrides:
     """STAPEL_CDN dict overrides are honored (and cache-invalidated)."""
 
-    def test_pipeline_honors_variant_sizes_override(self):
-        with override_settings(STAPEL_CDN={"VARIANT_SIZES": [32, 300, 600]}):
-            assert ImageProcessingService.get_variant_sizes() == [32, 300, 600]
+    def test_pipeline_honors_tier_list_overrides(self):
+        with override_settings(
+            STAPEL_CDN={"THUMBNAIL_SIZES": [32], "PREVIEW_SIZES": [300, 600]}
+        ):
             assert ImageProcessingService.get_thumbnail_sizes() == [("32", 32)]
             assert ImageProcessingService.get_preview_sizes() == [("600", 600), ("300", 300)]
         # back to defaults after the override is removed
@@ -57,13 +69,19 @@ class TestOverrides:
 
     def test_model_variant_urls_honor_override(self):
         image = Image(file_hash="b" * 64, type="product")
-        with override_settings(STAPEL_CDN={"VARIANT_SIZES": [32, 300]}):
+        with override_settings(
+            STAPEL_CDN={"THUMBNAIL_SIZES": [32], "PREVIEW_SIZES": [300]}
+        ):
             urls = image.variant_urls
             assert set(urls) == {32, 300}
-            assert urls[300].endswith(f"product/{'b' * 64}/300.webp")
-            # the named default-size properties still exist and work
-            assert image.variant_16_url.endswith("/16.webp")
-            assert image.variant_720_url.endswith("/720.webp")
+            assert urls[32].endswith(f"product/{'b' * 64}/32.webp")
+            # preview tiers map to the w-branch file
+            assert urls[300].endswith(f"product/{'b' * 64}/300w.webp")
+            # thumbnail/preview class membership follows the override
+            assert image.variant_32_url.endswith("/32.webp")
+        # the named default-size properties work against the defaults
+        assert image.variant_16_url.endswith("/16.webp")
+        assert image.variant_720_url.endswith("/720w.webp")
         assert set(image.variant_urls) == set(DEFAULT_VARIANT_SIZES)
 
     def test_max_image_size_override_via_namespace(self):

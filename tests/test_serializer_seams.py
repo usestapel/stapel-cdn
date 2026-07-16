@@ -74,7 +74,7 @@ def test_subclass_swapping_response_serializer_changes_envelope():
     factory = APIRequestFactory()
 
     # Default view: full ImageSerializer envelope
-    request = factory.get('/cdn/api/images/product/random/')
+    request = factory.get('/cdn/api/v1/images/product/random/')
     force_authenticate(request, user=staff)
     default_response = views.RandomImageView.as_view()(request, image_type='product')
     assert default_response.status_code == status.HTTP_200_OK
@@ -82,7 +82,7 @@ def test_subclass_swapping_response_serializer_changes_envelope():
     assert 'variant_720_url' in default_response.data
 
     # Swapped serializer: only the minimal fields remain
-    request = factory.get('/cdn/api/images/product/random/')
+    request = factory.get('/cdn/api/v1/images/product/random/')
     force_authenticate(request, user=staff)
     swapped_response = MinimalRandomImageView.as_view()(request, image_type='product')
     assert swapped_response.status_code == status.HTTP_200_OK

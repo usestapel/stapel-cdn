@@ -82,7 +82,7 @@ def make_image_upload(name='photo.jpg', fmt='JPEG', width=100, height=100, color
 class TestGenericFileUploadView:
     """Tests for GenericFileUploadView (documents/archives)."""
 
-    url = '/cdn/api/upload/file/'
+    url = '/cdn/api/v1/upload/file/'
 
     def test_unauthenticated(self, api_client):
         response = api_client.post(self.url, {}, format='multipart')
@@ -177,7 +177,7 @@ class TestGenericFileUploadView:
 class TestAvatarUploadView:
     """Tests for AvatarUploadView."""
 
-    url = '/cdn/api/upload/avatar/'
+    url = '/cdn/api/v1/upload/avatar/'
 
     def test_upload_success_sets_avatar_type(self, authenticated_client, user):
         response = authenticated_client.post(
@@ -231,7 +231,7 @@ class TestTypedImageUploadView:
 
     def test_invalid_type_rejected(self, authenticated_client):
         response = authenticated_client.post(
-            '/cdn/api/images/banner/upload/',
+            '/cdn/api/v1/images/banner/upload/',
             {'file': make_image_upload()},
             format='multipart',
         )
@@ -241,7 +241,7 @@ class TestTypedImageUploadView:
 
     def test_upload_success_with_type(self, authenticated_client, user):
         response = authenticated_client.post(
-            '/cdn/api/images/avatar/upload/',
+            '/cdn/api/v1/images/avatar/upload/',
             {'file': make_image_upload('typed.png', fmt='PNG', color='blue')},
             format='multipart',
         )
@@ -258,12 +258,12 @@ class TestTypedImageUploadView:
         f2 = SimpleUploadedFile('t2.jpg', content, content_type='image/jpeg')
 
         response1 = authenticated_client.post(
-            '/cdn/api/images/product/upload/', {'file': f1}, format='multipart'
+            '/cdn/api/v1/images/product/upload/', {'file': f1}, format='multipart'
         )
         assert response1.status_code == status.HTTP_201_CREATED
 
         response2 = authenticated_client.post(
-            '/cdn/api/images/product/upload/', {'file': f2}, format='multipart'
+            '/cdn/api/v1/images/product/upload/', {'file': f2}, format='multipart'
         )
         assert response2.status_code == status.HTTP_200_OK
         assert response2.data['message'] == 'Image already exists'
@@ -273,7 +273,7 @@ class TestTypedImageUploadView:
     def test_spoofed_content_rejected(self, authenticated_client):
         spoofed = SimpleUploadedFile('fake.jpg', b'plain text', content_type='image/jpeg')
         response = authenticated_client.post(
-            '/cdn/api/images/product/upload/', {'file': spoofed}, format='multipart'
+            '/cdn/api/v1/images/product/upload/', {'file': spoofed}, format='multipart'
         )
         assert response.status_code == status.HTTP_400_BAD_REQUEST
         assert response.data['error'] == 'Unsupported file format'
@@ -282,7 +282,7 @@ class TestTypedImageUploadView:
     def test_create_failure_returns_500(self, authenticated_client):
         with patch('stapel_cdn.views.Image.objects.create', side_effect=RuntimeError('db down')):
             response = authenticated_client.post(
-                '/cdn/api/images/product/upload/',
+                '/cdn/api/v1/images/product/upload/',
                 {'file': make_image_upload('d.jpg', color='pink')},
                 format='multipart',
             )
@@ -293,7 +293,7 @@ class TestTypedImageUploadView:
 class TestImageUploadValidationMatrix:
     """Validation matrix for image uploads: size, extension, content, bombs."""
 
-    url = '/cdn/api/upload/image/'
+    url = '/cdn/api/v1/upload/image/'
 
     def test_oversize_rejected_with_413(self, authenticated_client):
         with override_settings(STAPEL_CDN={'MAX_IMAGE_SIZE': 10}):
@@ -361,7 +361,7 @@ class TestImageUploadValidationMatrix:
 class TestVideoUploadExtras:
     """Extra tests for VideoUploadView: DB effects, envelope, 500 path."""
 
-    url = '/cdn/api/upload/video/'
+    url = '/cdn/api/v1/upload/video/'
 
     def test_upload_persists_and_returns_envelope(self, authenticated_client, user):
         content = b'\x00\x00\x00\x1cftypisom-unique-video-1'
@@ -391,11 +391,11 @@ class TestRandomImageView:
     """Tests for RandomImageView."""
 
     def test_requires_staff(self, authenticated_client):
-        response = authenticated_client.get('/cdn/api/images/product/random/')
+        response = authenticated_client.get('/cdn/api/v1/images/product/random/')
         assert response.status_code == status.HTTP_403_FORBIDDEN
 
     def test_invalid_type(self, staff_client):
-        response = staff_client.get('/cdn/api/images/banner/random/')
+        response = staff_client.get('/cdn/api/v1/images/banner/random/')
         assert response.status_code == status.HTTP_400_BAD_REQUEST
         assert response.data['error'] == 'Invalid image type'
 
@@ -409,7 +409,7 @@ class TestRandomImageView:
             original_size=100,
             is_processed=False,
         )
-        response = staff_client.get('/cdn/api/images/product/random/')
+        response = staff_client.get('/cdn/api/v1/images/product/random/')
         assert response.status_code == status.HTTP_404_NOT_FOUND
         assert response.data['error'] == 'No processed images found'
 
@@ -423,7 +423,7 @@ class TestRandomImageView:
             original_size=1000,
             is_processed=True,
         )
-        response = staff_client.get('/cdn/api/images/product/random/')
+        response = staff_client.get('/cdn/api/v1/images/product/random/')
         assert response.status_code == status.HTTP_200_OK
         assert response.data['id'] == image.id
         assert response.data['file_hash'] == '1' * 64

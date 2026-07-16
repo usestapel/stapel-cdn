@@ -36,18 +36,20 @@ class ImageSerializer(serializers.ModelSerializer):
     # model properties. A read-only ``URLField`` reads that property and gives
     # drf-spectacular an explicit ``string/uri`` type (a bare ``ReadOnlyField``
     # left the type unresolved and warned).
-    variant_16_url = serializers.URLField(read_only=True, help_text="16px thumbnail (WebP)")
-    variant_32_url = serializers.URLField(read_only=True, help_text="32px thumbnail (WebP)")
-    variant_64_url = serializers.URLField(read_only=True, help_text="64px thumbnail (WebP)")
-    variant_120_url = serializers.URLField(read_only=True, help_text="120px thumbnail (WebP)")
-    variant_160_url = serializers.URLField(read_only=True, help_text="160px preview (WebP)")
-    variant_240_url = serializers.URLField(read_only=True, help_text="240px preview (WebP)")
-    variant_480_url = serializers.URLField(read_only=True, help_text="480px medium (WebP)")
-    variant_720_url = serializers.URLField(read_only=True, help_text="720px HD (WebP)")
-    variant_720_jpg_url = serializers.URLField(
-        read_only=True, help_text="720px HD (JPEG fallback)"
+    variant_16_url = serializers.URLField(read_only=True, help_text="16px micro thumbnail, min-side (WebP)")
+    variant_32_url = serializers.URLField(read_only=True, help_text="32px thumbnail, min-side (WebP)")
+    variant_64_url = serializers.URLField(read_only=True, help_text="64px thumbnail, min-side (WebP)")
+    variant_120_url = serializers.URLField(read_only=True, help_text="120px thumbnail, min-side (WebP)")
+    variant_160_url = serializers.URLField(read_only=True, help_text="160px preview, w-branch (WebP)")
+    variant_240_url = serializers.URLField(read_only=True, help_text="240px preview, w-branch (WebP)")
+    variant_480_url = serializers.URLField(read_only=True, help_text="480px preview, w-branch (WebP)")
+    variant_560_url = serializers.URLField(read_only=True, help_text="560px preview, w-branch (WebP)")
+    variant_720_url = serializers.URLField(read_only=True, help_text="720px preview, w-branch (WebP)")
+    variant_1080_url = serializers.URLField(read_only=True, help_text="1080px preview, w-branch (WebP)")
+    variants_meta = serializers.JSONField(
+        read_only=True,
+        help_text="Generated variants with geometry: [{tier, branch, url, width, height}]",
     )
-    variant_1080_url = serializers.URLField(read_only=True, help_text="1080px Full HD (WebP)")
     # 1440/2160 have no ``variant_<size>_url`` model property (not in
     # DEFAULT_VARIANT_SIZES), so a ReadOnlyField silently dropped them and
     # drf-spectacular errored resolving them against the model. Compute the
@@ -78,11 +80,12 @@ class ImageSerializer(serializers.ModelSerializer):
             "variant_160_url",
             "variant_240_url",
             "variant_480_url",
+            "variant_560_url",
             "variant_720_url",
-            "variant_720_jpg_url",
             "variant_1080_url",
             "variant_1440_url",
             "variant_2160_url",
+            "variants_meta",
             "is_processed",
             "uploaded_by",
             "uploaded_by_username",

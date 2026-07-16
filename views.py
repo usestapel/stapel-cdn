@@ -177,7 +177,7 @@ class ImageUploadView(SerializerSeamMixin, APIView):
             ),
         ],
     )
-    def post(self, request):
+    def post(self, request):  # noqa: R007
         """
         Upload an image file.
         Variants are automatically generated via Django signals.
@@ -287,7 +287,7 @@ class VideoUploadView(SerializerSeamMixin, APIView):
             500: StapelErrorSerializer,
         },
     )
-    def post(self, request):
+    def post(self, request):  # noqa: R007
         """
         Upload a video file.
         Variants will be automatically generated via Django signals (TODO: implement ffmpeg processing).
@@ -467,7 +467,7 @@ def calculate_file_hash(file_content: bytes) -> str:
             ),
         ],
     )
-    def get(self, request):
+    def get(self, request):  # noqa: R007
         """
         Check if a file exists by its hash.
         Query parameter: file_hash
@@ -494,7 +494,7 @@ Useful when hash is very long or contains special characters.
             401: StapelErrorSerializer,
         },
     )
-    def post(self, request):
+    def post(self, request):  # noqa: R007
         """
         Check if a file exists by its hash (POST method).
         Body parameter: file_hash
@@ -548,7 +548,7 @@ class AvatarUploadView(SerializerSeamMixin, APIView):
             500: StapelErrorSerializer,
         },
     )
-    def post(self, request):
+    def post(self, request):  # noqa: R007
         """Upload an avatar image file. Sets type to 'avatar'."""
         serializer = self.get_request_serializer_class()(data=request.data)
         serializer.is_valid(raise_exception=True)
@@ -641,7 +641,7 @@ class TypedImageUploadView(SerializerSeamMixin, APIView):
             500: StapelErrorSerializer,
         },
     )
-    def post(self, request, image_type):
+    def post(self, request, image_type):  # noqa: R007
         """Upload an image file with the specified type."""
         # Validate image type
         valid_types = [choice[0] for choice in get_image_type_choices()]
@@ -725,7 +725,7 @@ class RandomImageView(SerializerSeamMixin, APIView):
             403: StapelErrorSerializer,
         },
     )
-    def get(self, request, image_type):
+    def get(self, request, image_type):  # noqa: R007
         """Get a random image of the given type."""
         # Validate image type
         valid_types = [choice[0] for choice in get_image_type_choices()]
@@ -863,7 +863,7 @@ class RefSyncView(SerializerSeamMixin, APIView):
         request=RefSyncRequestSerializer,
         responses={200: RefSyncResponseSerializer},
     )
-    def post(self, request):
+    def post(self, request):  # noqa: R007
         serializer = self.get_request_serializer_class()(data=request.data)
         serializer.is_valid(raise_exception=True)
         data = serializer.validated_data
@@ -922,7 +922,7 @@ class GenericFileUploadView(SerializerSeamMixin, APIView):
             400: StapelErrorSerializer,
         },
     )
-    def post(self, request):
+    def post(self, request):  # noqa: R007
         if "file" not in request.FILES:
             return StapelErrorResponse(400, ERR_400_NO_FILE)
 

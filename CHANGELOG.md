@@ -4,6 +4,73 @@ All notable changes to this project will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## 0.6.0 — 2026-07-16
+
+Breaking tier semantics (pre-1.0: minor = breaking). Implements the
+images-and-cdn.md (§61) aspect-friendly ladder. Alpha policy: **no
+compatibility file layouts, no data migrations** — after upgrading run
+`manage.py regenerate_media` to rebuild every image's variants under the
+new semantics.
+
+### Changed — variant ladder is now aspect-friendly
+- **Thumbnail tiers (16/32/64/120) are min-side resized** (`_resize(...,
+  axis="min")`): the *smaller* side of the file equals the tier, so square
+  avatar/grid slots never upscale regardless of orientation. Previously the
+  single ladder resized by height only — a portrait 600×3000 produced a
+  24×120 "120px" thumbnail (×5 upscale in a 120×120 slot).
+- **Preview tiers (160/240/480/560/720/1080) generate two branches per
+  tier**: `{T}w.webp` (width == T) and `{T}h.webp` (height == T), each with
+  its own ladder pass — the client picks the branch matching the slot's
+  limiting axis (cover/contain × aspect), never upscaling. **560 added** to
+  the default ladder between 480 and 720.
+- **Square dedup (±1px)**: square images generate only the w-branch; the
+  render metadata carries `square: true` (any branch equivalent) instead of
+  a duplicate file.
+- **`STAPEL_CDN["VARIANT_SIZES"]` replaced** by `THUMBNAIL_SIZES`
+  (`(16, 32, 64, 120)`) and `PREVIEW_SIZES` (`(160, 240, 480, 560, 720,
+  1080)`). `ImageProcessingService.get_variant_sizes()` removed;
+  `get_thumbnail_sizes()` / `get_preview_sizes()` read the new keys.
+- **`Image.get_variant_url(size, branch=None)`**: thumbnails resolve to
+  `{tier}.webp`, preview tiers to `{tier}{branch}.webp` (default `w`).
+  `variant_<size>_url` properties cover the new default ladder (incl. 560).
+- **Legacy `720.jpg` fallback removed** (file, `variant_720_jpg_url`
+  property, serializer field, admin link). WebP-incapable browsers are not
+  a supported target.
+
+### Added
+- **`Image.variants_meta` JSONField** (migration `0002`, expand-only):
+  per-variant geometry `[{tier, branch, url, width, height}]`, filled by
+  the pipeline (branch `null` = min-side thumbnail; previews `"w"`/`"h"`).
+  Exposed in `ImageSerializer` as `variants_meta`.
+- **`cdn.describe` comm Function** — render-metadata snapshot
+  (images-and-cdn.md §5): `{mime, bytes, width, height, aspect,
+  duration_ms, preview_b64, square, variants[]}`; `preview_b64` inlines the
+  16px micro tier as a `data:image/webp;base64,...` URI (blur-up
+  placeholder). `variants[]` = `variants_meta` + the original file. Videos
+  report `duration_ms`; generic files report mime/bytes only. Unknown ref
+  raises (`LookupError` → `FunctionCallError`).
+- **`manage.py regenerate_media`** (`--type`, `--dry-run`) — deletes
+  generated variants (old single-ladder files and `720.jpg` included) and
+  re-runs the pipeline for every image. The operational launch step of this
+  release.
+
+### Changed — HTTP surface (v1 canon, api-versioning.md §2/§6)
+- URL set moved to `stapel_cdn.urls_v1` (paths inside unchanged); the root
+  `stapel_cdn.urls` now mounts it under the mandatory `v1/` sub-prefix.
+  Hosts keep `include('stapel_cdn.urls')` under `.../cdn/api/` — the
+  surface becomes `/cdn/api/v1/...`. Bare `/cdn/api/...` no longer exists
+  (one-off pre-gate sweep, no deprecation window: the bare path was never a
+  published stable contract).
+
+### Fixed
+- Shrink-on-load calls now pass an explicit unbounded free axis —
+  `vips_thumbnail` defaults `height` to `width` (square bounding box),
+  which silently made ladder loads max-side-bound instead of
+  axis-bound.
+- Admin variant-size display resolved files under the wrong directory
+  (`images/` instead of `<type>/`) — file sizes now show for existing
+  variants.
+
 ## 0.5.3 — 2026-07-16
 
 ### Fixed

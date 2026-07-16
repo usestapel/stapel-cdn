@@ -9,6 +9,7 @@ idempotent). Other modules call these by name via
     from stapel_core.comm import call
 
     call("cdn.media_exists", {"ref": "product/<hash>"})
+    call("cdn.describe", {"ref": "product/<hash>"})
     call("cdn.refs_sync", {"service": "shop", "entity_type": "product",
                            "entity_id": "42", "new_hashes": [...]})
 """
@@ -57,6 +58,45 @@ IMPORT_FROM_URL_SCHEMA = {
     },
     "required": ["url", "image_type"],
 }
+
+
+DESCRIBE_SCHEMA = {
+    "type": "object",
+    "properties": {
+        "ref": {
+            "type": "string",
+            "description": "Media reference in <type>/<id> form, e.g. product/<hash>",
+        },
+    },
+    "required": ["ref"],
+}
+
+
+@function("cdn.describe", schema=DESCRIBE_SCHEMA)
+def describe(payload: dict) -> dict:
+    """Render-metadata snapshot for a media ref (images-and-cdn.md §5).
+
+    Payload: ``{"ref": "<type>/<id>"}``. Returns the immutable snapshot
+    ``{mime, bytes, width, height, aspect, duration_ms, preview_b64, square,
+    variants[]}`` — ``preview_b64`` is the 16px micro tier as a
+    ``data:image/webp;base64,...`` URI, ``variants`` carries per-tier
+    per-branch geometry (thumbnails: ``branch: null`` min-side; previews:
+    ``"w"``/``"h"``; square images only ``"w"`` with ``square: true``) plus
+    the original. Consumers denormalize this ONCE when resolving a ref
+    (chat attachment, catalog card) — it is not meant to be recomputed per
+    render.
+
+    Raises ``LookupError`` for an unknown ref (surfaced to the caller as a
+    ``FunctionCallError``) — a missing asset is the caller's placeholder
+    case, not an empty snapshot.
+    """
+    from .services import _batch_resolve_media, build_render_metadata
+
+    ref = payload["ref"]
+    resolved = _batch_resolve_media([ref])
+    if ref not in resolved:
+        raise LookupError(f"cdn.describe: unknown media ref {ref!r}")
+    return build_render_metadata(resolved[ref])
 
 
 @function("cdn.media_exists", schema=MEDIA_EXISTS_SCHEMA)

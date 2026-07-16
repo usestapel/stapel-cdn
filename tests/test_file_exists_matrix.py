@@ -72,11 +72,11 @@ def media(owner):
 
 
 def _get(client, file_hash):
-    return client.get('/cdn/api/file/exists/', {'file_hash': file_hash})
+    return client.get('/cdn/api/v1/file/exists/', {'file_hash': file_hash})
 
 
 def _post(client, file_hash):
-    return client.post('/cdn/api/file/exists/', {'file_hash': file_hash}, format='json')
+    return client.post('/cdn/api/v1/file/exists/', {'file_hash': file_hash}, format='json')
 
 
 @pytest.mark.django_db

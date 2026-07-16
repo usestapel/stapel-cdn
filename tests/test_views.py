@@ -99,7 +99,7 @@ class TestImageUploadView:
     def test_upload_image_unauthenticated(self, api_client, sample_image_file):
         """Test that unauthenticated users cannot upload images."""
         response = api_client.post(
-            '/cdn/api/upload/image/',
+            '/cdn/api/v1/upload/image/',
             {'file': sample_image_file},
             format='multipart'
         )
@@ -109,7 +109,7 @@ class TestImageUploadView:
     def test_upload_image_success(self, mock_signal, authenticated_client, sample_image_file):
         """Test successful image upload."""
         response = authenticated_client.post(
-            '/cdn/api/upload/image/',
+            '/cdn/api/v1/upload/image/',
             {'file': sample_image_file},
             format='multipart'
         )
@@ -134,7 +134,7 @@ class TestImageUploadView:
         )
 
         response1 = authenticated_client.post(
-            '/cdn/api/upload/image/',
+            '/cdn/api/v1/upload/image/',
             {'file': file1},
             format='multipart'
         )
@@ -149,7 +149,7 @@ class TestImageUploadView:
         )
 
         response2 = authenticated_client.post(
-            '/cdn/api/upload/image/',
+            '/cdn/api/v1/upload/image/',
             {'file': file2},
             format='multipart'
         )
@@ -160,7 +160,7 @@ class TestImageUploadView:
     def test_upload_invalid_file_type(self, authenticated_client, invalid_file):
         """Test uploading an invalid file type returns error."""
         response = authenticated_client.post(
-            '/cdn/api/upload/image/',
+            '/cdn/api/v1/upload/image/',
             {'file': invalid_file},
             format='multipart'
         )
@@ -170,7 +170,7 @@ class TestImageUploadView:
     def test_upload_no_file(self, authenticated_client):
         """Test uploading without a file returns error."""
         response = authenticated_client.post(
-            '/cdn/api/upload/image/',
+            '/cdn/api/v1/upload/image/',
             {},
             format='multipart'
         )
@@ -179,7 +179,7 @@ class TestImageUploadView:
     def test_upload_video_to_image_endpoint(self, authenticated_client, sample_video_file):
         """Test uploading a video to image endpoint returns error."""
         response = authenticated_client.post(
-            '/cdn/api/upload/image/',
+            '/cdn/api/v1/upload/image/',
             {'file': sample_video_file},
             format='multipart'
         )
@@ -194,7 +194,7 @@ class TestVideoUploadView:
     def test_upload_video_unauthenticated(self, api_client, sample_video_file):
         """Test that unauthenticated users cannot upload videos."""
         response = api_client.post(
-            '/cdn/api/upload/video/',
+            '/cdn/api/v1/upload/video/',
             {'file': sample_video_file},
             format='multipart'
         )
@@ -204,7 +204,7 @@ class TestVideoUploadView:
     def test_upload_video_success(self, mock_signal, authenticated_client, sample_video_file):
         """Test successful video upload."""
         response = authenticated_client.post(
-            '/cdn/api/upload/video/',
+            '/cdn/api/v1/upload/video/',
             {'file': sample_video_file},
             format='multipart'
         )
@@ -229,7 +229,7 @@ class TestVideoUploadView:
         )
 
         response1 = authenticated_client.post(
-            '/cdn/api/upload/video/',
+            '/cdn/api/v1/upload/video/',
             {'file': file1},
             format='multipart'
         )
@@ -242,7 +242,7 @@ class TestVideoUploadView:
         )
 
         response2 = authenticated_client.post(
-            '/cdn/api/upload/video/',
+            '/cdn/api/v1/upload/video/',
             {'file': file2},
             format='multipart'
         )
@@ -252,7 +252,7 @@ class TestVideoUploadView:
     def test_upload_image_to_video_endpoint(self, authenticated_client, sample_image_file):
         """Test uploading an image to video endpoint returns error."""
         response = authenticated_client.post(
-            '/cdn/api/upload/video/',
+            '/cdn/api/v1/upload/video/',
             {'file': sample_image_file},
             format='multipart'
         )
@@ -262,7 +262,7 @@ class TestVideoUploadView:
     def test_upload_no_file(self, authenticated_client):
         """Test uploading without a file returns error."""
         response = authenticated_client.post(
-            '/cdn/api/upload/video/',
+            '/cdn/api/v1/upload/video/',
             {},
             format='multipart'
         )
@@ -276,21 +276,21 @@ class TestFileExistsView:
     def test_file_exists_unauthenticated(self, api_client):
         """Test that unauthenticated users cannot check file existence."""
         response = api_client.get(
-            '/cdn/api/file/exists/',
+            '/cdn/api/v1/file/exists/',
             {'file_hash': 'a' * 64}
         )
         assert response.status_code == status.HTTP_401_UNAUTHORIZED
 
     def test_file_exists_get_missing_hash(self, authenticated_client):
         """Test GET without file_hash parameter."""
-        response = authenticated_client.get('/cdn/api/file/exists/')
+        response = authenticated_client.get('/cdn/api/v1/file/exists/')
         assert response.status_code == status.HTTP_400_BAD_REQUEST
         assert 'file_hash parameter is required' in response.data['error']
 
     def test_file_exists_get_not_found(self, authenticated_client):
         """Test GET for non-existent file."""
         response = authenticated_client.get(
-            '/cdn/api/file/exists/',
+            '/cdn/api/v1/file/exists/',
             {'file_hash': 'a' * 64}
         )
         assert response.status_code == status.HTTP_200_OK
@@ -311,7 +311,7 @@ class TestFileExistsView:
         )
 
         response = authenticated_client.get(
-            '/cdn/api/file/exists/',
+            '/cdn/api/v1/file/exists/',
             {'file_hash': 'b' * 64}
         )
         assert response.status_code == status.HTTP_200_OK
@@ -330,7 +330,7 @@ class TestFileExistsView:
         )
 
         response = authenticated_client.get(
-            '/cdn/api/file/exists/',
+            '/cdn/api/v1/file/exists/',
             {'file_hash': 'c' * 64}
         )
         assert response.status_code == status.HTTP_200_OK
@@ -341,7 +341,7 @@ class TestFileExistsView:
     def test_file_exists_post_not_found(self, authenticated_client):
         """Test POST for non-existent file."""
         response = authenticated_client.post(
-            '/cdn/api/file/exists/',
+            '/cdn/api/v1/file/exists/',
             {'file_hash': 'd' * 64},
             format='json'
         )
@@ -361,7 +361,7 @@ class TestFileExistsView:
         )
 
         response = authenticated_client.post(
-            '/cdn/api/file/exists/',
+            '/cdn/api/v1/file/exists/',
             {'file_hash': 'e' * 64},
             format='json'
         )
@@ -373,7 +373,7 @@ class TestFileExistsView:
     def test_file_exists_post_missing_hash(self, authenticated_client):
         """Test POST without file_hash."""
         response = authenticated_client.post(
-            '/cdn/api/file/exists/',
+            '/cdn/api/v1/file/exists/',
             {},
             format='json'
         )
@@ -390,7 +390,7 @@ class TestFileExistsView:
         )
 
         response = authenticated_client.post(
-            '/cdn/api/file/exists/',
+            '/cdn/api/v1/file/exists/',
             {'file_hash': 'f' * 64},
             format='json'
         )

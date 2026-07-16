@@ -144,26 +144,30 @@ class TestImageAdmin:
         assert image_admin.refs_count(image) == '-'
 
     def test_variant_links(self, image_admin, image):
-        for name in ('16', '32', '64', '120', '160', '240', '480', '720', '1080'):
+        # Thumbnail tiers: min-side files without a branch suffix.
+        for name in ('16', '32', '64', '120'):
             html = getattr(image_admin, f'variant_{name}_link')(image)
             assert f'/{name}.webp' in html
-        assert '720.jpg' in image_admin.variant_720_jpg_link(image)
+        # Preview tiers: the admin links show the w-branch.
+        for name in ('160', '240', '480', '560', '720', '1080'):
+            html = getattr(image_admin, f'variant_{name}_link')(image)
+            assert f'/{name}w.webp' in html
 
     def test_variant_link_includes_size_when_file_exists(self, image_admin, image):
-        variant_dir = os.path.join(settings.MEDIA_ROOT, 'images', image.file_hash)
+        variant_dir = os.path.join(settings.MEDIA_ROOT, image.type, image.file_hash)
         os.makedirs(variant_dir, exist_ok=True)
         webp = os.path.join(variant_dir, '16.webp')
-        jpg = os.path.join(variant_dir, '720.jpg')
+        webp_720w = os.path.join(variant_dir, '720w.webp')
         try:
             with open(webp, 'wb') as fh:
                 fh.write(b'x' * 100)
-            with open(jpg, 'wb') as fh:
+            with open(webp_720w, 'wb') as fh:
                 fh.write(b'x' * 200)
             assert '(100.0B)' in image_admin.variant_16_link(image)
-            assert '(200.0B)' in image_admin.variant_720_jpg_link(image)
+            assert '(200.0B)' in image_admin.variant_720_link(image)
         finally:
             os.remove(webp)
-            os.remove(jpg)
+            os.remove(webp_720w)
 
     def test_original_link_without_file(self, image_admin, image):
         assert image_admin.original_link(image) == '-'

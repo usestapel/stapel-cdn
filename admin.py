@@ -78,8 +78,8 @@ class ImageAdmin(admin.ModelAdmin):
         "variant_160_link",
         "variant_240_link",
         "variant_480_link",
+        "variant_560_link",
         "variant_720_link",
-        "variant_720_jpg_link",
         "variant_1080_link",
         "is_processed",
         "processing_log",
@@ -110,7 +110,7 @@ class ImageAdmin(admin.ModelAdmin):
                 "fields": (
                     "variant_1080_link",
                     "variant_720_link",
-                    "variant_720_jpg_link",
+                    "variant_560_link",
                     "variant_480_link",
                     "variant_240_link",
                     "variant_160_link",
@@ -169,10 +169,12 @@ class ImageAdmin(admin.ModelAdmin):
         return count or "-"
 
     def _get_variant_file_size(self, obj, variant_name):
-        """Get file size of a variant."""
+        """Get file size of a variant (filename derived from the URL —
+        thumbnails are ``{tier}.webp``, previews ``{tier}w.webp``)."""
         try:
+            filename = os.path.basename(obj.get_variant_url(variant_name))
             file_path = os.path.join(
-                settings.MEDIA_ROOT, "images", obj.file_hash, f"{variant_name}.webp"
+                settings.MEDIA_ROOT, obj.type, obj.file_hash, filename
             )
             if os.path.exists(file_path):
                 return os.path.getsize(file_path)
@@ -226,23 +228,13 @@ class ImageAdmin(admin.ModelAdmin):
     def variant_480_link(self, obj):
         return self._variant_link_with_size(obj, "480")
 
+    @admin.display(description="560px")
+    def variant_560_link(self, obj):
+        return self._variant_link_with_size(obj, "560")
+
     @admin.display(description="720px")
     def variant_720_link(self, obj):
         return self._variant_link_with_size(obj, "720")
-
-    @admin.display(description="720px JPG")
-    def variant_720_jpg_link(self, obj):
-        """Display 720p JPEG variant URL with file size."""
-        url = obj.variant_720_jpg_url
-        try:
-            file_path = os.path.join(
-                settings.MEDIA_ROOT, "images", obj.file_hash, "720.jpg"
-            )
-            size = os.path.getsize(file_path) if os.path.exists(file_path) else None
-        except Exception:
-            size = None
-        size_str = f" ({format_file_size(size)})" if size else ""
-        return format_html('<a href="{}" target="_blank">{}</a>{}', url, url, size_str)
 
     @admin.display(description="1080px")
     def variant_1080_link(self, obj):

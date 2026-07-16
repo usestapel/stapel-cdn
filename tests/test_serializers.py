@@ -90,9 +90,10 @@ class TestImageSerializer:
         assert 'variant_160_url' in data
         assert 'variant_240_url' in data
         assert 'variant_480_url' in data
+        assert 'variant_560_url' in data
         assert 'variant_720_url' in data
-        assert 'variant_720_jpg_url' in data
         assert 'variant_1080_url' in data
+        assert 'variants_meta' in data
         assert 'is_processed' in data
         assert 'uploaded_by' in data
         assert 'uploaded_by_username' in data
@@ -128,8 +129,10 @@ class TestImageSerializer:
         data = serializer.data
 
         assert data['variant_16_url'].endswith('/16.webp')
-        assert data['variant_720_url'].endswith('/720.webp')
-        assert data['variant_720_jpg_url'].endswith('/720.jpg')
+        # preview tiers are branched — the flat URL field shows the w-branch
+        assert data['variant_720_url'].endswith('/720w.webp')
+        assert data['variant_560_url'].endswith('/560w.webp')
+        assert data['variants_meta'] == []
         assert 'e' * 8 in data['variant_16_url']
 
 

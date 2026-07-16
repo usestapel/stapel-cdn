@@ -93,6 +93,17 @@ class Image(models.Model):
         blank=True, default="", help_text="Log of processing operations"
     )
 
+    # Per-variant geometry, filled by the processing pipeline
+    # (images-and-cdn.md §5/§6 п.3): list of
+    # {"tier": int, "branch": "w"|"h"|None, "url": str,
+    #  "width": int, "height": int}. branch is None for thumbnail-class
+    # (min-side) tiers; square images carry only the w-branch (§3.3).
+    variants_meta = models.JSONField(
+        default=list,
+        blank=True,
+        help_text="Generated variants: [{tier, branch, url, width, height}]",
+    )
+
     # Reference tracking
     refs = models.JSONField(
         default=list,
@@ -131,23 +142,29 @@ class Image(models.Model):
     def __str__(self):
         return f"Image: {self.file_hash[:8]}... ({self.original_filename})"
 
-    def get_variant_url(self, size):
-        """Get URL for a specific variant size (int or str). All WebP."""
-        return f"{settings.MEDIA_URL}{self.type}/{self.file_hash}/{size}.webp"
+    def get_variant_url(self, size, branch=None):
+        """URL for a variant tier (int or str). All WebP.
+
+        Thumbnail-class tiers (``STAPEL_CDN["THUMBNAIL_SIZES"]``, min-side
+        resize) have no branches: ``{tier}.webp``. Preview-class tiers are
+        branched (images-and-cdn.md §3.2): ``{tier}w.webp`` / ``{tier}h.webp``
+        — ``branch`` defaults to ``"w"`` (square images store only the
+        w-branch, §3.3).
+        """
+        tier = int(size)
+        thumbnails = {int(s) for s in cdn_settings.THUMBNAIL_SIZES}
+        suffix = "" if tier in thumbnails else (branch or "w")
+        return f"{settings.MEDIA_URL}{self.type}/{self.file_hash}/{tier}{suffix}.webp"
 
     @property
     def variant_urls(self):
-        """Mapping ``size -> URL`` for all configured VARIANT_SIZES.
+        """Mapping ``size -> URL`` for all configured tiers.
 
-        Honors ``STAPEL_CDN["VARIANT_SIZES"]`` overrides; the named
-        ``variant_<size>_url`` properties below cover the default sizes.
+        Thumbnail tiers map to their min-side file, preview tiers to the
+        w-branch. Full per-branch geometry lives in ``variants_meta``.
         """
-        return {int(size): self.get_variant_url(size) for size in cdn_settings.VARIANT_SIZES}
-
-    @property
-    def variant_720_jpg_url(self):
-        """Get URL for 720p JPEG variant (legacy browser compatibility)."""
-        return f"{settings.MEDIA_URL}{self.type}/{self.file_hash}/720.jpg"
+        sizes = list(cdn_settings.THUMBNAIL_SIZES) + list(cdn_settings.PREVIEW_SIZES)
+        return {int(size): self.get_variant_url(size) for size in sizes}
 
     @staticmethod
     def calculate_file_hash(file):
