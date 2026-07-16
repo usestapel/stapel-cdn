@@ -32,7 +32,7 @@ Depends on `stapel-core` only · Optional extras: `images` (pyvips), `s3` (boto3
   speed) — opt-in via Django `FILE_UPLOAD_HANDLERS`.
 - **Comm surface**: provides functions `cdn.media_exists` and `cdn.refs_sync`
   (`stapel_cdn.functions`, called via `stapel_core.comm.call` — no import of this package
-  needed); subscribes to action `user.deleted` (`stapel_cdn.actions`); Kafka consumer
+  needed); subscribes to actions `user.deleted` / `user.deletion_initiated` (`stapel_cdn.actions`); Kafka consumer
   `manage.py consume_cdn_events` for `cdn.ref.sync` events (topic
   `stapel.cdn.ref-sync`, overridable via `STAPEL_TOPIC_CDN_REF_SYNC` in stapel-core).
 - **GDPR** (`stapel_cdn.gdpr.CDNGDPRProvider`, section `media`): export / staged export /
@@ -109,7 +109,8 @@ class MyImageUpload(ImageUploadView):
 |---|---|---|
 | `cdn.media_exists` | provides (function) | `call("cdn.media_exists", {"ref": "<type>/<hash>"})` → `{"exists": bool}`. Ref prefixes: image type (`product`, `avatar`), `video`, `file`. |
 | `cdn.refs_sync` | provides (function) | `call("cdn.refs_sync", {"service", "entity_type", "entity_id", "old_hashes", "new_hashes"})` → `{"added", "removed", "errors"}`. Same logic as `RefSyncView` / `services.apply_ref_sync`. |
-| `user.deleted` | subscribes (action) | Erases this module's PII via `CDNGDPRProvider.delete()`. Schema: `schemas/consumes/user.deleted.json`. Handler is idempotent (at-least-once delivery). |
+| `user.deleted` | subscribes (action) | Erases this module's PII via `CDNGDPRProvider.delete()` and, when the payload carries a `correlation_id`, confirms with `gdpr.section.erased` (`service: "media"`) so the gdpr orchestrator can complete the closure. Schema: `schemas/consumes/user.deleted.json`. Handler is idempotent (at-least-once delivery). |
+| `user.deletion_initiated` | subscribes (action) | Grace period started: purges the user's *unreferenced* media (`refs == []`) via `CDNGDPRProvider.purge_unreferenced()`; referenced media keeps serving (and its ownership link) until `user.deleted` — grace is cancellable. Schema: `schemas/consumes/user.deletion_initiated.json`. Idempotent. |
 | `cdn.ref.sync` | consumes (bus) | `manage.py consume_cdn_events` (Kafka topic `stapel.cdn.ref-sync`); the producer-side helper `sync_cdn_refs()` lives in `stapel_core.django.cdn.ref_sync`, so other modules publish without importing this package. |
 
 Registration happens in `CdnConfig.ready()`; transport (in-process vs bus) is chosen by

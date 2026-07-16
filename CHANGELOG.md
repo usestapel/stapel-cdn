@@ -4,6 +4,32 @@ All notable changes to this project will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## 0.5.3 — 2026-07-16
+
+### Fixed
+- **`user.deletion_initiated` is now actually handled.** The consume schema
+  (`schemas/consumes/user.deletion_initiated.json`) was declared with no
+  `@on_action` handler — a silent contract lie (2026-07-16 audit). The new
+  handler purges the user's *unreferenced* media (`refs == []`, binaries +
+  rows) at grace start via `CDNGDPRProvider.purge_unreferenced()`; media
+  referenced by live content keeps serving and keeps its ownership link
+  until `user.deleted` — the closure grace period is cancellable
+  (platform precedent: stapel-notifications' soft grace actions, "full
+  erasure stays on `user.deleted`"). Idempotent.
+- **`user.deleted` now confirms erasure to the gdpr orchestrator.** In the
+  remote-deletion protocol the payload carries a `correlation_id` and the
+  orchestrator waits for a `gdpr.section.erased` confirmation per service —
+  the cdn handler never sent one, so the closure's `media` part stayed
+  incomplete and the closure hung in DELETING forever. The handler now
+  emits `gdpr.section.erased` (`service: "media"`) in one transaction with
+  the erasure; without a `correlation_id` (monolith in-process path)
+  nothing is emitted, as before.
+
+### Changed
+- `CDNGDPRProvider.delete()` refactored: the unreferenced-purge half is the
+  new public `purge_unreferenced()` (shared with the grace handler);
+  behavior of `delete()` unchanged (purge orphans + anonymize referenced).
+
 ## 0.5.2 — 2026-07-16
 
 ### Fixed

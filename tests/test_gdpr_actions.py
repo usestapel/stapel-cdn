@@ -6,7 +6,7 @@ import json
 import pytest
 from unittest.mock import MagicMock, patch
 from django.core.files.uploadedfile import SimpleUploadedFile
-from stapel_cdn.actions import handle_user_deleted
+from stapel_cdn.actions import handle_user_deleted, handle_user_deletion_initiated
 from stapel_cdn.gdpr import CDNGDPRProvider, _serialize_dates
 from stapel_cdn.models import File, Image, Video
 from stapel_core.django.users.models import User
@@ -154,4 +154,80 @@ class TestHandleUserDeleted:
         event.event_id = 'evt-1'
         handle_user_deleted(event)
         # Nothing deleted without a user_id
+        assert Image.objects.count() == 1
+
+
+@pytest.mark.django_db
+class TestHandleUserDeletedConfirmation:
+    """user.deleted with a correlation_id (the gdpr orchestrator's
+    remote-deletion protocol) must be confirmed with gdpr.section.erased —
+    without it the closure's 'media' AccountDeletionPart never completes."""
+
+    def test_confirms_section_erased_with_correlation_id(self, user):
+        _make_image(user, refs=[])
+        event = MagicMock()
+        event.payload = {'user_id': user.id, 'correlation_id': 'corr-42'}
+        with patch('stapel_core.comm.emit') as m_emit:
+            handle_user_deleted(event)
+        assert Image.objects.count() == 0
+        m_emit.assert_called_once()
+        args, kwargs = m_emit.call_args
+        assert args[0] == 'gdpr.section.erased'
+        assert args[1] == {
+            'user_id': str(user.id),
+            'correlation_id': 'corr-42',
+            'service': 'media',
+        }
+
+    def test_no_confirmation_without_correlation_id(self, user):
+        """Monolith path (in-process provider run, no remote parts): the
+        payload carries no correlation_id and no confirmation is emitted."""
+        _make_image(user, refs=[])
+        event = MagicMock()
+        event.payload = {'user_id': user.id}
+        with patch('stapel_core.comm.emit') as m_emit:
+            handle_user_deleted(event)
+        assert Image.objects.count() == 0
+        m_emit.assert_not_called()
+
+
+@pytest.mark.django_db
+class TestHandleDeletionInitiated:
+    """user.deletion_initiated: the consume schema existed with no handler
+    (2026-07-16 audit). Grace-safe subset: orphans purged, referenced media
+    untouched until user.deleted (grace is cancellable)."""
+
+    def test_purges_unreferenced_media(self, user):
+        _make_image(user, refs=[])
+        _make_file(user, refs=[])
+        event = MagicMock()
+        event.payload = {'user_id': user.id}
+        handle_user_deletion_initiated(event)
+        assert Image.objects.count() == 0
+        assert File.objects.count() == 0
+
+    def test_referenced_media_untouched_and_still_owned(self, user):
+        video = _make_video(user, refs=['shop/product/1'])
+        event = MagicMock()
+        event.payload = {'user_id': user.id}
+        handle_user_deletion_initiated(event)
+        video.refresh_from_db()
+        # Grace is cancellable: ownership link must survive for a cancel.
+        assert video.uploaded_by_id == user.id
+        assert Video.objects.count() == 1
+
+    def test_idempotent_on_redelivery(self, user):
+        _make_image(user, refs=[])
+        event = MagicMock()
+        event.payload = {'user_id': user.id}
+        handle_user_deletion_initiated(event)
+        handle_user_deletion_initiated(event)  # at-least-once redelivery
+        assert Image.objects.count() == 0
+
+    def test_missing_user_id_logged_and_nothing_removed(self, user):
+        _make_image(user, refs=[])
+        event = MagicMock()
+        event.payload = {}
+        event.event_id = 'evt-2'
+        handle_user_deletion_initiated(event)
         assert Image.objects.count() == 1

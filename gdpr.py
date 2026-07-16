@@ -64,9 +64,15 @@ class CDNGDPRProvider(GDPRProvider):
         written.append(meta_file)
         return written
 
-    def delete(self, user_id: int) -> None:
+    def purge_unreferenced(self, user_id: int) -> int:
+        """Delete the user's media that nothing references (``refs == []``):
+        binary + row. The grace-safe subset of :meth:`delete` — orphan
+        uploads are served by nothing, so removing them is invisible to the
+        rest of the platform. Idempotent. Returns the number of objects
+        removed."""
         from .models import File, Image, Video
 
+        removed = 0
         for model in (Image, Video, File):
             # Only delete files that have no refs from other content
             for obj in model.objects.filter(uploaded_by_id=user_id):
@@ -77,10 +83,18 @@ class CDNGDPRProvider(GDPRProvider):
                     except Exception:
                         pass
                     obj.delete()
-                else:
-                    # File still referenced — anonymise ownership only
-                    obj.uploaded_by = None
-                    obj.save(update_fields=['uploaded_by'])
+                    removed += 1
+        return removed
+
+    def delete(self, user_id: int) -> None:
+        from .models import File, Image, Video
+
+        self.purge_unreferenced(user_id)
+        for model in (Image, Video, File):
+            # Files still referenced by other content — anonymise ownership only
+            for obj in model.objects.filter(uploaded_by_id=user_id):
+                obj.uploaded_by = None
+                obj.save(update_fields=['uploaded_by'])
 
     def anonymize(self, user_id: int) -> None:
         # Handled in delete() — files still referenced lose uploaded_by link.
