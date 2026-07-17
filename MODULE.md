@@ -8,14 +8,22 @@ system-design §8.6 in the platform docs). Stapel modules never import each othe
 customization must be possible **without forking**.
 
 Package: `stapel-cdn` (PyPI) · Django app: `stapel_cdn` (app label `cdn`) ·
-Depends on `stapel-core` only · Optional extras: `images` (pyvips), `s3` (boto3, reserved).
+Depends on `stapel-core` only · Optional extras: `images` (pyvips — core, unconditional
+system check), `video`/`recordings` (ffmpeg — a system binary, not a pip package; these
+extras are opt-in markers, paired with `STAPEL_CDN["ENABLED_SUBMODULES"]`), `files` (no
+extra needed — passthrough), `s3` (boto3, reserved). See the submodule table below and
+`CONFIG.MD` for the full settings registry.
 
 ## What this module provides
 
-- **Models** (`stapel_cdn.models`): `Image`, `Video`, `File` — content-addressed media,
-  deduplicated by SHA-256 `file_hash`. Each carries a `refs` JSONField tracking
+- **Models** (`stapel_cdn.models`): `Image`, `Video`, `File`, `Audio` — content-addressed
+  media, deduplicated by SHA-256 `file_hash`. Each carries a `refs` JSONField tracking
   `service/entity_type/entity_id` back-references from other modules' entities.
-  `uploaded_by` FKs `settings.AUTH_USER_MODEL`.
+  `uploaded_by` FKs `settings.AUTH_USER_MODEL`. `Audio` (the "recordings" submodule,
+  cdn-modularity.md §7.2) is passthrough storage always available — no extra required;
+  `is_compressed` tracks the separate, still-unimplemented ffmpeg-audio compression pass
+  (`services.AudioProcessingService`, a documented stub — never silently marks a
+  recording compressed).
 - **HTTP API** (`stapel_cdn.urls` → v1 canon `/cdn/api/v1/...`, api-versioning.md §2;
   the URL set itself lives in `stapel_cdn.urls_v1`): `upload/image/`, `upload/avatar/`,
   `upload/video/`, `upload/file/`, `images/<type>/upload/`, `images/<type>/random/`,
@@ -62,17 +70,34 @@ Resolution order per key: `settings.STAPEL_CDN` dict → flat Django setting of 
 name → environment variable → built-in default. Test-safe: caches invalidate on
 `setting_changed`.
 
+See `CONFIG.MD` for the complete registry (source/required/default per key). Highlights:
+
 | Key | Default | What it customizes |
 |---|---|---|
-| `IMAGE_TYPES` | `(("product", "Product"), ("avatar", "Avatar"))` | `Image.type` choices. Read through the callable `models.get_image_type_choices`, so adding types never produces a model/migration change. Accepts `(value, label)` pairs or plain strings. `TypedImageUploadView` and `RandomImageView` validate against it. Values must fit `max_length=10`. |
+| `ASSET_TYPES` | `("avatar",)` | `Image.type` choices — **same `STAPEL_CDN` key the client-side `stapel_core.django.cdn.CdnImageField` reads** (cdn-modularity.md §2.1/§5, replacing the pre-0.8.0 `IMAGE_TYPES` key). Read through the callable `models.get_image_type_choices`, so adding types never produces a model/migration change. Accepts `(value, label)` pairs or plain strings. `TypedImageUploadView` and `RandomImageView` validate against it. Values must fit `max_length=10`. |
+| `ENABLED_SUBMODULES` | `("images",)` | Which of `images`/`video`/`recordings` this deployment turns on. `images` needs no opt-in (its system check always runs); adding `"video"`/`"recordings"` is what activates `checks.check_submodule_binaries`'s ffmpeg probe for that submodule. |
 | `THUMBNAIL_SIZES` | `(16, 32, 64, 120)` | Thumbnail tiers: min-side resize, no branches, no watermark, high-priority queue. 16 is the micro tier inlined as `preview_b64` by `cdn.describe`. |
 | `PREVIEW_SIZES` | `(160, 240, 480, 560, 720, 1080)` | Preview tiers: two branches per tier (`{T}w.webp` / `{T}h.webp`), watermark-capable, normal-priority queue. |
 | `MAX_IMAGE_SIZE` | `20 * 1024 * 1024` (20 MiB) | Upload size cap, checked before hashing. |
 | `ALLOWED_IMAGE_EXTENSIONS` | `.jpg .jpeg .png .gif .webp .bmp .heic .heif` | Image extension allowlist in views, serializers and `validate_image_file`. |
 | `ALLOWED_VIDEO_EXTENSIONS` | `.mp4 .webm .mov .avi .mkv` | Video extension allowlist (`FileUploadSerializer`, `VideoUploadView`). |
+| `ALLOWED_AUDIO_EXTENSIONS` | `.mp3 .wav .m4a .ogg .opus .flac .aac` | Audio extension allowlist (`recordings` submodule — passthrough storage always accepts these regardless of `ENABLED_SUBMODULES`). |
 | `MAX_IMAGE_PIXELS` | `50_000_000` | Pillow decompression-bomb cap (`PIL.Image.MAX_IMAGE_PIXELS`). |
+| `MAX_AUDIO_SIZE` | `50 * 1024 * 1024` (50 MiB) | Upload size cap for audio recordings. |
 | `WATERMARK` | `""` (**off**) | Watermark engine: dotted path to (or directly a) callable `(pyvips.Image) -> pyvips.Image` applied to preview variants. Empty disables watermarking. Built-in reference engine: `stapel_cdn.watermarks.text_watermark`. |
 | `WATERMARK_TEXT` | `""` | Label rendered by the built-in `text_watermark` engine (bottom-right corner). Ignored by custom engines unless they read it. |
+
+### Media submodules — extras, opt-in, and system checks (tag `stapel_cdn`)
+
+cdn-modularity.md §2.2/§3. `checks.check_submodule_binaries` runs at `manage.py check` /
+boot-smoke time, not at first use:
+
+| Submodule | Model | Binary/library | Opt-in via `ENABLED_SUBMODULES`? | System check |
+|---|---|---|---|---|
+| `images` | `Image` | `libvips` (system, apt `libvips-dev`) + `pyvips` (pip, extra `images`) | No — core, unconditional | `stapel_cdn.images.E001` if `pyvips` isn't importable. Without it, `Image.save()` falls back to 1x1 placeholder dimensions with a loud `ERROR` log (no longer a silent `except Exception: pass`). |
+| `recordings` | `Audio` | none for storage (always on); `ffmpeg` (system) once a real compression pipeline exists | Yes — gates the *compression* check only, storage is unconditional | `stapel_cdn.recordings.E003` if `"recordings"` is enabled and `ffmpeg` is missing |
+| `video` | `Video` | `ffmpeg` (system) — VPS/prod-only, never the stapel-studio devcontainer | Yes | `stapel_cdn.video.E002` if `"video"` is enabled and `ffmpeg` is missing |
+| `files` | `File` | none — passthrough, no processing | N/A (no extra) | none |
 
 ### Storage / processing backends (dotted paths)
 
@@ -86,9 +111,9 @@ name → environment variable → built-in default. Test-safe: caches invalidate
 ### Swappable models
 
 None. No model in this package is swappable; the only swap honored is Django's
-`AUTH_USER_MODEL` (all `uploaded_by` FKs). Changing `Image`/`Video`/`File` schema is an
-upstream contribution. `Image.type` values, however, are extendable via `IMAGE_TYPES`
-(see above) without touching the model.
+`AUTH_USER_MODEL` (all `uploaded_by` FKs). Changing `Image`/`Video`/`File`/`Audio` schema
+is an upstream contribution. `Image.type` values, however, are extendable via
+`ASSET_TYPES` (see above) without touching the model.
 
 ### Serializer seams
 
@@ -117,7 +142,7 @@ class MyImageUpload(ImageUploadView):
 
 | Name | Direction | Contract |
 |---|---|---|
-| `cdn.media_exists` | provides (function) | `call("cdn.media_exists", {"ref": "<type>/<hash>"})` → `{"exists": bool}`. Ref prefixes: image type (`product`, `avatar`), `video`, `file`. |
+| `cdn.media_exists` | provides (function) | `call("cdn.media_exists", {"ref": "<type>/<hash>"})` → `{"exists": bool}`. Ref prefixes: any configured `STAPEL_CDN["ASSET_TYPES"]` value (default `avatar`), `video`, `file`, `audio`. |
 | `cdn.refs_sync` | provides (function) | `call("cdn.refs_sync", {"service", "entity_type", "entity_id", "old_hashes", "new_hashes"})` → `{"added", "removed", "errors"}`. Same logic as `RefSyncView` / `services.apply_ref_sync`. |
 | `user.deleted` | subscribes (action) | Erases this module's PII via `CDNGDPRProvider.delete()` and, when the payload carries a `correlation_id`, confirms with `gdpr.section.erased` (`service: "media"`) so the gdpr orchestrator can complete the closure. Schema: `schemas/consumes/user.deleted.json`. Handler is idempotent (at-least-once delivery). |
 | `user.deletion_initiated` | subscribes (action) | Grace period started: purges the user's *unreferenced* media (`refs == []`) via `CDNGDPRProvider.purge_unreferenced()`; referenced media keeps serving (and its ownership link) until `user.deleted` — grace is cancellable. Schema: `schemas/consumes/user.deletion_initiated.json`. Idempotent. |
@@ -139,8 +164,8 @@ overridable listing seam.
 
 ## Admin categories (`stapel_core.access`)
 
-`Image`, `Video`, `File` are left **undecorated** — implicit `@access.standard`
-(business). All three are staff-facing moderation tables (the admin exposes preview
+`Image`, `Video`, `File`, `Audio` are left **undecorated** — implicit `@access.standard`
+(business). All four are staff-facing moderation tables (the admin exposes preview
 thumbnails, orphan filters, variant regeneration actions), not machinery nobody is
 meant to open, so `@access.ops` does not apply; `file_hash` is a content-addressing
 SHA-256 digest, not a credential, and no model in this package carries a signing key,
@@ -153,9 +178,16 @@ zero decorators added.
 ## Anti-patterns
 
 - **Forking to add an image type or variant size.** Both are settings
-  (`STAPEL_CDN["IMAGE_TYPES"]`, `STAPEL_CDN["THUMBNAIL_SIZES"]`/`["PREVIEW_SIZES"]`); `Image.type` choices are
+  (`STAPEL_CDN["ASSET_TYPES"]`, `STAPEL_CDN["THUMBNAIL_SIZES"]`/`["PREVIEW_SIZES"]`); `Image.type` choices are
   a callable, so no migration is generated. Keep custom type values ≤ 10 chars
-  (`max_length=10` on the column).
+  (`max_length=10` on the column). `ASSET_TYPES` is the same key/namespace the
+  client-side `stapel_core.django.cdn.CdnImageField` reads — set it once.
+- **Assuming a broad `except Exception` around pyvips is harmless.** It isn't — a
+  swallowed pyvips failure used to silently produce 1x1 "dimensions" for every image in
+  the deployment (cdn-modularity.md §0.3). `Image.save()` now distinguishes "pyvips not
+  installed" from "file unreadable" and logs an `ERROR` either way; `checks.
+  check_submodule_binaries` (`stapel_cdn.images.E001`) catches the missing-library case
+  at boot-smoke time. Don't reintroduce a bare `except: pass` around media processing.
 - **Importing `stapel_cdn` from another Stapel module.** Cross-module calls go through
   `stapel_core.comm.call("cdn.media_exists", ...)` / `call("cdn.refs_sync", ...)` or the
   bus (`sync_cdn_refs` in stapel-core). Modules never import each other.
@@ -192,8 +224,11 @@ your own app.
 **Upstream contribution** (this repo, via `contrib_open` → review origin → PyPI release)
 if it needs: a new settings key or a dotted-path `import_strings` seam (e.g. making the
 storage backend or processing service class configurable); S3/presigned
-uploads (`s3` extra is declared but unwired); video variant generation (ffmpeg — currently
-a `process_video` stub that just marks `is_processed`); emitting `media_processed` from
+uploads (`s3` extra is declared but unwired); video variant/poster generation (ffmpeg —
+currently `VideoProcessingService.process_video`, a documented stub that only marks
+`is_processed`, same pattern as `stapel_geo.search.elasticsearch`); ffmpeg-audio
+compression for `Audio` (`AudioProcessingService.compress_audio`, also a stub —
+`recordings` storage itself is already usable without it); emitting `media_processed` from
 the Celery task path; new endpoints, model fields, or migrations; changing WebP/JPEG
 quality or upload-handler thresholds (currently hardcoded constants).
 

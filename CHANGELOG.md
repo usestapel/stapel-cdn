@@ -4,6 +4,77 @@ All notable changes to this project will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## 0.8.0 — 2026-07-17
+
+cdn-modularity.md (owner GO, §67): client/server config parity, media
+submodule extras (`images`/`video`/`recordings`/`files`) with per-submodule
+system checks, and an honest pyvips failure path. Fleet follow-up to
+stapel-core 0.12.4 (CdnImageField unfreeze).
+
+### Changed — breaking (pre-1.0: minor = breaking)
+- **`STAPEL_CDN["IMAGE_TYPES"]` → `STAPEL_CDN["ASSET_TYPES"]`.** Same
+  namespace/semantics (`Image.type` choices, `models.get_image_type_choices`
+  callable, accepts `(value, label)` pairs or plain strings) but now the
+  **same key** the client-side `stapel_core.django.cdn.CdnImageField`
+  reads (core 0.12.4) — a host project sets asset types once, in one dict,
+  for both sides of the stack.
+- **Default asset types: `("product", "avatar")` → `("avatar",)`.** The
+  zero-infrastructure default (cdn-modularity.md §2.1/§5) — no
+  marketplace-specific type baked in; a host project adds its own via
+  `ASSET_TYPES`. `Image.type`'s field-level `default="product"` is
+  unchanged (a static fallback value, not a validated choice) but its
+  `help_text` now points at the new config key.
+- **`services._IMAGE_PREFIXES` hardcoded `{"product", "avatar"}` set** →
+  `_image_ref_prefixes()`, read fresh from `STAPEL_CDN["ASSET_TYPES"]` every
+  call. This was a second, independently frozen copy of the exact "half the
+  stack is modular, half isn't" gap the spec calls out — just living in the
+  ref-resolution service layer instead of a client-side field.
+- **`cdn.import_from_url`'s `image_type` validation** now reads
+  `ASSET_TYPES` instead of the removed `IMAGE_TYPES` key.
+
+### Added
+- **`Audio` model** (`stapel_cdn.models`) — the "recordings" submodule
+  (cdn-modularity.md §7.2, coordinator decision): passthrough storage is
+  **always** available, no extra required; `is_compressed` tracks the
+  separate, still-unimplemented ffmpeg-audio compression pass
+  (`services.AudioProcessingService.compress_audio` — a documented stub,
+  never silently marks a recording compressed). `AudioAdmin` registered;
+  `build_render_metadata`/`_batch_resolve_media` extended for the `audio/`
+  ref prefix.
+- **`checks.py`** (tag `stapel_cdn`, same pattern as `stapel_core.bus.
+  checks` E001): `stapel_cdn.images.E001` — pyvips not importable (fires
+  unconditionally; `images` is core, not opt-in). `stapel_cdn.video.E002` /
+  `stapel_cdn.recordings.E003` — `ffmpeg` missing while `"video"` /
+  `"recordings"` is in the new `STAPEL_CDN["ENABLED_SUBMODULES"]` (default
+  `("images",)`).
+- **`pyproject.toml` extras**: `video`, `recordings` (both empty — `ffmpeg`
+  is a system binary, not a pip package; these extras exist as
+  deployment-intent markers, paired with `ENABLED_SUBMODULES`), `files`
+  (empty, listed for submodule-table symmetry — no processing, no extra
+  needed).
+- `STAPEL_CDN["ALLOWED_AUDIO_EXTENSIONS"]` (default `.mp3 .wav .m4a .ogg
+  .opus .flac .aac`), `STAPEL_CDN["MAX_AUDIO_SIZE"]` (default 50 MiB).
+- `CONFIG.MD` — full `STAPEL_CDN` settings registry (new for this
+  package).
+- `VideoProcessingService` docstring now documents the ffmpeg-gate/
+  VPS-only/poster-canon contract explicitly (same "documented stub, not a
+  promise" posture as `stapel_geo.search.elasticsearch.
+  ElasticsearchGeoSearchBackend`) — no runtime behavior change.
+
+### Fixed
+- **Silent 1x1 image-dimension degradation** (cdn-modularity.md §0.3):
+  `Image.save()`'s pyvips dimension extraction was one broad
+  `except Exception: pass` — indistinguishable, from the outside, from a
+  deliberately tiny image. Now split into two paths, both still falling
+  back to 1x1 (`process_image` can retry later) but each logging a loud
+  `ERROR` naming the image and the cause: pyvips not installed (a
+  deploy/config problem — see `checks.check_submodule_binaries` E001) vs. a
+  genuinely unreadable file (corrupt upload, unsupported format).
+
+### Migration
+- `0004_alter_image_type_audio` — `Image.type` help_text update (no data
+  change) + `Audio` model creation.
+
 ## 0.7.1 — 2026-07-17
 
 Fleet follow-up to stapel-core 0.12.0 (legacy shim sweep). No source

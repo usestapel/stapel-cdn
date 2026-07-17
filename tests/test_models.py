@@ -1,6 +1,9 @@
 """
 Tests for CDN models.
 """
+import logging
+import sys
+
 import pytest
 from stapel_cdn.models import Image, Video
 from stapel_core.django.users.models import User
@@ -69,6 +72,99 @@ class TestImageModel:
                 original_size=2000,
                 uploaded_by=user,
             )
+
+
+@pytest.mark.django_db
+class TestImageDimensionFallbackLogging:
+    """cdn-modularity.md §0.3/(б): the pyvips dimension-extraction fallback
+    used to be a single broad ``except Exception: pass`` — indistinguishable
+    from a deliberately tiny 1x1 image. Both failure modes must now log an
+    honest ERROR naming the image and the cause."""
+
+    def test_missing_pyvips_logs_error_and_falls_back_to_1x1(self, user, caplog, monkeypatch):
+        monkeypatch.setitem(sys.modules, "pyvips", None)  # forces ImportError
+        with caplog.at_level(logging.ERROR, logger="stapel_cdn.models"):
+            image = Image.objects.create(
+                file_hash="f" * 64,
+                original_filename="nopyvips.jpg",
+                file_extension=".jpg",
+                original="product/" + "f" * 64 + "/nopyvips.jpg",
+                original_size=111,
+                uploaded_by=user,
+            )
+        assert image.original_width == 1
+        assert image.original_height == 1
+        errors = [r for r in caplog.records if r.levelno >= logging.ERROR and "pyvips" in r.getMessage()]
+        assert len(errors) == 1
+        message = errors[0].getMessage()
+        assert "pyvips is not installed" in message
+        assert "nopyvips.jpg" in message
+
+    def test_unreadable_file_logs_error_and_falls_back_to_1x1(self, user, caplog):
+        # No forced ImportError — pyvips is real, but the referenced file
+        # doesn't exist on disk, so Image.new_from_file raises.
+        with caplog.at_level(logging.ERROR, logger="stapel_cdn.models"):
+            image = Image.objects.create(
+                file_hash="0" * 64,
+                original_filename="missing.jpg",
+                file_extension=".jpg",
+                original="product/" + "0" * 64 + "/missing.jpg",
+                original_size=222,
+                uploaded_by=user,
+            )
+        assert image.original_width == 1
+        assert image.original_height == 1
+        errors = [r for r in caplog.records if r.levelno >= logging.ERROR and "pyvips" in r.getMessage()]
+        assert len(errors) == 1
+        message = errors[0].getMessage()
+        assert "pyvips failed to read dimensions" in message
+        assert "missing.jpg" in message
+
+
+@pytest.mark.django_db
+class TestAudioModel:
+    """Tests for the Audio model ("recordings" submodule) — passthrough
+    storage always available (cdn-modularity.md §7.2)."""
+
+    def test_create_audio(self, user):
+        from stapel_cdn.models import Audio
+
+        audio = Audio.objects.create(
+            file_hash="a1" * 32,
+            original_filename="voice.mp3",
+            file_extension=".mp3",
+            original_size=4096,
+            uploaded_by=user,
+        )
+        assert audio.file_hash == "a1" * 32
+        assert audio.is_compressed is False
+
+    def test_audio_str_method(self, user):
+        from stapel_cdn.models import Audio
+
+        audio = Audio.objects.create(
+            file_hash="b2" * 32,
+            original_filename="memo.wav",
+            file_extension=".wav",
+            original_size=2048,
+            uploaded_by=user,
+        )
+        assert "memo.wav" in str(audio)
+        assert "b2b2b2b2" in str(audio)
+
+    def test_audio_save_extracts_metadata_from_file(self, user):
+        from django.core.files.base import ContentFile
+        from stapel_cdn.models import Audio
+
+        audio = Audio(
+            original=ContentFile(b"fake-audio-bytes", name="clip.mp3"),
+            uploaded_by=user,
+        )
+        audio.save()
+        assert len(audio.file_hash) == 64
+        assert audio.original_filename == "clip.mp3"
+        assert audio.file_extension == ".mp3"
+        assert audio.original_size == len(b"fake-audio-bytes")
 
 
 @pytest.mark.django_db

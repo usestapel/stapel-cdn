@@ -27,7 +27,23 @@ from .conf import cdn_settings
 
 logger = logging.getLogger(__name__)
 
-_IMAGE_PREFIXES = {"product", "avatar"}
+
+def _image_ref_prefixes() -> set[str]:
+    """Ref prefixes that route to ``Image`` — every configured
+    ``STAPEL_CDN["ASSET_TYPES"]`` value, read fresh (not a frozen module
+    constant) so overriding the config takes effect immediately.
+
+    cdn-modularity.md §2.1/(a) parity: this used to be a second,
+    independently hardcoded ``{"product", "avatar"}`` set — the exact same
+    "half the stack is modular, half isn't" gap the spec calls out, just
+    living in ``services.py`` instead of a client-side field. ``video``/
+    ``file``/``audio`` are reserved prefixes for their own models, never
+    valid ``ASSET_TYPES`` entries.
+    """
+    types = set()
+    for entry in cdn_settings.ASSET_TYPES:
+        types.add(entry if isinstance(entry, str) else entry[0])
+    return types
 
 
 class ImageProcessingService:
@@ -391,19 +407,66 @@ class ImageProcessingService:
 
 
 class VideoProcessingService:
-    """Service for processing videos."""
+    """Video variant/poster pipeline — a documented stub, not a promise.
+
+    Same posture as ``stapel_geo.search.elasticsearch.
+    ElasticsearchGeoSearchBackend`` (geo-v2-redesign.md §2.2): the real
+    interface — extract a representative poster frame (images-and-cdn.md
+    §5 render-metadata canon: same ``preview_b64``/``variants[]`` shape a
+    poster would need to fill) plus the resolution ladder — needs an
+    ffmpeg pipeline that does not exist yet (cdn-modularity.md §2.3 notes
+    this gap is carried forward, not opened, by that spec).
+
+    ``video`` is a VPS/prod-only submodule (cdn-modularity.md §3): it is
+    never installed into the stapel-studio devcontainer, and turning it on
+    via ``STAPEL_CDN["ENABLED_SUBMODULES"]`` is what makes
+    ``checks.check_submodule_binaries``'s ffmpeg probe (tag ``stapel_cdn``)
+    active for this deployment — the ffmpeg-gate this class itself does not
+    yet act on, because there is no pipeline behind it to gate.
+    """
 
     @classmethod
     def process_video(cls, video_model):
         """Process a video file - extract metadata and generate variants."""
-        # TODO: Implement video processing with ffmpeg
+        # TODO: Implement video processing with ffmpeg (poster frame +
+        # resolution ladder, images-and-cdn.md §5 canon). Until then this
+        # only marks bookkeeping — no variants, no poster are produced.
         video_model.is_processed = True
         video_model.save()
         return video_model
 
 
+class AudioProcessingService:
+    """Audio ("recordings" submodule) pipeline — storage now, compression later.
+
+    cdn-modularity.md §7.2 (coordinator decision): recordings storage is
+    unconditional passthrough — ``Audio.save()`` needs no processing to be
+    usable. Compression is the opt-in half: ffmpeg-audio, gated by
+    ``"recordings"`` in ``STAPEL_CDN["ENABLED_SUBMODULES"]`` (and, once
+    implemented, by the presence of the ``ffmpeg`` binary — see
+    ``checks.check_submodule_binaries``). Until a real compression pass
+    exists, this stays a documented stub (same pattern as
+    ``VideoProcessingService`` / ``stapel_geo.search.elasticsearch.
+    ElasticsearchGeoSearchBackend``) — it never silently claims a recording
+    was compressed when it wasn't.
+    """
+
+    @classmethod
+    def compress_audio(cls, audio_model):
+        """No-op stub: ``is_compressed`` stays False — nothing pretends to
+        have compressed anything. Implement against ffmpeg-audio, then set
+        ``is_compressed = True`` only once real output has been written."""
+        logger.info(
+            "AudioProcessingService.compress_audio: no-op stub (ffmpeg-audio "
+            "pipeline not implemented) — audio %s left uncompressed "
+            "(passthrough storage is already usable).",
+            audio_model.file_hash,
+        )
+        return audio_model
+
+
 def build_render_metadata(obj) -> dict:
-    """Render-metadata snapshot (images-and-cdn.md §5) for Image/Video/File.
+    """Render-metadata snapshot (images-and-cdn.md §5) for Image/Video/File/Audio.
 
     The immutable form consumers denormalize once when they resolve a ref:
     ``{mime, bytes, width, height, aspect, duration_ms, preview_b64, square,
@@ -411,7 +474,7 @@ def build_render_metadata(obj) -> dict:
     URI (blur-up placeholder, chat-design.md contract); ``variants`` is the
     persisted ``variants_meta`` plus the original file.
     """
-    from .models import File, Image, Video
+    from .models import Audio, File, Image, Video
 
     if isinstance(obj, Image):
         return _image_render_metadata(obj)
@@ -419,6 +482,8 @@ def build_render_metadata(obj) -> dict:
         return _video_render_metadata(obj)
     if isinstance(obj, File):
         return _file_render_metadata(obj)
+    if isinstance(obj, Audio):
+        return _audio_render_metadata(obj)
     raise TypeError(f"build_render_metadata: unsupported object {type(obj)!r}")
 
 
@@ -523,33 +588,54 @@ def _file_render_metadata(file_obj) -> dict:
     }
 
 
+def _audio_render_metadata(audio) -> dict:
+    return {
+        "mime": _guess_mime(audio.file_extension or audio.original_filename),
+        "bytes": audio.original_size,
+        "width": None,
+        "height": None,
+        "aspect": None,
+        "duration_ms": int(audio.duration * 1000) if audio.duration else None,
+        "preview_b64": None,
+        "square": False,
+        "variants": [
+            e for e in [_original_variant_entry(audio, None, None)] if e is not None
+        ],
+    }
+
+
 def _batch_resolve_media(ref_strings, for_update=False):
     """
-    Batch-resolve ref strings to Image/Video/File instances.
+    Batch-resolve ref strings to Image/Video/File/Audio instances.
 
     Ref format: <prefix>/<hash>
-      - product/<hash>, avatar/<hash> → Image
-      - video/<hash>                  → Video
-      - file/<hash>                   → File
+      - <any STAPEL_CDN["ASSET_TYPES"] entry>/<hash> → Image (default: avatar/<hash>)
+      - video/<hash>                                 → Video
+      - file/<hash>                                  → File
+      - audio/<hash>                                 → Audio
     """
     from django.db.models import Q
-    from .models import Image, Video, File
+    from .models import Audio, File, Image, Video
 
+    image_prefixes = _image_ref_prefixes()
     image_lookups = {}
     video_lookups = {}
     file_lookups = {}
+    audio_lookups = {}
 
     for ref_str in ref_strings:
         parts = ref_str.split("/")
         if len(parts) != 2:
             continue
         prefix, file_hash = parts
-        if prefix in _IMAGE_PREFIXES:
+        if prefix in image_prefixes:
             image_lookups[(prefix, file_hash)] = ref_str
         elif prefix == "video":
             video_lookups[file_hash] = ref_str
         elif prefix == "file":
             file_lookups[file_hash] = ref_str
+        elif prefix == "audio":
+            audio_lookups[file_hash] = ref_str
 
     result = {}
 
@@ -580,6 +666,14 @@ def _batch_resolve_media(ref_strings, for_update=False):
         for obj in qs:
             if obj.file_hash in file_lookups:
                 result[file_lookups[obj.file_hash]] = obj
+
+    if audio_lookups:
+        qs = Audio.objects.filter(file_hash__in=audio_lookups.keys())
+        if for_update:
+            qs = qs.select_for_update()
+        for obj in qs:
+            if obj.file_hash in audio_lookups:
+                result[audio_lookups[obj.file_hash]] = obj
 
     return result
 

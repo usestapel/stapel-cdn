@@ -4,6 +4,7 @@ Uses pyvips for all image processing (supports JPEG, PNG, HEIC, etc.)
 """
 
 import hashlib
+import logging
 import os
 
 from django.conf import settings
@@ -13,6 +14,8 @@ from django.dispatch import receiver
 
 from .conf import DEFAULT_VARIANT_SIZES, cdn_settings
 from .storage import cdn_storage
+
+logger = logging.getLogger(__name__)
 
 
 def image_upload_path(instance, filename):
@@ -30,15 +33,23 @@ def file_upload_path(instance, filename):
     return f"file/{instance.file_hash}/{filename}"
 
 
-def get_image_type_choices():
-    """Image type choices from conf (``STAPEL_CDN["IMAGE_TYPES"]``).
+def audio_upload_path(instance, filename):
+    """Generate upload path for audio recordings: audio/<hash>/<filename>"""
+    return f"audio/{instance.file_hash}/{filename}"
 
-    Accepts either (value, label) pairs or plain strings.
+
+def get_image_type_choices():
+    """Image type choices from conf (``STAPEL_CDN["ASSET_TYPES"]``).
+
+    Accepts either (value, label) pairs or plain strings — kept for hosts
+    that still pass pairs, though the canonical form (cdn-modularity.md
+    §2.1) is a flat tuple of strings shared with the client-side
+    ``stapel_core.django.cdn`` config under the same key.
     Referenced as a callable by the ``Image.type`` field so overriding
-    IMAGE_TYPES never produces a model/migration change.
+    ASSET_TYPES never produces a model/migration change.
     """
     choices = []
-    for entry in cdn_settings.IMAGE_TYPES:
+    for entry in cdn_settings.ASSET_TYPES:
         if isinstance(entry, str):
             choices.append((entry, entry.capitalize()))
         else:
@@ -60,7 +71,11 @@ class Image(models.Model):
         max_length=10,
         choices=get_image_type_choices,
         default="product",
-        help_text="Type of image: product or avatar",
+        help_text=(
+            "Image type — validated against STAPEL_CDN['ASSET_TYPES'] "
+            "(default ('avatar',); the historical 'product' default value "
+            "here is only in scope for host projects that still add it)."
+        ),
     )
 
     # Original file and metadata
@@ -183,22 +198,53 @@ class Image(models.Model):
             if not self.original_size:
                 self.original_size = self.original.size
 
-            # Get image dimensions using pyvips (supports HEIC/HEIF)
+            # Get image dimensions using pyvips (supports HEIC/HEIF).
+            #
+            # cdn-modularity.md §0.3: this used to be a single broad
+            # `except Exception: pass` that silently substituted 1x1
+            # placeholder dimensions — indistinguishable, from the outside,
+            # from a deliberately tiny image. Without libvips installed
+            # (the "images" extra's system dependency), EVERY image in the
+            # deployment silently got 1x1 dimensions, discovered only
+            # postmortem in production. Split into two honest, loud paths:
+            # missing library (a deploy/config problem — see also
+            # checks.check_submodule_binaries E001) vs. a genuinely
+            # unreadable file (corrupt upload, unsupported format) — both
+            # still fall back to the 1x1 placeholder (process_image can
+            # retry later), but now always with an ERROR log naming which
+            # image and why, instead of a quiet pass.
             if not self.original_width or not self.original_height:
                 try:
                     import pyvips
-
-                    img = pyvips.Image.new_from_file(
-                        self.original.path, access="sequential"
+                except ImportError:
+                    logger.error(
+                        "pyvips is not installed — cannot read dimensions "
+                        "for image %r (type=%s). Install the system libvips "
+                        "library and `pip install stapel-cdn[images]`. "
+                        "Falling back to 1x1 placeholder dimensions.",
+                        self.original_filename or (self.original and self.original.name),
+                        self.type,
                     )
-                    self.original_width = img.width
-                    self.original_height = img.height
-                except Exception:
-                    # Fallback: will be updated by process_image later
-                    if not self.original_width:
-                        self.original_width = 1
-                    if not self.original_height:
-                        self.original_height = 1
+                    self.original_width = self.original_width or 1
+                    self.original_height = self.original_height or 1
+                else:
+                    try:
+                        img = pyvips.Image.new_from_file(
+                            self.original.path, access="sequential"
+                        )
+                        self.original_width = img.width
+                        self.original_height = img.height
+                    except Exception as exc:
+                        logger.error(
+                            "pyvips failed to read dimensions for image %r "
+                            "(type=%s): %r. Falling back to 1x1 placeholder "
+                            "dimensions; process_image may retry later.",
+                            self.original_filename or (self.original and self.original.name),
+                            self.type,
+                            exc,
+                        )
+                        self.original_width = self.original_width or 1
+                        self.original_height = self.original_height or 1
 
         super().save(*args, **kwargs)
 
@@ -455,6 +501,107 @@ class File(models.Model):
 
     def save(self, *args, **kwargs):
         """Override save to automatically extract metadata."""
+        if not self.pk and self.original:
+            if not self.file_hash:
+                self.file_hash = self.calculate_file_hash(self.original)
+            if not self.original_filename:
+                self.original_filename = self.original.name
+            if not self.file_extension:
+                self.file_extension = os.path.splitext(self.original.name)[1].lower()
+            if self.original_size is None:
+                self.original_size = self.original.size
+        super().save(*args, **kwargs)
+
+
+class Audio(models.Model):
+    """Model for storing audio recordings ("recordings" submodule).
+
+    cdn-modularity.md §7.2/coordinator decision: storage is always
+    available (passthrough, like ``File`` — no extra required), separate
+    from compression. ``is_compressed`` stays ``False`` until a real
+    ffmpeg-audio pipeline replaces the current no-op ``AudioProcessingService``
+    stub (see ``services.AudioProcessingService`` — same "documented
+    stub, not a promise" pattern as ``VideoProcessingService``); enabling
+    compression is an explicit opt-in (``"recordings"`` in
+    ``STAPEL_CDN["ENABLED_SUBMODULES"]``) that turns on
+    ``checks.check_submodule_binaries``'s ffmpeg probe for this submodule.
+    """
+
+    # File identification
+    file_hash = models.CharField(
+        max_length=64,
+        unique=True,
+        db_index=True,
+        help_text="SHA-256 hash of the original file",
+    )
+    original_filename = models.CharField(max_length=255)
+    file_extension = models.CharField(max_length=10)
+    mime_type = models.CharField(max_length=100, blank=True, default="")
+
+    # Original file and metadata
+    original = models.FileField(
+        upload_to=audio_upload_path,
+        max_length=500,
+        storage=cdn_storage,
+        help_text="Original uploaded audio recording (always stored as-is)",
+    )
+    original_size = models.BigIntegerField(help_text="File size in bytes")
+    duration = models.FloatField(null=True, blank=True, help_text="Duration in seconds")
+
+    # Compression status — distinct from Image/Video's is_processed: audio
+    # is immediately usable (passthrough) the moment it's stored, so this
+    # tracks whether the (optional, ffmpeg-gated) compression pass has run,
+    # not whether the recording is "ready".
+    is_compressed = models.BooleanField(
+        default=False,
+        help_text="Whether ffmpeg-audio compression has run (opt-in submodule)",
+    )
+
+    # Reference tracking
+    refs = models.JSONField(
+        default=list,
+        blank=True,
+        help_text="List of references: service/entity_type/entity_id",
+    )
+
+    # User tracking
+    uploaded_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.SET_NULL,
+        null=True,
+        related_name="uploaded_audio",
+    )
+
+    # Timestamps
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        db_table = "cdn_audio"
+        verbose_name = "Audio"
+        verbose_name_plural = "Audio"
+        ordering = ["-created_at"]
+        indexes = [
+            models.Index(fields=["file_hash"]),
+            models.Index(fields=["created_at"]),
+        ]
+
+    def __str__(self):
+        return f"Audio: {self.file_hash[:8]}... ({self.original_filename})"
+
+    @staticmethod
+    def calculate_file_hash(file):
+        """Calculate SHA-256 hash of a file."""
+        hash_sha256 = hashlib.sha256()
+        for chunk in file.chunks():
+            hash_sha256.update(chunk)
+        file.seek(0)
+        return hash_sha256.hexdigest()
+
+    def save(self, *args, **kwargs):
+        """Override save to automatically extract metadata. Passthrough —
+        no processing is required for storage to be usable (cdn-modularity.md
+        §7.2: "recordings: хранение всегда")."""
         if not self.pk and self.original:
             if not self.file_hash:
                 self.file_hash = self.calculate_file_hash(self.original)

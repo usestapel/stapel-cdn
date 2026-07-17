@@ -28,3 +28,8 @@ class CdnConfig(AppConfig):
         # Idempotent even if ready() runs more than once: the module import
         # is cached and re-registering the same handler object is a no-op.
         from . import functions  # noqa: F401
+
+        # Submodule system checks (tag "stapel_cdn"): images/video/recordings
+        # binary probes (cdn-modularity.md §2.2/§3) — catches "enabled but
+        # missing binary" at manage.py check / boot-smoke time.
+        from . import checks as _checks  # noqa: F401

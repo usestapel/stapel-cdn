@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "stapel-cdn"
-version = "0.7.1"
+version = "0.8.0"
 description = "Media/CDN management Django app for the Stapel framework"
 readme = "README.md"
 license = { text = "MIT" }
@@ -39,9 +39,26 @@ Issues = "https://github.com/usestapel/stapel-cdn/issues"
 [project.optional-dependencies]
 s3 = ["boto3>=1.34"]
 # libvips binding for image processing (lazily imported in tasks.py). Needs the
-# system libvips library present at runtime (apt: libvips-dev).
+# system libvips library present at runtime (apt: libvips-dev). Core — every
+# Image.save() needs it; stapel-studio's devcontainer installs libvips
+# unconditionally (cdn-modularity.md §3/§0.4).
 images = ["pyvips>=2.2"]
-all = ["stapel-cdn[s3,images]"]
+# ffmpeg is a SYSTEM binary, not a pip package — there is nothing to
+# `pip install` for video/recordings today. These extras exist as markers:
+# "this deployment enables the video/recordings submodule" for deploy
+# tooling to read (cdn-modularity.md §3 — the ffmpeg apt layer belongs only
+# in a VPS/prod image, never the studio devcontainer) and for hosts to
+# express intent (pair with STAPEL_CDN["ENABLED_SUBMODULES"], which is what
+# actually turns on the checks.py ffmpeg probes). No pyvips-style pip
+# dependency to add here yet — see stapel_cdn.services.VideoProcessingService
+# / AudioProcessingService docstrings for the (unimplemented) pipeline.
+video = []
+recordings = []
+# files: passthrough storage, no processing — no extra needed. Listed for
+# symmetry with the submodule table in MODULE.md/CONFIG.MD, not because it
+# adds any dependency.
+files = []
+all = ["stapel-cdn[s3,images,video,recordings]"]
 
 [tool.setuptools]
 package-dir = {"stapel_cdn" = "."}

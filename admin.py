@@ -10,7 +10,7 @@ from django.contrib import admin, messages
 from django.utils.html import format_html
 
 from .forms import ImageAdminForm
-from .models import File, Image, Video
+from .models import Audio, File, Image, Video
 
 logger = logging.getLogger(__name__)
 
@@ -489,6 +489,104 @@ class FileAdmin(admin.ModelAdmin):
     @admin.display(description="Hash")
     def file_hash_short(self, obj):
         return f"{obj.file_hash[:8]}..."
+
+    @admin.display(description="Size")
+    def file_size_display(self, obj):
+        size = obj.original_size
+        for unit in ["B", "KB", "MB", "GB"]:
+            if size < 1024.0:
+                return f"{size:.1f} {unit}"
+            size /= 1024.0
+        return f"{size:.1f} TB"
+
+    @admin.display(description="Refs")
+    def refs_count(self, obj):
+        count = len(obj.refs) if obj.refs else 0
+        return count or "-"
+
+    @admin.display(description="Original URL")
+    def original_link(self, obj):
+        if obj.original:
+            url = obj.original.url
+            size_str = f" ({format_file_size(obj.original_size)})"
+            return format_html(
+                '<a href="{}" target="_blank">{}</a>{}', url, url, size_str
+            )
+        return "-"
+
+
+@admin.register(Audio)
+class AudioAdmin(admin.ModelAdmin):
+    """Admin interface for the Audio model ("recordings" submodule).
+
+    Passthrough storage, like FileAdmin — ``is_compressed`` reflects the
+    optional ffmpeg-audio pass (cdn-modularity.md §7.2), not readiness:
+    an uncompressed recording is already fully usable.
+    """
+
+    list_display = [
+        "file_hash_short",
+        "original_filename",
+        "duration_display",
+        "file_size_display",
+        "is_compressed",
+        "refs_count",
+        "uploaded_by",
+        "created_at",
+    ]
+    list_filter = ["is_compressed", OrphanFilter, "created_at"]
+    search_fields = ["file_hash", "original_filename", "uploaded_by__username"]
+    readonly_fields = [
+        "file_hash",
+        "original_filename",
+        "file_extension",
+        "mime_type",
+        "original_size",
+        "duration",
+        "original_link",
+        "is_compressed",
+        "refs",
+        "uploaded_by",
+        "created_at",
+        "updated_at",
+    ]
+
+    fieldsets = (
+        ("Original File", {"fields": ("original", "original_link")}),
+        (
+            "File Information",
+            {
+                "fields": (
+                    "file_hash",
+                    "original_filename",
+                    "file_extension",
+                    "mime_type",
+                    "original_size",
+                    "duration",
+                )
+            },
+        ),
+        ("References", {"fields": ("refs",)}),
+        ("Processing Status", {"fields": ("is_compressed",)}),
+        ("User Information", {"fields": ("uploaded_by",)}),
+        ("Timestamps", {"fields": ("created_at", "updated_at")}),
+    )
+
+    def save_model(self, request, obj, form, change):
+        if not obj.uploaded_by_id:
+            obj.uploaded_by = request.user
+        super().save_model(request, obj, form, change)
+
+    @admin.display(description="Hash")
+    def file_hash_short(self, obj):
+        return f"{obj.file_hash[:8]}..."
+
+    @admin.display(description="Duration")
+    def duration_display(self, obj):
+        if obj.duration:
+            minutes, seconds = divmod(int(obj.duration), 60)
+            return f"{minutes}:{seconds:02d}"
+        return "N/A"
 
     @admin.display(description="Size")
     def file_size_display(self, obj):

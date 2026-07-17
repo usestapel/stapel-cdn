@@ -42,6 +42,13 @@ def pytest_configure(config):
                 "users": None,
                 "cdn": None,
             },
+            # The shipped default is ("avatar",) only (cdn-modularity.md
+            # §2.1/§5 — zero-infrastructure, no marketplace-specific types
+            # baked in). This test suite's fixtures predate that and use
+            # "product" throughout as a second, generic image type — kept
+            # here so the *test environment* still exercises a
+            # multi-type deployment without rewriting every fixture.
+            STAPEL_CDN={"ASSET_TYPES": ("avatar", "product")},
         )
         import django
         django.setup()

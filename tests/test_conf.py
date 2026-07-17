@@ -1,9 +1,17 @@
 """
 Tests for conf-driven settings (STAPEL_CDN namespace, stapel_cdn.conf).
+
+Note: this test module runs under the package's own test settings, which
+override ``STAPEL_CDN["ASSET_TYPES"]`` to ``("avatar", "product")``
+(conftest.py) so the wider fixture suite can keep using "product" as a
+second generic image type. ``test_asset_types_shipped_default`` below
+asserts the *shipped* default directly (bypassing the override) since
+that's what cdn-modularity.md §2.1/§5 actually pins down.
 """
 from django.test import override_settings
 
 from stapel_cdn.conf import (
+    DEFAULT_ASSET_TYPES,
     DEFAULT_PREVIEW_SIZES,
     DEFAULT_THUMBNAIL_SIZES,
     DEFAULT_VARIANT_SIZES,
@@ -24,7 +32,15 @@ class TestDefaults:
         assert list(DEFAULT_VARIANT_SIZES) == [16, 32, 64, 120, 160, 240, 480, 560, 720, 1080]
 
     def test_image_types_default(self):
-        assert get_image_type_choices() == [("product", "Product"), ("avatar", "Avatar")]
+        # Package-level test override (conftest.py) adds "product" back —
+        # see test_asset_types_shipped_default for the real shipped default.
+        assert set(get_image_type_choices()) == {("avatar", "Avatar"), ("product", "Product")}
+
+    def test_asset_types_shipped_default(self):
+        # cdn-modularity.md §2.1/§5 — the zero-infrastructure default, no
+        # marketplace-specific types baked in. Shared key/namespace with
+        # stapel_core.django.cdn.conf.DEFAULT_ASSET_TYPES on the client side.
+        assert DEFAULT_ASSET_TYPES == ("avatar",)
 
     def test_max_image_size_default(self):
         assert cdn_settings.MAX_IMAGE_SIZE == 20 * 1024 * 1024
@@ -90,8 +106,9 @@ class TestOverrides:
 
     def test_image_types_override(self):
         with override_settings(
-            STAPEL_CDN={"IMAGE_TYPES": [("product", "Product"), ("banner", "Banner")]}
+            STAPEL_CDN={"ASSET_TYPES": [("product", "Product"), ("banner", "Banner")]}
         ):
             values = [choice[0] for choice in get_image_type_choices()]
             assert values == ["product", "banner"]
-        assert [c[0] for c in get_image_type_choices()] == ["product", "avatar"]
+        # back to the package's own test-settings override (conftest.py)
+        assert set(c[0] for c in get_image_type_choices()) == {"avatar", "product"}

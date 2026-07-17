@@ -152,9 +152,11 @@ def import_from_url(payload: dict) -> dict:
     image_type = payload["image_type"]
     caller = payload.get("caller")
 
-    # image_type must be a configured CDN image type (product, avatar, ...).
+    # image_type must be a configured CDN asset type (avatar, ... — open,
+    # cdn-modularity.md §2.1: STAPEL_CDN["ASSET_TYPES"], same key the
+    # client-side stapel_core.django.cdn field checks read).
     valid_types = set()
-    for entry in cdn_settings.IMAGE_TYPES:
+    for entry in cdn_settings.ASSET_TYPES:
         valid_types.add(entry if isinstance(entry, str) else entry[0])
     if image_type not in valid_types:
         raise ImageImportError("invalid_image_type", f"unknown image_type {image_type!r}")
