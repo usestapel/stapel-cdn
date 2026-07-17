@@ -4,6 +4,14 @@ All notable changes to this project will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## 0.7.1 — 2026-07-17
+
+Fleet follow-up to stapel-core 0.12.0 (legacy shim sweep). No source
+changes needed. Full suite green against core 0.12.0.
+
+### Changed
+- `stapel-core` dependency ceiling `<0.12` → `<0.13`.
+
 ## 0.7.0 — 2026-07-17
 
 Legacy purge (pre-1.0: minor = breaking). Only the current mechanisms
