@@ -37,12 +37,6 @@ def pytest_configure(config):
                 ],
             },
             MEDIA_ROOT="/tmp/stapel_cdn_test_media",
-            CDN_ALLOWED_IMAGE_EXTENSIONS=[
-                ".jpg", ".jpeg", ".png", ".gif", ".webp", ".bmp", ".heic", ".heif",
-            ],
-            CDN_ALLOWED_VIDEO_EXTENSIONS=[
-                ".mp4", ".webm", ".mov", ".avi", ".mkv",
-            ],
             # Skip migrations — create tables directly from models
             MIGRATION_MODULES={
                 "users": None,

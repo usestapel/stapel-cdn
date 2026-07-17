@@ -389,11 +389,6 @@ class ImageProcessingService:
 
         return combined_log
 
-    @classmethod
-    def generate_image_variants(cls, image_model):
-        """Alias for process_image for backwards compatibility."""
-        return cls.process_image(image_model)
-
 
 class VideoProcessingService:
     """Service for processing videos."""

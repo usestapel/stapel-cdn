@@ -11,7 +11,7 @@ from django.core.files.uploadedfile import SimpleUploadedFile
 from django.test import override_settings
 from rest_framework import status
 from rest_framework.test import APIClient
-from stapel_cdn.models import File, Image, ImageType
+from stapel_cdn.models import File, Image
 from stapel_core.django.users.models import User
 
 
@@ -185,10 +185,10 @@ class TestAvatarUploadView:
         )
         assert response.status_code == status.HTTP_201_CREATED
         assert response.data['message'] == 'Avatar uploaded successfully'
-        assert response.data['image']['type'] == ImageType.AVATAR
+        assert response.data['image']['type'] == "avatar"
 
         image = Image.objects.get(id=response.data['image']['id'])
-        assert image.type == ImageType.AVATAR
+        assert image.type == "avatar"
         assert image.uploaded_by == user
         assert image.original_filename == 'me.jpg'
         assert image.original_size == len(make_image_bytes())
@@ -205,7 +205,7 @@ class TestAvatarUploadView:
         assert response2.status_code == status.HTTP_200_OK
         assert response2.data['message'] == 'Avatar already exists'
         assert response2.data['image']['id'] == response1.data['image']['id']
-        assert Image.objects.filter(type=ImageType.AVATAR).count() == 1
+        assert Image.objects.filter(type="avatar").count() == 1
 
     def test_spoofed_content_rejected(self, authenticated_client):
         spoofed = SimpleUploadedFile(

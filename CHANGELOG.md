@@ -4,6 +4,30 @@ All notable changes to this project will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## 0.7.0 — 2026-07-17
+
+Legacy purge (pre-1.0: minor = breaking). Only the current mechanisms
+remain; no compatibility shims.
+
+### Removed
+- **Legacy flat `CDN_*` settings aliases** (`CDN_MAX_IMAGE_SIZE`,
+  `CDN_ALLOWED_IMAGE_EXTENSIONS`, `CDN_MAX_IMAGE_PIXELS`, `CDN_WATERMARK`,
+  `CDN_WATERMARK_TEXT`): `CdnAppSettings` is gone, `cdn_settings` is a plain
+  `stapel_core.conf.AppSettings`. Configure via the `STAPEL_CDN` dict (or an
+  unprefixed flat setting / env var of the same key name).
+- **`CDN_ALLOWED_VIDEO_EXTENSIONS` flat setting** replaced by
+  `STAPEL_CDN["ALLOWED_VIDEO_EXTENSIONS"]` (default
+  `.mp4 .webm .mov .avi .mkv`) — previously required with no default.
+- **`models.ImageType` TextChoices** — the authoritative, overridable list
+  is `STAPEL_CDN["IMAGE_TYPES"]` via `models.get_image_type_choices`; use
+  plain `"product"` / `"avatar"` strings.
+- **`Video.variant_720_jpg` field** (migration `0003`, contract-phase) —
+  never populated; variants are WebP-only. Dropped from admin too.
+- **`ImageProcessingService.generate_image_variants`** backwards-compat
+  alias — call `process_image`.
+- Stale OpenAPI upload description (720px-JPEG fallback, wrong tier list)
+  now documents the real WebP thumbnail/preview ladder.
+
 ## 0.6.1 — 2026-07-17
 
 ### Changed

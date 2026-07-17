@@ -5,7 +5,6 @@ Views for stapel-cdn service.
 import logging
 import os
 
-from django.conf import settings
 from drf_spectacular.utils import OpenApiExample, OpenApiParameter, extend_schema
 from rest_framework import status
 from rest_framework.parsers import FormParser, MultiPartParser
@@ -42,7 +41,7 @@ from .conf import cdn_settings
 from .dto import (
     FileUploadResponse as FileUploadResponseDTO,
 )
-from .models import File, Image, ImageType, Video, get_image_type_choices
+from .models import File, Image, Video, get_image_type_choices
 from .serializers import (
     FileExistsResponseSerializer,
     FileExistsSerializer,
@@ -126,12 +125,9 @@ class ImageUploadView(SerializerSeamMixin, APIView):
 3. If new file, creates image record and generates variants via background task
 4. Variants are generated in WebP format at multiple resolutions
 
-**Generated variants:**
-- 16px, 32px, 64px - thumbnails
-- 160px, 240px - previews
-- 480px, 720px - medium
-- 1080px, 1440px, 2160px - high resolution
-- 720px JPEG - fallback for browsers without WebP support
+**Generated variants (all WebP):**
+- 16px, 32px, 64px, 120px - min-side thumbnails
+- 160px, 240px, 480px, 560px, 720px, 1080px - w/h preview branches
 
 **Request format:** `multipart/form-data` with `file` field
 
@@ -198,7 +194,7 @@ class ImageUploadView(SerializerSeamMixin, APIView):
 
         # Check if file already exists (default type is 'product')
         existing_image = Image.objects.filter(
-            file_hash=file_hash, type=ImageType.PRODUCT
+            file_hash=file_hash, type="product"
         ).first()
         if existing_image:
             return StapelResponse(
@@ -220,7 +216,7 @@ class ImageUploadView(SerializerSeamMixin, APIView):
                 file_hash=file_hash,
                 original_filename=uploaded_file.name,
                 file_extension=file_extension,
-                type=ImageType.PRODUCT,
+                type="product",
                 original=uploaded_file,
                 original_size=uploaded_file.size,
                 uploaded_by=request.user,
@@ -318,7 +314,7 @@ class VideoUploadView(SerializerSeamMixin, APIView):
         file_extension = os.path.splitext(uploaded_file.name)[1].lower()
 
         # Check if it's a video
-        if file_extension not in settings.CDN_ALLOWED_VIDEO_EXTENSIONS:
+        if file_extension not in cdn_settings.ALLOWED_VIDEO_EXTENSIONS:
             return StapelErrorResponse(400, ERR_400_INVALID_FORMAT)
 
         # Create Video record
@@ -565,7 +561,7 @@ class AvatarUploadView(SerializerSeamMixin, APIView):
 
         # Check for existing avatar with same hash
         existing_image = Image.objects.filter(
-            file_hash=file_hash, type=ImageType.AVATAR
+            file_hash=file_hash, type="avatar"
         ).first()
         if existing_image:
             return StapelResponse(
@@ -584,7 +580,7 @@ class AvatarUploadView(SerializerSeamMixin, APIView):
                 file_hash=file_hash,
                 original_filename=uploaded_file.name,
                 file_extension=file_extension,
-                type=ImageType.AVATAR,
+                type="avatar",
                 original=uploaded_file,
                 original_size=uploaded_file.size,
                 uploaded_by=request.user,
@@ -788,7 +784,7 @@ def _batch_resolve_media(ref_strings, for_update=False):
     Batch-resolve media reference strings to model instances.
 
     Ref format: <prefix>/<hash>
-      - product/<hash>, avatar/<hash> → Image (prefix = ImageType)
+      - product/<hash>, avatar/<hash> → Image (prefix = image type)
       - video/<hash>                  → Video
       - file/<hash>                   → File
 

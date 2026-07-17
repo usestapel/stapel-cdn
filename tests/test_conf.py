@@ -33,7 +33,6 @@ class TestDefaults:
         assert cdn_settings.MAX_IMAGE_PIXELS == 50_000_000
 
     def test_allowed_image_extensions(self):
-        # conftest sets the legacy flat CDN_ALLOWED_IMAGE_EXTENSIONS
         assert ".jpg" in cdn_settings.ALLOWED_IMAGE_EXTENSIONS
         assert ".heic" in cdn_settings.ALLOWED_IMAGE_EXTENSIONS
 
@@ -87,11 +86,6 @@ class TestOverrides:
     def test_max_image_size_override_via_namespace(self):
         with override_settings(STAPEL_CDN={"MAX_IMAGE_SIZE": 1234}):
             assert cdn_settings.MAX_IMAGE_SIZE == 1234
-        assert cdn_settings.MAX_IMAGE_SIZE == 20 * 1024 * 1024
-
-    def test_legacy_flat_setting_alias(self):
-        with override_settings(CDN_MAX_IMAGE_SIZE=4321):
-            assert cdn_settings.MAX_IMAGE_SIZE == 4321
         assert cdn_settings.MAX_IMAGE_SIZE == 20 * 1024 * 1024
 
     def test_image_types_override(self):

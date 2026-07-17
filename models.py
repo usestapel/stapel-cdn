@@ -30,17 +30,6 @@ def file_upload_path(instance, filename):
     return f"file/{instance.file_hash}/{filename}"
 
 
-class ImageType(models.TextChoices):
-    """Types of images (user-uploaded content with watermarks).
-
-    Kept for backwards compatibility; the authoritative, overridable list
-    lives in ``stapel_cdn.conf.cdn_settings.IMAGE_TYPES``.
-    """
-
-    PRODUCT = "product", "Product"
-    AVATAR = "avatar", "Avatar"
-
-
 def get_image_type_choices():
     """Image type choices from conf (``STAPEL_CDN["IMAGE_TYPES"]``).
 
@@ -70,7 +59,7 @@ class Image(models.Model):
     type = models.CharField(
         max_length=10,
         choices=get_image_type_choices,
-        default=ImageType.PRODUCT,
+        default="product",
         help_text="Type of image: product or avatar",
     )
 
@@ -304,13 +293,6 @@ class Video(models.Model):
         blank=True,
         null=True,
         help_text="720px height variant with watermark",
-    )
-    variant_720_jpg = models.FileField(
-        upload_to=video_upload_path,
-        max_length=100,
-        blank=True,
-        null=True,
-        help_text="720px height variant (legacy compatibility)",
     )
     variant_1080 = models.FileField(
         upload_to=video_upload_path,

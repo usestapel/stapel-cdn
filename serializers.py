@@ -219,8 +219,6 @@ class FileUploadSerializer(serializers.Serializer):
 
     def validate_file(self, value):
         """Validate the uploaded file."""
-        from django.conf import settings
-
         from .conf import cdn_settings
 
         # Get file extension
@@ -228,7 +226,7 @@ class FileUploadSerializer(serializers.Serializer):
 
         # Check if it's an allowed extension
         allowed_extensions = list(cdn_settings.ALLOWED_IMAGE_EXTENSIONS) + list(
-            settings.CDN_ALLOWED_VIDEO_EXTENSIONS
+            cdn_settings.ALLOWED_VIDEO_EXTENSIONS
         )
 
         if f".{file_extension}" not in allowed_extensions:

@@ -9,16 +9,12 @@ Configure via a ``STAPEL_CDN`` dict in Django settings::
         "MAX_IMAGE_SIZE": 20 * 1024 * 1024,
     }
 
-Resolution order per key: ``settings.STAPEL_CDN`` dict → legacy flat
-``CDN_*`` setting (see ``LEGACY_ALIASES``) → flat Django setting of the
-same name → environment variable → built-in default. All defaults match
-the previously hardcoded values, so with no overrides behavior is
-unchanged.
+Resolution order per key: ``settings.STAPEL_CDN`` dict → flat Django
+setting of the same name → environment variable → built-in default.
 """
 from stapel_core.conf import AppSettings
 
-#: Image type choices: (value, label) pairs. Mirrors the historical
-#: ``ImageType`` TextChoices on the model.
+#: Image type choices: (value, label) pairs.
 DEFAULT_IMAGE_TYPES = (
     ("product", "Product"),
     ("avatar", "Avatar"),
@@ -49,6 +45,9 @@ DEFAULTS = {
     "ALLOWED_IMAGE_EXTENSIONS": (
         ".jpg", ".jpeg", ".png", ".gif", ".webp", ".bmp", ".heic", ".heif",
     ),
+    "ALLOWED_VIDEO_EXTENSIONS": (
+        ".mp4", ".webm", ".mov", ".avi", ".mkv",
+    ),
     # Decompression-bomb cap: Pillow raises DecompressionBombError above
     # 2x this pixel count.
     "MAX_IMAGE_PIXELS": 50_000_000,
@@ -73,56 +72,12 @@ DEFAULTS = {
     "IMPORT_FROM_URL_RATE": "10/h",
 }
 
-_UNSET = object()
-
-
-class CdnAppSettings(AppSettings):
-    """AppSettings that also honors the legacy flat ``CDN_*`` names."""
-
-    LEGACY_ALIASES = {
-        "MAX_IMAGE_SIZE": "CDN_MAX_IMAGE_SIZE",
-        "ALLOWED_IMAGE_EXTENSIONS": "CDN_ALLOWED_IMAGE_EXTENSIONS",
-        "MAX_IMAGE_PIXELS": "CDN_MAX_IMAGE_PIXELS",
-        "WATERMARK": "CDN_WATERMARK",
-        "WATERMARK_TEXT": "CDN_WATERMARK_TEXT",
-    }
-
-    def _connect_reload(self):
-        try:
-            from django.test.signals import setting_changed
-
-            def _reload(*, setting, **kwargs):
-                if (
-                    setting == self.namespace
-                    or setting in self.defaults
-                    or setting in self.LEGACY_ALIASES.values()
-                ):
-                    self.reload()
-
-            setting_changed.connect(_reload, weak=False)
-        except Exception:  # pragma: no cover — Django not ready
-            pass
-
-    def _raw(self, key):
-        from django.conf import settings
-
-        overrides = getattr(settings, self.namespace, None) or {}
-        if key not in overrides:
-            legacy = self.LEGACY_ALIASES.get(key)
-            if legacy is not None:
-                value = getattr(settings, legacy, _UNSET)
-                if value is not _UNSET:
-                    return value
-        return super()._raw(key)
-
-
-cdn_settings = CdnAppSettings(
+cdn_settings = AppSettings(
     "STAPEL_CDN", defaults=DEFAULTS, import_strings=("WATERMARK",)
 )
 
 __all__ = [
     "cdn_settings",
-    "CdnAppSettings",
     "DEFAULTS",
     "DEFAULT_IMAGE_TYPES",
     "DEFAULT_THUMBNAIL_SIZES",

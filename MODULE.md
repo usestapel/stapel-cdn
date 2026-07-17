@@ -57,9 +57,8 @@ Depends on `stapel-core` only · Optional extras: `images` (pyvips), `s3` (boto3
 
 ### Settings — `STAPEL_CDN` namespace
 
-`stapel_cdn.conf.cdn_settings` (a `CdnAppSettings`, subclass of
-`stapel_core.conf.AppSettings`). Resolution order per key:
-`settings.STAPEL_CDN` dict → legacy flat `CDN_*` alias → flat Django setting of the same
+`stapel_cdn.conf.cdn_settings` (a `stapel_core.conf.AppSettings`).
+Resolution order per key: `settings.STAPEL_CDN` dict → flat Django setting of the same
 name → environment variable → built-in default. Test-safe: caches invalidate on
 `setting_changed`.
 
@@ -68,14 +67,12 @@ name → environment variable → built-in default. Test-safe: caches invalidate
 | `IMAGE_TYPES` | `(("product", "Product"), ("avatar", "Avatar"))` | `Image.type` choices. Read through the callable `models.get_image_type_choices`, so adding types never produces a model/migration change. Accepts `(value, label)` pairs or plain strings. `TypedImageUploadView` and `RandomImageView` validate against it. Values must fit `max_length=10`. |
 | `THUMBNAIL_SIZES` | `(16, 32, 64, 120)` | Thumbnail tiers: min-side resize, no branches, no watermark, high-priority queue. 16 is the micro tier inlined as `preview_b64` by `cdn.describe`. |
 | `PREVIEW_SIZES` | `(160, 240, 480, 560, 720, 1080)` | Preview tiers: two branches per tier (`{T}w.webp` / `{T}h.webp`), watermark-capable, normal-priority queue. |
-| `MAX_IMAGE_SIZE` | `20 * 1024 * 1024` (20 MiB) | Upload size cap, checked before hashing (legacy alias `CDN_MAX_IMAGE_SIZE`). |
-| `ALLOWED_IMAGE_EXTENSIONS` | `.jpg .jpeg .png .gif .webp .bmp .heic .heif` | Image extension allowlist in views, serializers and `validate_image_file` (legacy alias `CDN_ALLOWED_IMAGE_EXTENSIONS`). |
-| `MAX_IMAGE_PIXELS` | `50_000_000` | Pillow decompression-bomb cap (`PIL.Image.MAX_IMAGE_PIXELS`; legacy alias `CDN_MAX_IMAGE_PIXELS`). |
-| `WATERMARK` | `""` (**off**) | Watermark engine: dotted path to (or directly a) callable `(pyvips.Image) -> pyvips.Image` applied to preview variants. Empty disables watermarking. Built-in reference engine: `stapel_cdn.watermarks.text_watermark`. Legacy alias `CDN_WATERMARK`. |
-| `WATERMARK_TEXT` | `""` | Label rendered by the built-in `text_watermark` engine (bottom-right corner). Ignored by custom engines unless they read it. Legacy alias `CDN_WATERMARK_TEXT`. |
-
-Flat setting outside the namespace (required, no default — host project must define it):
-`CDN_ALLOWED_VIDEO_EXTENSIONS` (used by `FileUploadSerializer` and `VideoUploadView`).
+| `MAX_IMAGE_SIZE` | `20 * 1024 * 1024` (20 MiB) | Upload size cap, checked before hashing. |
+| `ALLOWED_IMAGE_EXTENSIONS` | `.jpg .jpeg .png .gif .webp .bmp .heic .heif` | Image extension allowlist in views, serializers and `validate_image_file`. |
+| `ALLOWED_VIDEO_EXTENSIONS` | `.mp4 .webm .mov .avi .mkv` | Video extension allowlist (`FileUploadSerializer`, `VideoUploadView`). |
+| `MAX_IMAGE_PIXELS` | `50_000_000` | Pillow decompression-bomb cap (`PIL.Image.MAX_IMAGE_PIXELS`). |
+| `WATERMARK` | `""` (**off**) | Watermark engine: dotted path to (or directly a) callable `(pyvips.Image) -> pyvips.Image` applied to preview variants. Empty disables watermarking. Built-in reference engine: `stapel_cdn.watermarks.text_watermark`. |
+| `WATERMARK_TEXT` | `""` | Label rendered by the built-in `text_watermark` engine (bottom-right corner). Ignored by custom engines unless they read it. |
 
 ### Storage / processing backends (dotted paths)
 
@@ -181,7 +178,7 @@ zero decorators added.
   FileFields).
 - **Non-idempotent action handlers.** Anything subscribed via `on_action` must tolerate
   redelivery (outbox retries, at-least-once broker semantics).
-- **Reading flat `CDN_*` settings in new code.** They are legacy aliases; new code reads
+- **Reading flat `CDN_*` settings.** The legacy flat aliases are gone; code reads
   `cdn_settings.<KEY>` so the namespace dict, env vars and test overrides all work.
 
 ## App-layer override vs upstream contribution — rule of thumb

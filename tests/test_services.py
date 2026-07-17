@@ -196,17 +196,6 @@ class TestImageProcessingService:
         # Should not call bandjoin since already has alpha
         mock_img.bandjoin.assert_not_called()
 
-    @patch.object(ImageProcessingService, 'process_image')
-    def test_generate_image_variants_calls_process_image(self, mock_process_image):
-        """Test that generate_image_variants delegates to process_image."""
-        mock_process_image.return_value = "test log"
-        mock_image = MagicMock()
-
-        result = ImageProcessingService.generate_image_variants(mock_image)
-
-        mock_process_image.assert_called_once_with(mock_image)
-        assert result == "test log"
-
 
 class TestVideoProcessingService:
     """Tests for VideoProcessingService."""
