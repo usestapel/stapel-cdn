@@ -1,0 +1,79 @@
+{
+  "module": "stapel-cdn",
+  "version": "0.8.0",
+  "provides": "Media management: image/video/file/audio upload, processing (thumbnail/preview generation via libvips) and CDN ref tracking, with a media-submodule opt-in (images core, video/recordings behind ENABLED_SUBMODULES + ffmpeg system checks), a watermark seam, upload speed-limiting, and cdn.media_exists / cdn.refs_sync comm Functions for other modules to check/sync media references without importing this package.",
+  "axes": [
+    {
+      "key": "ASSET_TYPES",
+      "kind": "list",
+      "default": ["avatar"],
+      "group": "cdn.images",
+      "gates": {
+        "operations": [],
+        "co_gates": []
+      },
+      "curated": {
+        "summary": "Image.type choices — the same STAPEL_CDN key the client-side CdnImageField reads, so server validation and client typing agree on what's legal. Default is the zero-infrastructure 'avatar' only; marketplace-specific types (product/chat/review) are added explicitly by the host (conf.py, MODULE.md Extension points table).",
+        "business_label": "Which image categories this deployment accepts"
+      }
+    },
+    {
+      "key": "ENABLED_SUBMODULES",
+      "kind": "list",
+      "default": ["images"],
+      "group": "cdn.submodules",
+      "gates": {
+        "operations": [],
+        "co_gates": []
+      },
+      "curated": {
+        "summary": "Which of images/video/recordings this deployment turns on. images needs no opt-in; adding video/recordings activates the ffmpeg system-check probe for that submodule (conf.py, MODULE.md 'Media submodules').",
+        "business_label": "Enabled media types (images / video / audio recordings)"
+      }
+    },
+    {
+      "key": "WATERMARK",
+      "kind": "enum",
+      "default": "",
+      "group": "cdn.images",
+      "gates": {
+        "operations": [],
+        "co_gates": []
+      },
+      "curated": {
+        "summary": "Dotted path to (or direct callable) a watermark engine applied to preview variants; empty disables watermarking (conf.py, MODULE.md 'Storage / processing backends').",
+        "business_label": "Watermark preview images"
+      }
+    }
+  ],
+  "extension_points": [
+    {
+      "name": "WATERMARK",
+      "kind": "dotted_path",
+      "summary": "The only dotted-path key in the namespace: a callable (pyvips.Image) -> pyvips.Image; built-in reference stapel_cdn.watermarks.text_watermark renders WATERMARK_TEXT (MODULE.md 'Storage / processing backends')."
+    },
+    {
+      "name": "ASSET_TYPES",
+      "kind": "value_list_override",
+      "summary": "Read through the callable models.get_image_type_choices, so adding types never produces a model/migration change (MODULE.md Extension points table)."
+    },
+    {
+      "name": "serializer_seams",
+      "kind": "class_override",
+      "summary": "Every view in stapel_cdn.views mixes in SerializerSeamMixin (request_serializer_class/response_serializer_class + get_* getters); subclass and re-route the URL to swap (views.py:62-79, MODULE.md 'Serializer seams')."
+    },
+    {
+      "name": "media_processed signal",
+      "kind": "django_signal",
+      "summary": "stapel_core.signals.media_processed sent after ImageProcessingService.process_image() generates all variants — in-process hook for cache warm-up/denormalization (MODULE.md 'Signals')."
+    }
+  ],
+  "operations_total": 9,
+  "requires": [
+    {
+      "module": "stapel-core",
+      "optional": false,
+      "reason": "comm bus (cdn.media_exists/cdn.refs_sync Functions, user.deleted/user.deletion_initiated consume for GDPR), AppSettings, error registry (pyproject.toml dependency)"
+    }
+  ]
+}
