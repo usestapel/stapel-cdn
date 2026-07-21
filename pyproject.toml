@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "stapel-cdn"
-version = "0.8.0"
+version = "0.8.1"
 description = "Media/CDN management Django app for the Stapel framework"
 readme = "README.md"
 license = { text = "MIT" }
@@ -24,7 +24,7 @@ classifiers = [
     "Typing :: Typed",
 ]
 dependencies = [
-    "stapel-core>=0.10,<0.13",
+    "stapel-core>=0.10,<1.0",
     "Pillow>=9.0",
     "celery>=5",
 ]
