@@ -6,6 +6,7 @@ mounts this module under the mandatory ``v1/`` sub-prefix, producing the
 canonical ``/cdn/api/v1/...`` surface.
 """
 from django.urls import path
+from .errors import CdnErrorKeysView
 from .views import (
     ImageUploadView,
     AvatarUploadView,
@@ -26,4 +27,7 @@ urlpatterns = [
     path('images/<str:image_type>/upload/', TypedImageUploadView.as_view(), name='typed-image-upload'),
     path('file/exists/', FileExistsView.as_view(), name='file-exists'),
     path('refs/sync/', RefSyncView.as_view(), name='refs-sync'),
+
+    # Error-key registry for the stapel-translate collector (service/staff only).
+    path('error-keys/', CdnErrorKeysView.as_view(), name='error-keys'),
 ]

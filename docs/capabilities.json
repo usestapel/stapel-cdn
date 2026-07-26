@@ -1,6 +1,6 @@
 {
   "module": "stapel-cdn",
-  "version": "0.8.0",
+  "version": "0.8.2",
   "provides": "Media management: image/video/file/audio upload, processing (thumbnail/preview generation via libvips) and CDN ref tracking, with a media-submodule opt-in (images core, video/recordings behind ENABLED_SUBMODULES + ffmpeg system checks), a watermark seam, upload speed-limiting, and cdn.media_exists / cdn.refs_sync comm Functions for other modules to check/sync media references without importing this package.",
   "axes": [
     {
