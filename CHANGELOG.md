@@ -4,6 +4,60 @@ All notable changes to this project will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## 0.9.0 — 2026-07-30
+
+### Changed (BREAKING for anonymous callers) — an upload endpoint stops being open file hosting (#168)
+
+`stapel-core` 0.16 turns the `AUTH_ANONYMOUS` axis into a question this
+module never answered, and for a *storage* module it is the sharpest version
+of that question. A guest session is `is_authenticated`, so a bare
+`IsAuthenticated` gate lets it through — and the anonymous axis removes the
+only thing that made an upload endpoint self-limiting, namely an account. A
+session costs one unauthenticated POST to mint, so "authenticated upload"
+and "open file hosting" become the same sentence. All five upload views were
+gated on exactly that bare `IsAuthenticated` (`stapel_core.adoption` W002
+reported all five against a real deployment).
+
+The rule they now state:
+
+> **a guest may upload the one artifact it legitimately owns — its own
+> avatar — and nothing else.**
+
+**Closed** — `IsNotAnonymousUser`, so an anonymous session gets **403** where
+it previously got 201:
+
+- `POST /upload/image/` — general-purpose image intake, bound to nothing the
+  caller owns.
+- `POST /upload/video/` — the most expensive intake here, with transcoding
+  still to come.
+- `POST /upload/file/` — 50 MB of arbitrary bytes, no type restriction: the
+  plainest open-file-hosting shape in the module.
+- `POST /images/{image_type}/upload/` — caller-chosen type is the same
+  general-purpose intake wearing a label; a guest that needs an avatar has
+  the dedicated route, which is the bounded one.
+
+**Left open, deliberately** — `POST /upload/avatar/`
+(`stapel_anonymous_access = ANONYMOUS_ALLOWED`). It is the picture on the
+guest's own profile, which `stapel-profiles` already lets a guest have, and
+it is a **live surface in a real consumer** (meettoday's settings screen is
+reachable from the header a guest sees, and its profile tab uploads here) —
+closing it would have broken a working flow rather than an abuse vector. It
+is bounded three ways: the image validator, `MAX_IMAGE_SIZE` /
+`MAX_IMAGE_PIXELS`, and SHA-256 deduplication, so re-uploading the same
+bytes costs no new storage at all.
+
+Minor, not patch: for a deployment with `AUTH_ANONYMOUS` on this is a
+behaviour change on a live surface. Deployments without guest sessions are
+unaffected — an ordinary authenticated user passes `IsNotAnonymousUser`
+exactly as before.
+
+New `tests/test_guest_surface.py` pins both halves.
+
+### Changed
+
+- Minimum `stapel-core` raised to `>=0.16` (the release that added
+  `ANONYMOUS_ALLOWED` / `ANONYMOUS_DENIED`).
+
 ## 0.8.2 — 2026-07-26
 
 ### Added — `error-keys/` is finally mounted

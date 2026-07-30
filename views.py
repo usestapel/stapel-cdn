@@ -1,5 +1,34 @@
 """
 Views for stapel-cdn service.
+
+Guest (anonymous session) stance
+--------------------------------
+With ``AUTH_ANONYMOUS`` on, a guest session is ``is_authenticated``, so a bare
+``IsAuthenticated`` says nothing about whether guests belong on a view
+(``stapel_core.adoption`` E001/W002). For a *storage* module that question is
+sharper than elsewhere, because the anonymous axis removes the only thing
+that made an upload endpoint self-limiting: an account. A session costs one
+unauthenticated POST to mint, so "authenticated upload" and "open file
+hosting" become the same sentence. The five upload views here state their
+answer, and the rule is:
+
+    **a guest may upload the one artifact it legitimately owns — its own
+    avatar — and nothing else.**
+
+``AvatarUploadView`` is ``ANONYMOUS_ALLOWED``: it is the picture on the
+guest's own profile (``stapel-profiles`` lets a guest own one, for the same
+reason — a guest who types a display name before joining a call may
+reasonably attach a face to it), it is a live surface in a real consumer,
+and it is bounded three ways: the image validator, ``MAX_IMAGE_SIZE`` /
+``MAX_IMAGE_PIXELS``, and SHA-256 deduplication, which makes a re-upload of
+the same bytes cost no new storage at all.
+
+The general-purpose intake — arbitrary images, videos, and
+``GenericFileUploadView``'s 50 MB of *anything* — carries
+:class:`~stapel_core.django.api.permissions.IsNotAnonymousUser`. None of it
+is bounded to something a guest owns, and none of it is a guest flow in any
+consumer; leaving it open would hand unmetered storage to an identity that
+costs nothing to create.
 """
 
 import logging
@@ -16,7 +45,12 @@ from stapel_core.django.api.errors import (
     StapelResponse,
     error_500_internal,
 )
-from stapel_core.django.api.permissions import IsServiceRequest, IsStaffUser
+from stapel_core.django.api.permissions import (
+    ANONYMOUS_ALLOWED,
+    IsNotAnonymousUser,
+    IsServiceRequest,
+    IsStaffUser,
+)
 
 from django.core.exceptions import ValidationError
 
@@ -107,7 +141,9 @@ def _validate_image_upload(uploaded_file):
 class ImageUploadView(SerializerSeamMixin, APIView):
     """API endpoint for uploading images."""
 
-    permission_classes = [IsAuthenticated]
+    # General-purpose image intake, bound to nothing the caller owns. With a
+    # free-to-mint anonymous identity this is open image hosting.
+    permission_classes = [IsNotAnonymousUser]
     parser_classes = [MultiPartParser, FormParser]
     request_serializer_class = FileUploadSerializer
     response_serializer_class = ImageUploadResponseSerializer
@@ -236,7 +272,9 @@ class ImageUploadView(SerializerSeamMixin, APIView):
 class VideoUploadView(SerializerSeamMixin, APIView):
     """API endpoint for uploading videos."""
 
-    permission_classes = [IsAuthenticated]
+    # The most expensive intake in the module (and transcoding is still to
+    # come). Closed to a session that costs nothing to mint.
+    permission_classes = [IsNotAnonymousUser]
     parser_classes = [MultiPartParser, FormParser]
     request_serializer_class = FileUploadSerializer
     response_serializer_class = VideoUploadResponseSerializer
@@ -508,6 +546,14 @@ class AvatarUploadView(SerializerSeamMixin, APIView):
     """API endpoint for uploading avatar images."""
 
     permission_classes = [IsAuthenticated]
+    # The one upload a guest legitimately owns: the picture on its own
+    # profile, which stapel-profiles already lets a guest have. Live in a real
+    # consumer — meettoday's settings screen is reachable from the header a
+    # guest sees. Bounded by the image validator, MAX_IMAGE_SIZE /
+    # MAX_IMAGE_PIXELS, and SHA-256 dedup (re-uploading the same bytes costs
+    # no new storage), so "free to mint a session" does not mean "free to
+    # fill the disk".
+    stapel_anonymous_access = ANONYMOUS_ALLOWED
     parser_classes = [MultiPartParser, FormParser]
     request_serializer_class = FileUploadSerializer
     response_serializer_class = ImageUploadResponseSerializer
@@ -600,7 +646,10 @@ class AvatarUploadView(SerializerSeamMixin, APIView):
 class TypedImageUploadView(SerializerSeamMixin, APIView):
     """API endpoint for uploading images with a specific type."""
 
-    permission_classes = [IsAuthenticated]
+    # Caller-chosen `image_type` — general-purpose intake wearing a label, so
+    # it follows ImageUploadView, not AvatarUploadView. A guest that needs an
+    # avatar has the dedicated route above, which is the bounded one.
+    permission_classes = [IsNotAnonymousUser]
     parser_classes = [MultiPartParser, FormParser]
     request_serializer_class = FileUploadSerializer
     response_serializer_class = ImageUploadResponseSerializer
@@ -890,7 +939,9 @@ class RefSyncView(SerializerSeamMixin, APIView):
 class GenericFileUploadView(SerializerSeamMixin, APIView):
     """API endpoint for uploading generic files (documents, archives, etc.)."""
 
-    permission_classes = [IsAuthenticated]
+    # 50 MB of arbitrary bytes with no type restriction — the plainest "open
+    # file hosting" shape in the module.
+    permission_classes = [IsNotAnonymousUser]
     parser_classes = [MultiPartParser, FormParser]
     request_serializer_class = None  # reads request.FILES["file"] directly
     response_serializer_class = FileUploadResponseSerializer
