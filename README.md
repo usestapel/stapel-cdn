@@ -6,6 +6,7 @@
 [![downloads](https://static.pepy.tech/badge/stapel-cdn/month)](https://pepy.tech/project/stapel-cdn)
 [![python](https://img.shields.io/pypi/pyversions/stapel-cdn?logo=python&logoColor=white)](https://pypi.org/project/stapel-cdn/)
 [![license](https://img.shields.io/github/license/usestapel/stapel-cdn)](https://github.com/usestapel/stapel-cdn/blob/main/LICENSE)
+[![llms.txt](https://img.shields.io/badge/llms.txt-blue)](https://github.com/usestapel/stapel-cdn/blob/main/docs/llms.txt)
 
 > Media management — image/video/file/audio upload, processing, CDN ref tracking
 
