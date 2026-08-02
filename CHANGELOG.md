@@ -4,6 +4,20 @@ All notable changes to this project will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## 0.9.1 — 2026-08-02
+
+### Added
+- `docs/llms.txt` — the fifth contract artifact, an agent-sized slice of
+  `docs/capabilities.json`, wired into `make contract` / `make contract-check`
+  (badge-canon §3). `docs/capabilities.json` itself stays hand-authored here
+  (only its `version` field bumped alongside the package).
+- Badge canon in README, classifier 3.14, `migration-lint` enabled in CI.
+
+### Fixed
+- `docs/capabilities.json`, `docs/flows.json`, `docs/errors.json`,
+  `docs/llms.txt` and `CONFIG.MD` now ship in the wheel via `package-data`
+  (#184); previously repo-only, invisible to `--from-installed` tooling.
+
 ## 0.9.0 — 2026-07-30
 
 ### Changed (BREAKING for anonymous callers) — an upload endpoint stops being open file hosting (#168)
