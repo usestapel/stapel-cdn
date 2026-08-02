@@ -1,8 +1,11 @@
 # stapel-cdn
 
-[![CI](https://github.com/usestapel/stapel-cdn/actions/workflows/ci.yml/badge.svg)](https://github.com/usestapel/stapel-cdn/actions/workflows/ci.yml)
-[![codecov](https://codecov.io/gh/usestapel/stapel-cdn/graph/badge.svg)](https://codecov.io/gh/usestapel/stapel-cdn)
-[![PyPI](https://img.shields.io/pypi/v/stapel-cdn.svg)](https://pypi.org/project/stapel-cdn/)
+[![CI](https://img.shields.io/github/actions/workflow/status/usestapel/stapel-cdn/ci.yml?branch=main&logo=github&label=CI)](https://github.com/usestapel/stapel-cdn/actions/workflows/ci.yml?query=branch%3Amain)
+[![coverage](https://img.shields.io/codecov/c/github/usestapel/stapel-cdn?branch=main&logo=codecov&label=coverage)](https://app.codecov.io/gh/usestapel/stapel-cdn)
+[![pypi](https://img.shields.io/pypi/v/stapel-cdn?logo=pypi&logoColor=white&label=pypi)](https://pypi.org/project/stapel-cdn/)
+[![downloads](https://static.pepy.tech/badge/stapel-cdn/month)](https://pepy.tech/project/stapel-cdn)
+[![python](https://img.shields.io/pypi/pyversions/stapel-cdn?logo=python&logoColor=white)](https://pypi.org/project/stapel-cdn/)
+[![license](https://img.shields.io/github/license/usestapel/stapel-cdn)](https://github.com/usestapel/stapel-cdn/blob/main/LICENSE)
 
 > Media management — image/video/file/audio upload, processing, CDN ref tracking
 
