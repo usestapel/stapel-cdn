@@ -6,7 +6,9 @@
     {
       "key": "ASSET_TYPES",
       "kind": "list",
-      "default": ["avatar"],
+      "default": [
+        "avatar"
+      ],
       "group": "cdn.images",
       "gates": {
         "operations": [],
@@ -20,7 +22,9 @@
     {
       "key": "ENABLED_SUBMODULES",
       "kind": "list",
-      "default": ["images"],
+      "default": [
+        "images"
+      ],
       "group": "cdn.submodules",
       "gates": {
         "operations": [],
@@ -66,6 +70,55 @@
       "name": "media_processed signal",
       "kind": "django_signal",
       "summary": "stapel_core.signals.media_processed sent after ImageProcessingService.process_image() generates all variants — in-process hook for cache warm-up/denormalization (MODULE.md 'Signals')."
+    }
+  ],
+  "surface": [
+    {
+      "name": "detect_image_extension",
+      "kind": "gate_function",
+      "path": "stapel_cdn.fetch.detect_image_extension",
+      "intent": "Magic-byte content check for fetched or uploaded image bytes: decodes with Pillow and maps the DETECTED format — never the URL suffix or the Content-Type header — to an allowed extension, raising ImageImportError otherwise. Pair with fetch_image_bytes for any external-image intake: trusting a URL's own extension is how a '.jpg' that is actually an HTML/script payload reaches storage.",
+      "instead_of": [
+        "trusting the URL or Content-Type extension"
+      ]
+    },
+    {
+      "name": "enforce_rate_limit",
+      "kind": "gate_function",
+      "path": "stapel_cdn.fetch.enforce_rate_limit",
+      "intent": "Per-caller fixed-window quota (STAPEL_CDN['IMPORT_FROM_URL_RATE']) guarding cdn's import-from-url egress path — call it before any DNS/network work on a caller-supplied URL, which is what stops the fetch from being turned into an open proxy/amplifier. Scoped to this one feature's bucket namespace; for a NEW feature's own rate limiting reach for stapel_core.gateway.ratelimit.CacheRateLimiter directly instead of repurposing this wrapper.",
+      "instead_of": [
+        "hand-rolled cache-based counters (race-prone get+set)"
+      ]
+    },
+    {
+      "name": "fetch_image_bytes",
+      "kind": "gate_function",
+      "path": "stapel_cdn.fetch.fetch_image_bytes",
+      "intent": "SSRF-hardened fetch of a remote image over HTTPS: resolves and allowlists every hop's IP (rejects private/loopback/link-local/CGNAT/cloud-metadata ranges, including IPv4-mapped/6to4/NAT64 IPv6 forms), pins the TCP connection to the validated address to defeat DNS-rebinding, and caps size/timeout/redirect hops. Reach for this — not a bare HTTP client — anywhere a deployment fetches an attacker-influenced URL (an OAuth-provider avatar, a webhook-supplied image link); this is the only outbound-HTTP path stapel-cdn ships and it exists because that shape of fetch is a classic SSRF sink.",
+      "instead_of": [
+        "requests.get(url)",
+        "urllib.request.urlopen(url)"
+      ]
+    },
+    {
+      "name": "validate_image_file",
+      "kind": "gate_function",
+      "path": "stapel_cdn.validators.validate_image_file",
+      "intent": "Validate an uploaded image before it touches hashing or storage: extension allowlist + the decompression-bomb pixel cap (STAPEL_CDN['MAX_IMAGE_PIXELS']) + a real Pillow decode (HEIC/HEIF included). Reach for this on ANY image-intake path in the deployment, not only cdn's own upload views — this module's own ImageAdminForm.clean_original() hand-rolls a PIL.Image.open() check instead and is missing both the bomb cap and the shared extension list, which is exactly the kind of drift this entry exists to stop.",
+      "instead_of": [
+        "PIL.Image.open() ad-hoc checks",
+        "hand-rolled image validation"
+      ]
+    },
+    {
+      "name": "text_watermark",
+      "kind": "factory",
+      "path": "stapel_cdn.watermarks.text_watermark",
+      "intent": "The built-in WATERMARK engine (`(pyvips.Image) -> pyvips.Image`) the preview-generation pipeline applies when STAPEL_CDN['WATERMARK'] points at it. Point the setting here directly for a plain bottom-right text label (STAPEL_CDN['WATERMARK_TEXT']), or call it from your own callable to layer a logo/opacity effect on top — reach for this before writing a pyvips text/compositing routine from scratch.",
+      "instead_of": [
+        "hand-rolled pyvips text/logo compositing"
+      ]
     }
   ],
   "operations_total": 9,

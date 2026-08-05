@@ -2,7 +2,7 @@
 
 Media management: image/video/file/audio upload, processing (thumbnail/preview generation via libvips) and CDN ref tracking, with a media-submodule opt-in (images core, video/recordings behind ENABLED_SUBMODULES + ffmpeg system checks), a watermark seam, upload speed-limiting, and cdn.media_exists / cdn.refs_sync comm Functions for other modules to check/sync media references without importing this package.
 
-Contract: axes 3 · extension points 4.
+Contract: axes 3 · surface 5 · extension points 4.
 Generated from docs/capabilities.json by `stapel-llms-txt` — do not edit; drift-gated by `make contract-check`.
 
 ## Configuration axes — what a product switches on
@@ -13,6 +13,26 @@ Settings keys; `default` is what you get by saying nothing. Turning an axis off 
   Which of images/video/recordings this deployment turns on. images needs no opt-in; adding video/recordings activates the ffmpeg system-check probe for that submodule (conf.py, MODULE.md 'Media submodules').
 - WATERMARK [enum, default ""] — Watermark preview images
   Dotted path to (or direct callable) a watermark engine applied to preview variants; empty disables watermarking (conf.py, MODULE.md 'Storage / processing backends').
+
+## Usage surface — call these before writing your own
+This is the answer to "does Stapel already have something for X?". `instead of` names the outside symbol this one displaces.
+### gate_function
+- detect_image_extension — stapel_cdn.fetch.detect_image_extension
+  instead of: trusting the URL or Content-Type extension
+  Magic-byte content check for fetched or uploaded image bytes: decodes with Pillow and maps the DETECTED format — never the URL suffix or the Content-Type header — to an allowed extension, raising ImageImportError otherwise. Pair with fetch_image_bytes for any external-image intake: trusting a URL's own extension is how a '.jpg' that is actually an HTML/script payload reaches storage.
+- enforce_rate_limit — stapel_cdn.fetch.enforce_rate_limit
+  instead of: hand-rolled cache-based counters (race-prone get+set)
+  Per-caller fixed-window quota (STAPEL_CDN['IMPORT_FROM_URL_RATE']) guarding cdn's import-from-url egress path — call it before any DNS/network work on a caller-supplied URL, which is what stops the fetch from being turned into an open proxy/amplifier. Scoped to this one feature's bucket namespace; for a NEW feature's own rate limiting reach for stapel_core.gateway.ratelimit.CacheRateLimiter directly instead of repurposing this wrapper.
+- fetch_image_bytes — stapel_cdn.fetch.fetch_image_bytes
+  instead of: requests.get(url), urllib.request.urlopen(url)
+  SSRF-hardened fetch of a remote image over HTTPS: resolves and allowlists every hop's IP (rejects private/loopback/link-local/CGNAT/cloud-metadata ranges, including IPv4-mapped/6to4/NAT64 IPv6 forms), pins the TCP connection to the validated address to defeat DNS-rebinding, and caps size/timeout/redirect hops. Reach for this — not a bare HTTP client — anywhere a deployment fetches an attacker-influenced URL (an OAuth-provider avatar, a webhook-supplied image link); this is the only outbound-HTTP path stapel-cdn ships and it exists because that shape of fetch is a classic SSRF sink.
+- validate_image_file — stapel_cdn.validators.validate_image_file
+  instead of: PIL.Image.open() ad-hoc checks, hand-rolled image validation
+  Validate an uploaded image before it touches hashing or storage: extension allowlist + the decompression-bomb pixel cap (STAPEL_CDN['MAX_IMAGE_PIXELS']) + a real Pillow decode (HEIC/HEIF included). Reach for this on ANY image-intake path in the deployment, not only cdn's own upload views — this module's own ImageAdminForm.clean_original() hand-rolls a PIL.Image.open() check instead and is missing both the bomb cap and the shared extension list, which is exactly the kind of drift this entry exists to stop.
+### factory
+- text_watermark — stapel_cdn.watermarks.text_watermark
+  instead of: hand-rolled pyvips text/logo compositing
+  The built-in WATERMARK engine (`(pyvips.Image) -> pyvips.Image`) the preview-generation pipeline applies when STAPEL_CDN['WATERMARK'] points at it. Point the setting here directly for a plain bottom-right text label (STAPEL_CDN['WATERMARK_TEXT']), or call it from your own callable to layer a logo/opacity effect on top — reach for this before writing a pyvips text/compositing routine from scratch.
 
 ## Extension points — what a product replaces, fork-free
 - ASSET_TYPES [value_list_override]

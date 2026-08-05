@@ -1,0 +1,49 @@
+{
+  "_comment": "Curated layer for the `surface` section of docs/capabilities.json (discoverability-design.md §1.2). NOTE the honest boundary: stapel-cdn's capabilities.json is otherwise still HAND-WRITTEN (see tests/test_capabilities_contract.py — this module has no schema/flows/errors emitter) — `make contract` patches in only the two derivable things: module/version from pyproject and the derived `surface`. Converting the rest of the document to an emitter is separate work. NOTE also what is deliberately NOT here: the cdn.describe/cdn.media_exists/cdn.import_from_url/cdn.refs_sync comm Functions in functions.py are bus-dispatched RPCs a caller reaches through stapel_core.comm.call(...), not symbols a product imports and calls directly — cdn.describe is already named at the point a product actually looks for it, stapel-core's STAPEL_MEDIA_BACKEND extension_point, so listing it again here would just be the same prose twice. What IS here are the plain-Python helpers behind the *outbound* HTTP path (fetch.py) and the two validators/transforms cdn's own upload/admin code duplicates instead of reusing (validators.py, watermarks.py) — the two genuinely have no other announced entry point.",
+
+  "surface_roots": [
+    {"select": "functions", "path": "validators.py"},
+    {"select": "functions", "path": "watermarks.py"},
+    {"select": "functions", "path": "fetch.py"}
+  ],
+
+  "surface": {
+    "validate_image_file": {
+      "kind": "gate_function",
+      "intent": "Validate an uploaded image before it touches hashing or storage: extension allowlist + the decompression-bomb pixel cap (STAPEL_CDN['MAX_IMAGE_PIXELS']) + a real Pillow decode (HEIC/HEIF included). Reach for this on ANY image-intake path in the deployment, not only cdn's own upload views — this module's own ImageAdminForm.clean_original() hand-rolls a PIL.Image.open() check instead and is missing both the bomb cap and the shared extension list, which is exactly the kind of drift this entry exists to stop.",
+      "instead_of": [
+        "PIL.Image.open() ad-hoc checks",
+        "hand-rolled image validation"
+      ]
+    },
+    "text_watermark": {
+      "kind": "factory",
+      "intent": "The built-in WATERMARK engine (`(pyvips.Image) -> pyvips.Image`) the preview-generation pipeline applies when STAPEL_CDN['WATERMARK'] points at it. Point the setting here directly for a plain bottom-right text label (STAPEL_CDN['WATERMARK_TEXT']), or call it from your own callable to layer a logo/opacity effect on top — reach for this before writing a pyvips text/compositing routine from scratch.",
+      "instead_of": [
+        "hand-rolled pyvips text/logo compositing"
+      ]
+    },
+    "fetch_image_bytes": {
+      "kind": "gate_function",
+      "intent": "SSRF-hardened fetch of a remote image over HTTPS: resolves and allowlists every hop's IP (rejects private/loopback/link-local/CGNAT/cloud-metadata ranges, including IPv4-mapped/6to4/NAT64 IPv6 forms), pins the TCP connection to the validated address to defeat DNS-rebinding, and caps size/timeout/redirect hops. Reach for this — not a bare HTTP client — anywhere a deployment fetches an attacker-influenced URL (an OAuth-provider avatar, a webhook-supplied image link); this is the only outbound-HTTP path stapel-cdn ships and it exists because that shape of fetch is a classic SSRF sink.",
+      "instead_of": [
+        "requests.get(url)",
+        "urllib.request.urlopen(url)"
+      ]
+    },
+    "detect_image_extension": {
+      "kind": "gate_function",
+      "intent": "Magic-byte content check for fetched or uploaded image bytes: decodes with Pillow and maps the DETECTED format — never the URL suffix or the Content-Type header — to an allowed extension, raising ImageImportError otherwise. Pair with fetch_image_bytes for any external-image intake: trusting a URL's own extension is how a '.jpg' that is actually an HTML/script payload reaches storage.",
+      "instead_of": [
+        "trusting the URL or Content-Type extension"
+      ]
+    },
+    "enforce_rate_limit": {
+      "kind": "gate_function",
+      "intent": "Per-caller fixed-window quota (STAPEL_CDN['IMPORT_FROM_URL_RATE']) guarding cdn's import-from-url egress path — call it before any DNS/network work on a caller-supplied URL, which is what stops the fetch from being turned into an open proxy/amplifier. Scoped to this one feature's bucket namespace; for a NEW feature's own rate limiting reach for stapel_core.gateway.ratelimit.CacheRateLimiter directly instead of repurposing this wrapper.",
+      "instead_of": [
+        "hand-rolled cache-based counters (race-prone get+set)"
+      ]
+    }
+  }
+}
