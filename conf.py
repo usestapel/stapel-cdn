@@ -74,14 +74,23 @@ DEFAULTS = {
     # Upload extensions for the recordings (audio) submodule — passthrough
     # storage always accepts these; ffmpeg-audio compression (once
     # implemented) is gated by "recordings" in ENABLED_SUBMODULES.
-    "ALLOWED_AUDIO_EXTENSIONS": (
+    #
+    # РЕЗЕРВ, А НЕ ДЕЙСТВУЮЩАЯ РУЧКА. Аудио-загрузки в stapel-cdn нет вовсе:
+    # модель `Audio` объявлена, но не создаётся ни одной строкой библиотеки,
+    # а настоящая загрузка живёт в stapel-recordings со своим
+    # `MAX_UPLOAD_BYTES` в своём namespace. Тянуть эти ключи туда было бы
+    # связыванием либ через чужие настройки. Глушим осознанно и с адресом
+    # будущего потребителя: когда аудио-путь появится ЗДЕСЬ, снять noqa и
+    # проверять обе величины на входе.
+    "ALLOWED_AUDIO_EXTENSIONS": (  # noqa: CFG006
         ".mp3", ".wav", ".m4a", ".ogg", ".opus", ".flac", ".aac",
     ),
     # Decompression-bomb cap: Pillow raises DecompressionBombError above
     # 2x this pixel count.
     "MAX_IMAGE_PIXELS": 50_000_000,
     # Upload size cap for audio recordings (bytes) — 50 MB.
-    "MAX_AUDIO_SIZE": 50 * 1024 * 1024,
+    # Тот же резерв, что и ALLOWED_AUDIO_EXTENSIONS выше.
+    "MAX_AUDIO_SIZE": 50 * 1024 * 1024,  # noqa: CFG006
     # Watermark engine: dotted path to (or directly a) callable
     # ``(pyvips.Image) -> pyvips.Image`` applied to preview variants.
     # Empty (the default) disables watermarking entirely. The built-in
