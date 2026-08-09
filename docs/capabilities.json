@@ -1,6 +1,6 @@
 {
   "module": "stapel-cdn",
-  "version": "0.9.1",
+  "version": "0.10.0",
   "provides": "Media management: image/video/file/audio upload, processing (thumbnail/preview generation via libvips) and CDN ref tracking, with a media-submodule opt-in (images core, video/recordings behind ENABLED_SUBMODULES + ffmpeg system checks), a watermark seam, upload speed-limiting, and cdn.media_exists / cdn.refs_sync comm Functions for other modules to check/sync media references without importing this package.",
   "axes": [
     {
@@ -77,7 +77,7 @@
       "name": "detect_image_extension",
       "kind": "gate_function",
       "path": "stapel_cdn.fetch.detect_image_extension",
-      "intent": "Magic-byte content check for fetched or uploaded image bytes: decodes with Pillow and maps the DETECTED format — never the URL suffix or the Content-Type header — to an allowed extension, raising ImageImportError otherwise. Pair with fetch_image_bytes for any external-image intake: trusting a URL's own extension is how a '.jpg' that is actually an HTML/script payload reaches storage.",
+      "intent": "Magic-byte content check for fetched or uploaded image bytes: reads the DETECTED format from the file signature — never the URL suffix or the Content-Type header — and confirms it with a real libvips decode, raising ImageImportError otherwise. Pair with fetch_image_bytes for any external-image intake: trusting a URL's own extension is how a '.jpg' that is actually an HTML/script payload reaches storage.",
       "instead_of": [
         "trusting the URL or Content-Type extension"
       ]
@@ -105,9 +105,10 @@
       "name": "validate_image_file",
       "kind": "gate_function",
       "path": "stapel_cdn.validators.validate_image_file",
-      "intent": "Validate an uploaded image before it touches hashing or storage: extension allowlist + the decompression-bomb pixel cap (STAPEL_CDN['MAX_IMAGE_PIXELS']) + a real Pillow decode (HEIC/HEIF included). Reach for this on ANY image-intake path in the deployment, not only cdn's own upload views — this module's own ImageAdminForm.clean_original() hand-rolls a PIL.Image.open() check instead and is missing both the bomb cap and the shared extension list, which is exactly the kind of drift this entry exists to stop.",
+      "intent": "Validate an uploaded image before it touches hashing or storage: extension allowlist + the decompression-bomb pixel cap (STAPEL_CDN['MAX_IMAGE_PIXELS']) + a real decode with libvips — the SAME decoder stapel_cdn.services uses to process the file, so this gate can never refuse input the pipeline behind it would have handled. Reach for this on ANY image-intake path in the deployment, not only cdn's own upload views. Catch stapel_cdn.decoders.ImageDecoderUnavailable separately from ValidationError: it is a ValidationError subclass meaning 'this deployment has no decoder for that format', an operator's problem, and answering it as bad input is the defect that produced this note — a valid HEIC was refused as 'Invalid image file' because the guard asked Pillow while the pipeline read HEIC natively.",
       "instead_of": [
         "PIL.Image.open() ad-hoc checks",
+        "pyvips.Image.new_from_file() ad-hoc checks",
         "hand-rolled image validation"
       ]
     },

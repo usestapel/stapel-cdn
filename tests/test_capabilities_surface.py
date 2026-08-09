@@ -1,11 +1,14 @@
 """Drift gate for the `surface` section of ``docs/capabilities.json``.
 
 stapel-cdn's own upload code is the reason this section exists at all:
-``ImageAdminForm.clean_original()`` hand-rolls a ``PIL.Image.open()`` check
-instead of calling ``validate_image_file`` — the validator this module
-already ships, missing both the decompression-bomb cap and the shared
-extension allowlist as a result. Nothing in the module's contract document
-could say "here is the validator to call" until this section existed:
+``ImageAdminForm.clean_original()`` used to hand-roll a ``PIL.Image.open()``
+check instead of calling ``validate_image_file`` — the validator this module
+already ships — and was missing both the decompression-bomb cap and the shared
+extension allowlist as a result. (0.10 made the form call the validator, so the
+drift this entry was written about is closed; the entry stays because the next
+copy of that check is what it exists to prevent.) Nothing in the module's
+contract document could say "here is the validator to call" until this section
+existed:
 ``axes`` describes what you may switch on and ``extension_points`` what you
 may replace, neither answers "is there already a mechanism for X".
 

@@ -1,12 +1,13 @@
 """Tests for stapel_cdn.checks (tag ``stapel_cdn``).
 
-Per-submodule system checks (cdn-modularity.md §2.2/§3): images is core and
-unconditional (E001); video/recordings are opt-in via
-``STAPEL_CDN["ENABLED_SUBMODULES"]`` (E002/E003) and only probe ffmpeg once
-enabled.
+Per-submodule system checks (cdn-modularity.md §2.2/§3). All four are now tied
+to ``STAPEL_CDN["ENABLED_SUBMODULES"]``: images (E001 no libvips at all, E004
+libvips present but blind to a configured format) and video/recordings
+(E002/E003, ffmpeg). ``images`` is on by default, so E001 fires out of the box
+for a deployment that forgot libvips — but a deployment running stapel-cdn as
+passthrough file storage turns images off and is not nagged about a decoder it
+has no use for.
 """
-import sys
-
 import pytest
 from django.test import override_settings
 
@@ -14,22 +15,12 @@ from stapel_cdn.checks import (
     E001_IMAGES_LIBRARY_MISSING,
     E002_VIDEO_BINARY_MISSING,
     E003_RECORDINGS_BINARY_MISSING,
+    E004_IMAGE_FORMAT_UNDECODABLE,
     check_submodule_binaries,
 )
 
 
-@pytest.fixture
-def poisoned_pyvips():
-    """Force `import pyvips` to fail for the duration of a test."""
-    saved = sys.modules.get("pyvips")
-    sys.modules["pyvips"] = None
-    yield
-    sys.modules.pop("pyvips", None)
-    if saved is not None:
-        sys.modules["pyvips"] = saved
-
-
-class TestImagesProbeUnconditional:
+class TestImagesDecoderProbe:
     def test_clean_when_pyvips_importable(self):
         pytest.importorskip("pyvips")
         errors = check_submodule_binaries()
@@ -42,11 +33,95 @@ class TestImagesProbeUnconditional:
         assert "libvips" in images_errors[0].hint
         assert "stapel-cdn[images]" in images_errors[0].hint
 
-    def test_fires_regardless_of_enabled_submodules(self, poisoned_pyvips):
-        # images is core — not gated by ENABLED_SUBMODULES at all.
-        with override_settings(STAPEL_CDN={"ENABLED_SUBMODULES": ()}):
+    def test_fires_by_default(self, poisoned_pyvips):
+        # "images" is in DEFAULT_ENABLED_SUBMODULES: a deployment that says
+        # nothing still gets told its image path has no decoder.
+        assert any(
+            e.id == E001_IMAGES_LIBRARY_MISSING for e in check_submodule_binaries()
+        )
+
+    def test_silent_when_images_not_enabled(self, poisoned_pyvips):
+        """Passthrough file storage is not told to install libvips.
+
+        The one axis this check is allowed to be quiet on: a deployment storing
+        PDFs with images switched off has no image path to break.
+        """
+        with override_settings(STAPEL_CDN={"ENABLED_SUBMODULES": ("files",)}):
             errors = check_submodule_binaries()
-        assert any(e.id == E001_IMAGES_LIBRARY_MISSING for e in errors)
+        assert not any(e.id == E001_IMAGES_LIBRARY_MISSING for e in errors)
+
+    def test_names_the_system_package_and_the_pip_extra(self, poisoned_pyvips):
+        (error,) = [
+            e
+            for e in check_submodule_binaries()
+            if e.id == E001_IMAGES_LIBRARY_MISSING
+        ]
+        assert "libvips-dev" in error.hint
+        assert "stapel-cdn[images]" in error.hint
+        # ...and the second remedy: turn the submodule off.
+        assert "ENABLED_SUBMODULES" in error.hint
+
+
+class TestUndecodableFormatProbe:
+    """E004 — the setting advertises a format this libvips build cannot read.
+
+    The meettoday defect one level down: ALLOWED_IMAGE_EXTENSIONS declared
+    .heic, nothing in the deployment could decode it, and the first anyone
+    heard of it was a user being told their file was invalid. Detectable at
+    boot, so it is detected at boot.
+    """
+
+    def test_clean_when_every_allowed_extension_is_loadable(self):
+        pytest.importorskip("pyvips")
+        with override_settings(
+            STAPEL_CDN={"ALLOWED_IMAGE_EXTENSIONS": (".jpg", ".png")}
+        ):
+            errors = check_submodule_binaries()
+        assert not any(e.id == E004_IMAGE_FORMAT_UNDECODABLE for e in errors)
+
+    def test_errors_when_an_allowed_extension_has_no_loader(self, monkeypatch):
+        pytest.importorskip("pyvips")
+        # Stub the capability rather than the environment: the assertion is
+        # about the mechanism, and must hold however CI's libvips was compiled.
+        monkeypatch.setattr(
+            "stapel_cdn.decoders.loadable_extensions",
+            lambda: frozenset({".jpg", ".png"}),
+        )
+        with override_settings(
+            STAPEL_CDN={"ALLOWED_IMAGE_EXTENSIONS": (".jpg", ".heic")}
+        ):
+            errors = check_submodule_binaries()
+        (error,) = [e for e in errors if e.id == E004_IMAGE_FORMAT_UNDECODABLE]
+        # Names the extension...
+        assert ".heic" in error.msg
+        # ...the decoder that is missing...
+        assert "heifload" in error.msg
+        # ...and both remedies: install it, or stop advertising it.
+        assert "libvips-dev" in error.hint
+        assert "ALLOWED_IMAGE_EXTENSIONS" in error.hint
+
+    def test_silent_when_there_is_no_decoder_at_all(self, poisoned_pyvips):
+        """E001 owns that state; repeating every extension would bury it."""
+        with override_settings(
+            STAPEL_CDN={"ALLOWED_IMAGE_EXTENSIONS": (".jpg", ".heic")}
+        ):
+            errors = check_submodule_binaries()
+        assert not any(e.id == E004_IMAGE_FORMAT_UNDECODABLE for e in errors)
+
+    def test_silent_when_images_not_enabled(self, monkeypatch):
+        pytest.importorskip("pyvips")
+        monkeypatch.setattr(
+            "stapel_cdn.decoders.loadable_extensions",
+            lambda: frozenset({".jpg"}),
+        )
+        with override_settings(
+            STAPEL_CDN={
+                "ENABLED_SUBMODULES": ("files",),
+                "ALLOWED_IMAGE_EXTENSIONS": (".jpg", ".heic"),
+            }
+        ):
+            errors = check_submodule_binaries()
+        assert not any(e.id == E004_IMAGE_FORMAT_UNDECODABLE for e in errors)
 
 
 class TestVideoProbeOptIn:

@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "stapel-cdn"
-version = "0.9.1"
+version = "0.10.0"
 description = "Media/CDN management Django app for the Stapel framework"
 readme = "README.md"
 license = { text = "MIT" }
@@ -26,7 +26,6 @@ classifiers = [
 ]
 dependencies = [
     "stapel-core>=0.16,<1.0",
-    "Pillow>=9.0",
     "celery>=5",
 ]
 
@@ -39,10 +38,24 @@ Issues = "https://github.com/usestapel/stapel-cdn/issues"
 
 [project.optional-dependencies]
 s3 = ["boto3>=1.34"]
-# libvips binding for image processing (lazily imported in tasks.py). Needs the
-# system libvips library present at runtime (apt: libvips-dev). Core — every
-# Image.save() needs it; stapel-studio's devcontainer installs libvips
-# unconditionally (cdn-modularity.md §3/§0.4).
+# libvips binding for the image path. Needs the system libvips library present
+# at runtime (apt: libvips-dev). Core, and since 0.10 the ONLY image decoder
+# this library has: upload validation, admin validation, URL-import format
+# detection and every Image.save() dimension read all go through it. Pillow
+# used to be a hard dependency doing the validating while pyvips did the
+# processing — two decoders with different format support, which is how a HEIC
+# that libvips reads natively came to be refused at the door. Turning the
+# gatekeeper into the worker removes the divergence rather than patching one
+# instance of it (adding `pillow_heif` would have kept both decoders and let
+# them drift again on the next format).
+#
+# Not a hard dependency because pip cannot install a system library: the scaffold's
+# vips-builder stage (stapel_tools._templates) and stapel-studio's devcontainer
+# both install libvips unconditionally, so any project doing image work has it by
+# construction. Installing outside those without libvips fails when pyvips
+# compiles — loudly, at install time, naming the missing system package. That is
+# the good failure; the one removed here was a successful install that refused
+# valid uploads in production months later. checks.E001 covers the rest.
 images = ["pyvips>=2.2"]
 # ffmpeg is a SYSTEM binary, not a pip package — there is nothing to
 # `pip install` for video/recordings today. These extras exist as markers:
@@ -60,6 +73,11 @@ recordings = []
 # adds any dependency.
 files = []
 all = ["stapel-cdn[s3,images,video,recordings]"]
+# Pillow is NOT a runtime dependency (see `images` above). It stays as a
+# TEST-ONLY encoder: the suite generates its fixture images with a codec
+# independent of the one under test, so "vips writes exactly what vips reads"
+# cannot hide a real decode bug.
+test = ["Pillow>=9.0"]
 
 [tool.setuptools]
 package-dir = {"stapel_cdn" = "."}

@@ -8,7 +8,7 @@ in Django or requires configured settings):
   stored CDN asset (``stapel_cdn.functions``).
 - ``refs_sync`` — comm function: sync entity → media reference tracking
   (``stapel_cdn.functions``).
-- ``validate_image_file`` — upload validator: extension allowlist, Pillow
+- ``validate_image_file`` — upload validator: extension allowlist, libvips
   decode check, decompression-bomb cap (``stapel_cdn.validators``).
 - ``text_watermark`` — built-in reference watermark engine for the
   ``STAPEL_CDN["WATERMARK"]`` seam (``stapel_cdn.watermarks``).

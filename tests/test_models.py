@@ -94,7 +94,7 @@ class TestImageDimensionFallbackLogging:
             )
         assert image.original_width == 1
         assert image.original_height == 1
-        errors = [r for r in caplog.records if r.levelno >= logging.ERROR and "pyvips" in r.getMessage()]
+        errors = [r for r in caplog.records if r.levelno >= logging.ERROR and "dimensions" in r.getMessage()]
         assert len(errors) == 1
         message = errors[0].getMessage()
         assert "pyvips is not installed" in message
@@ -114,10 +114,10 @@ class TestImageDimensionFallbackLogging:
             )
         assert image.original_width == 1
         assert image.original_height == 1
-        errors = [r for r in caplog.records if r.levelno >= logging.ERROR and "pyvips" in r.getMessage()]
+        errors = [r for r in caplog.records if r.levelno >= logging.ERROR and "dimensions" in r.getMessage()]
         assert len(errors) == 1
         message = errors[0].getMessage()
-        assert "pyvips failed to read dimensions" in message
+        assert "libvips failed to read dimensions" in message
         assert "missing.jpg" in message
 
 

@@ -5,21 +5,10 @@ Forms for stapel-cdn service.
 import os
 
 from django import forms
-from django.core.exceptions import ValidationError
-from PIL import Image as PILImage
 
-from .conf import cdn_settings
+from . import decoders
 from .models import Image
-
-# Import pillow_heif for direct usage
-try:
-    import pillow_heif
-    from pillow_heif import register_heif_opener
-
-    register_heif_opener()
-    HEIF_AVAILABLE = True
-except ImportError:
-    HEIF_AVAILABLE = False
+from .validators import validate_image_file
 
 
 class ImageAdminForm(forms.ModelForm):
@@ -39,45 +28,32 @@ class ImageAdminForm(forms.ModelForm):
         }
 
     def clean_original(self):
-        """Validate the uploaded image file, including HEIC/HEIF support."""
+        """Validate the uploaded image file through the module's own validator.
+
+        This used to hand-roll a ``PIL.Image.open()`` check beside
+        ``validate_image_file`` — the drift ``docs/capabilities.json`` was
+        written to stop — and the copy was both weaker (no decompression-bomb
+        cap) and, for HEIC/HEIF, not a check at all: Pillow could not read those
+        without ``pillow_heif``, so the branch skipped verification entirely and
+        stored 1x1 placeholder dimensions, indistinguishable afterwards from a
+        genuinely tiny image. With libvips as the one decoder there is nothing
+        left for that special case to work around: HEIC decodes like any other
+        format and reports its real size.
+        """
         original = self.cleaned_data.get("original")
 
         # If no file was uploaded (e.g., editing existing record), skip validation
         if not original:
             return original
 
-        # Check file extension first
-        allowed_extensions = cdn_settings.ALLOWED_IMAGE_EXTENSIONS
-        file_extension = os.path.splitext(original.name)[1].lower()
-        if file_extension not in allowed_extensions:
-            raise ValidationError(
-                f"Invalid file extension '{file_extension}'. Allowed: {', '.join(allowed_extensions)}"
-            )
+        validate_image_file(original)
 
-        # Handle HEIC/HEIF files - use a lenient approach
-        if file_extension in [".heic", ".heif"]:
-            # For HEIC files, just do basic validation (non-empty file)
-            # Dimensions will be extracted during image processing
-            if original.size == 0:
-                raise ValidationError("The uploaded file is empty")
-            # Set placeholder dimensions - will be updated during processing
-            self._image_dimensions = (
-                1,
-                1,
-            )  # Placeholder to satisfy NOT NULL constraint
-            self._is_heic = True
-        else:
-            # For other image formats, use PIL
-            try:
-                img = PILImage.open(original)
-                # Store dimensions for use in save()
-                self._image_dimensions = img.size
-                # Reset file pointer
-                original.seek(0)
-                self._is_heic = False
-            except Exception as e:
-                raise ValidationError(f"Invalid image file: {str(e)}")
-
+        extension = os.path.splitext(original.name)[1].lower()
+        # `None` only in a deployment with no decoder at all (checks.E001):
+        # fall back to the placeholder, which process_image will correct.
+        self._image_dimensions = (
+            decoders.decode_dimensions(original, extension) or (1, 1)
+        )
         return original
 
     def save(self, commit=True):
@@ -87,10 +63,9 @@ class ImageAdminForm(forms.ModelForm):
         # Set dimensions if we extracted them during validation
         if hasattr(self, "_image_dimensions"):
             instance.original_width, instance.original_height = self._image_dimensions
-
-            # For HEIC files, mark for dimension update during processing
-            if hasattr(self, "_is_heic") and self._is_heic:
-                # The processing service will update the actual dimensions
+            # Placeholder dimensions mean nothing decoded them; let the
+            # processing pass have another go rather than freezing 1x1.
+            if self._image_dimensions == (1, 1):
                 instance.is_processed = False
 
         if commit:

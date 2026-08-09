@@ -193,6 +193,60 @@ class TestAvatarUploadView:
         assert image.original_filename == 'me.jpg'
         assert image.original_size == len(make_image_bytes())
 
+    def test_heic_avatar_uploads(self, authenticated_client, tiny_heic_bytes):
+        """The reported defect, end to end on the endpoint it was reported on.
+
+        POST /cdn/api/v1/upload/avatar/ with a valid HEIC used to answer 400
+        "Invalid image file" — the validator asked Pillow, which had no HEIF
+        support, while the processing pipeline behind it read HEIC natively.
+        """
+        from stapel_cdn import decoders
+
+        if ".heic" not in decoders.loadable_extensions():
+            pytest.skip("this libvips build has no heifload (no HEIC decoder)")
+
+        upload = SimpleUploadedFile(
+            'me.heic', tiny_heic_bytes, content_type='image/heic'
+        )
+        response = authenticated_client.post(
+            self.url, {'file': upload}, format='multipart'
+        )
+        assert response.status_code == status.HTTP_201_CREATED, response.data
+        image = Image.objects.get(id=response.data['image']['id'])
+        assert image.type == 'avatar'
+        assert image.file_extension == '.heic'
+        # Real dimensions, not the 1x1 placeholder a skipped decode leaves.
+        assert (image.original_width, image.original_height) == (16, 16)
+
+    def test_missing_decoder_answers_503_not_400(
+        self, authenticated_client, tiny_heic_bytes, monkeypatch
+    ):
+        """A deployment that cannot read the format must not blame the user.
+
+        Two different states, two different answers: 400 invalid_format means
+        "your file is broken"; 503 image_decoder_unavailable means "this
+        deployment cannot read that format, and only an operator can change
+        that". Collapsing them is the defect — the uploader was sent to fix a
+        file that was fine while nobody told the operator anything.
+        """
+        monkeypatch.setattr(
+            'stapel_cdn.decoders.loadable_extensions',
+            lambda: frozenset({'.jpg', '.png'}),
+        )
+        upload = SimpleUploadedFile(
+            'me.heic', tiny_heic_bytes, content_type='image/heic'
+        )
+        response = authenticated_client.post(
+            self.url, {'file': upload}, format='multipart'
+        )
+        assert response.status_code == status.HTTP_503_SERVICE_UNAVAILABLE
+        assert response.data['localizable_error'] == (
+            'error.503.image_decoder_unavailable'
+        )
+        assert response.data['params'] == {'extension': '.heic'}
+        # Nothing reached storage.
+        assert not Image.objects.filter(file_extension='.heic').exists()
+
     def test_dedup_same_content_twice(self, authenticated_client):
         content = make_image_bytes(color='purple')
         f1 = SimpleUploadedFile('a.jpg', content, content_type='image/jpeg')

@@ -12,6 +12,7 @@ from django.db import models
 from django.db.models.signals import post_save
 from django.dispatch import receiver
 
+from . import decoders
 from .conf import DEFAULT_VARIANT_SIZES, cdn_settings
 from .storage import cdn_storage
 
@@ -213,38 +214,50 @@ class Image(models.Model):
             # still fall back to the 1x1 placeholder (process_image can
             # retry later), but now always with an ERROR log naming which
             # image and why, instead of a quiet pass.
+            # Read from the FILE OBJECT, not self.original.path.
+            #
+            # The path is where the file is ABOUT to live: FileField writes it
+            # to storage during super().save() below, which has not run yet. So
+            # `new_from_file(self.original.path)` opened a filename that did not
+            # exist and every image uploaded through the API — every format, not
+            # just the HEIC that got this looked at — fell into the "unreadable
+            # file" branch and was stored 1x1. The honest-logging split
+            # (§0.3) landed and worked exactly as designed: it logged an ERROR
+            # per upload naming the image and the reason. Nothing was reading
+            # the logs, so the placeholder shipped anyway. The file object is
+            # open right here and is what the validator already decoded.
             if not self.original_width or not self.original_height:
+                extension = self.file_extension or os.path.splitext(
+                    self.original.name
+                )[1].lower()
                 try:
-                    import pyvips
-                except ImportError:
+                    dimensions = decoders.decode_dimensions(self.original, extension)
+                except Exception as exc:
                     logger.error(
-                        "pyvips is not installed — cannot read dimensions "
-                        "for image %r (type=%s). Install the system libvips "
-                        "library and `pip install stapel-cdn[images]`. "
-                        "Falling back to 1x1 placeholder dimensions.",
+                        "libvips failed to read dimensions for image %r "
+                        "(type=%s): %r. Falling back to 1x1 placeholder "
+                        "dimensions; process_image may retry later.",
                         self.original_filename or (self.original and self.original.name),
                         self.type,
+                        exc,
                     )
+                    dimensions = None
+                else:
+                    if dimensions is None:
+                        logger.error(
+                            "pyvips is not installed — cannot read dimensions "
+                            "for image %r (type=%s). Install the system libvips "
+                            "library and `pip install stapel-cdn[images]`. "
+                            "Falling back to 1x1 placeholder dimensions.",
+                            self.original_filename
+                            or (self.original and self.original.name),
+                            self.type,
+                        )
+                if dimensions:
+                    self.original_width, self.original_height = dimensions
+                else:
                     self.original_width = self.original_width or 1
                     self.original_height = self.original_height or 1
-                else:
-                    try:
-                        img = pyvips.Image.new_from_file(
-                            self.original.path, access="sequential"
-                        )
-                        self.original_width = img.width
-                        self.original_height = img.height
-                    except Exception as exc:
-                        logger.error(
-                            "pyvips failed to read dimensions for image %r "
-                            "(type=%s): %r. Falling back to 1x1 placeholder "
-                            "dimensions; process_image may retry later.",
-                            self.original_filename or (self.original and self.original.name),
-                            self.type,
-                            exc,
-                        )
-                        self.original_width = self.original_width or 1
-                        self.original_height = self.original_height or 1
 
         super().save(*args, **kwargs)
 

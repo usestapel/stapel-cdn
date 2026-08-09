@@ -4,6 +4,104 @@ All notable changes to this project will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## 0.10.0 — 2026-08-10
+
+### Changed (BREAKING) — one decoder on the image path; Pillow is gone (#233)
+
+A HEIC avatar was refused on a live deployment with **400 "Invalid image
+file"** — and the file was fine. `ALLOWED_IMAGE_EXTENSIONS` declared `.heic`,
+the deployment's libvips read HEIC natively (`heifload`), and
+`ImageProcessingService` would have processed it. The refusal came from the
+*guard*, which decoded with Pillow, which reads HEIF only via the optional
+`pillow_heif` package, which was not installed — and whose absence was
+swallowed:
+
+```python
+try:
+    from pillow_heif import register_heif_opener
+    register_heif_opener()
+except ImportError:
+    pass          # <- the deployment's gap, silenced
+```
+
+Two decoders, two capability sets, maintained in two places. **The guard was
+stricter than the system it guarded**, and it reported the divergence as the
+uploader's fault. Adding `pillow_heif` would have fixed this one format and
+left the mechanism — they had already drifted in both directions (Pillow read
+`.avif`, which libvips builds without libheif do not; libvips reads `.bmp`
+only through ImageMagick, which Pillow does natively).
+
+So the fix is the topology, not the package. **libvips is now the only image
+decoder in the library, and Pillow is no longer a dependency at all.** The
+fast, format-complete decoder had been the optional extra while the slow,
+format-incomplete one was mandatory *and* held the gate deciding what ever
+reached the fast one. That is inverted, and it is the whole defect.
+
+- **`Pillow>=9.0` removed from `[project] dependencies`.** Every call site
+  moved to libvips: `validators.validate_image_file`, `fetch.detect_image_extension`,
+  `forms.ImageAdminForm.clean_original`, and the `pillow_heif` registration in
+  `apps.CdnConfig.ready` (deleted — libvips needs no registration).
+  `stapel-core`'s `PilRenderMetadataProvider` is a separate zero-infrastructure
+  read path and is untouched. Pillow remains a **test-only** extra
+  (`stapel-cdn[test]`): fixtures are generated with a codec independent of the
+  one under test.
+- **New `stapel_cdn.decoders`** — the single answer to "what can this
+  deployment decode", shared by the validator, the URL-import gate, the admin
+  form, `Image.save()` and the boot checks.
+- **`ImageAdminForm` HEIC branch deleted.** It skipped decoding entirely
+  (Pillow could not read HEIF) and accepted *any* payload named `.heic` on
+  trust, storing 1x1 placeholder dimensions. An arbitrary file reached storage
+  through the admin as long as it was named right. Now HEIC is validated like
+  every other format and reports its real size.
+- **`MAX_IMAGE_PIXELS` now means exactly what it says.** Pillow only raised
+  above *2x* the configured value, so the effective ceiling was quietly double
+  what an operator set. A deployment relying on the old slack must double its
+  configured number.
+- **Formats follow the libvips build**, not Pillow's table: JPEG, PNG, GIF,
+  WebP, TIFF and HEIC/HEIF/AVIF natively; BMP through ImageMagick.
+
+### Added — the deployment's gap is now stated at boot and named at runtime
+
+- **`checks.E001` is tied to `ENABLED_SUBMODULES`** and reworded: `"images"`
+  enabled with no importable pyvips is an error naming the system package
+  (`apt libvips-dev`), the pip extra (`stapel-cdn[images]`) and the third
+  remedy (turn `images` off). Previously unconditional — a deployment running
+  stapel-cdn as passthrough file storage was told to install a decoder it has
+  no use for. **This is the behaviour change to check if you run cdn without
+  images.**
+- **`checks.E004`** — libvips is present but *this build* cannot read a format
+  `ALLOWED_IMAGE_EXTENSIONS` declares allowed. Names the extension, the missing
+  loader, and both remedies (install a libvips that reads it, or stop
+  advertising it). Same family as CFG006: a setting the library offers that the
+  deployment cannot honour, detectable statically instead of as a 503 on
+  somebody's avatar.
+- **`error.503.image_decoder_unavailable`** (remediation `contact_support`,
+  params `{extension}`) — "this deployment cannot read that format" is an
+  operator's problem and no longer wears the uploader's error. `400
+  error.400.invalid_format` keeps meaning "your file is broken". Same split as
+  stapel-workspaces' `error.503.profiles_not_configured` (env-address-class v2
+  §2).
+
+### Fixed — every uploaded image was stored with 1x1 dimensions
+
+`Image.save()` read dimensions from `self.original.path` *before*
+`super().save()` wrote the file to storage, so it opened a filename that did
+not exist yet and fell into the "unreadable file" branch — for **every format**,
+not just HEIC. Verified against a live deployment: the path does not exist at
+that point. The §0.3 honest-logging split worked exactly as designed, logging a
+per-upload `ERROR`; nobody was reading the logs, so the placeholder shipped
+anyway. Dimensions are now read from the open file object the validator just
+decoded. Deployments where `process_image` runs had this corrected
+asynchronously and saw only the spurious error log; deployments where it does
+not kept 1x1 permanently.
+
+### Security
+
+- `detect_image_extension` (the SSRF-hardened URL-import gate) verifies the
+  magic-byte signature *and* forces a full libvips pixel pass, replacing
+  Pillow's `verify()`. The decompression-bomb cap is applied from the header
+  before any pixel is touched.
+
 ## 0.9.1 — 2026-08-02
 
 ### Added

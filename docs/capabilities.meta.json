@@ -1,18 +1,26 @@
 {
-  "_comment": "Curated layer for the `surface` section of docs/capabilities.json (discoverability-design.md §1.2). NOTE the honest boundary: stapel-cdn's capabilities.json is otherwise still HAND-WRITTEN (see tests/test_capabilities_contract.py — this module has no schema/flows/errors emitter) — `make contract` patches in only the two derivable things: module/version from pyproject and the derived `surface`. Converting the rest of the document to an emitter is separate work. NOTE also what is deliberately NOT here: the cdn.describe/cdn.media_exists/cdn.import_from_url/cdn.refs_sync comm Functions in functions.py are bus-dispatched RPCs a caller reaches through stapel_core.comm.call(...), not symbols a product imports and calls directly — cdn.describe is already named at the point a product actually looks for it, stapel-core's STAPEL_MEDIA_BACKEND extension_point, so listing it again here would just be the same prose twice. What IS here are the plain-Python helpers behind the *outbound* HTTP path (fetch.py) and the two validators/transforms cdn's own upload/admin code duplicates instead of reusing (validators.py, watermarks.py) — the two genuinely have no other announced entry point.",
-
+  "_comment": "Curated layer for the `surface` section of docs/capabilities.json (discoverability-design.md §1.2). NOTE the honest boundary: stapel-cdn's capabilities.json is otherwise still HAND-WRITTEN (see tests/test_capabilities_contract.py — this module has no schema/flows/errors emitter) — `make contract` patches in only the two derivable things: module/version from pyproject and the derived `surface`. Converting the rest of the document to an emitter is separate work. NOTE also what is deliberately NOT here: the cdn.describe/cdn.media_exists/cdn.import_from_url/cdn.refs_sync comm Functions in functions.py are bus-dispatched RPCs a caller reaches through stapel_core.comm.call(...), not symbols a product imports and calls directly — cdn.describe is already named at the point a product actually looks for it, stapel-core's STAPEL_MEDIA_BACKEND extension_point, so listing it again here would just be the same prose twice. What IS here are the plain-Python helpers behind the *outbound* HTTP path (fetch.py) and the validator and the watermark engine (validators.py, watermarks.py) — the two genuinely have no other announced entry point.",
   "surface_roots": [
-    {"select": "functions", "path": "validators.py"},
-    {"select": "functions", "path": "watermarks.py"},
-    {"select": "functions", "path": "fetch.py"}
+    {
+      "select": "functions",
+      "path": "validators.py"
+    },
+    {
+      "select": "functions",
+      "path": "watermarks.py"
+    },
+    {
+      "select": "functions",
+      "path": "fetch.py"
+    }
   ],
-
   "surface": {
     "validate_image_file": {
       "kind": "gate_function",
-      "intent": "Validate an uploaded image before it touches hashing or storage: extension allowlist + the decompression-bomb pixel cap (STAPEL_CDN['MAX_IMAGE_PIXELS']) + a real Pillow decode (HEIC/HEIF included). Reach for this on ANY image-intake path in the deployment, not only cdn's own upload views — this module's own ImageAdminForm.clean_original() hand-rolls a PIL.Image.open() check instead and is missing both the bomb cap and the shared extension list, which is exactly the kind of drift this entry exists to stop.",
+      "intent": "Validate an uploaded image before it touches hashing or storage: extension allowlist + the decompression-bomb pixel cap (STAPEL_CDN['MAX_IMAGE_PIXELS']) + a real decode with libvips — the SAME decoder stapel_cdn.services uses to process the file, so this gate can never refuse input the pipeline behind it would have handled. Reach for this on ANY image-intake path in the deployment, not only cdn's own upload views. Catch stapel_cdn.decoders.ImageDecoderUnavailable separately from ValidationError: it is a ValidationError subclass meaning 'this deployment has no decoder for that format', an operator's problem, and answering it as bad input is the defect that produced this note — a valid HEIC was refused as 'Invalid image file' because the guard asked Pillow while the pipeline read HEIC natively.",
       "instead_of": [
         "PIL.Image.open() ad-hoc checks",
+        "pyvips.Image.new_from_file() ad-hoc checks",
         "hand-rolled image validation"
       ]
     },
@@ -33,7 +41,7 @@
     },
     "detect_image_extension": {
       "kind": "gate_function",
-      "intent": "Magic-byte content check for fetched or uploaded image bytes: decodes with Pillow and maps the DETECTED format — never the URL suffix or the Content-Type header — to an allowed extension, raising ImageImportError otherwise. Pair with fetch_image_bytes for any external-image intake: trusting a URL's own extension is how a '.jpg' that is actually an HTML/script payload reaches storage.",
+      "intent": "Magic-byte content check for fetched or uploaded image bytes: reads the DETECTED format from the file signature — never the URL suffix or the Content-Type header — and confirms it with a real libvips decode, raising ImageImportError otherwise. Pair with fetch_image_bytes for any external-image intake: trusting a URL's own extension is how a '.jpg' that is actually an HTML/script payload reaches storage.",
       "instead_of": [
         "trusting the URL or Content-Type extension"
       ]

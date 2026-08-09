@@ -84,8 +84,11 @@ DEFAULTS = {
     "ALLOWED_AUDIO_EXTENSIONS": (  # noqa: CFG006
         ".mp3", ".wav", ".m4a", ".ogg", ".opus", ".flac", ".aac",
     ),
-    # Decompression-bomb cap: Pillow raises DecompressionBombError above
-    # 2x this pixel count.
+    # Decompression-bomb cap: an upload whose width*height exceeds this is
+    # refused. libvips reads the dimensions from the header without decoding,
+    # so the bomb costs nothing to refuse. NB 0.10 made this the exact cap its
+    # name always claimed: Pillow used to only raise above *2x* this number, so
+    # the effective ceiling was quietly double the configured one.
     "MAX_IMAGE_PIXELS": 50_000_000,
     # Upload size cap for audio recordings (bytes) — 50 MB.
     # Same reserved status as ALLOWED_AUDIO_EXTENSIONS above.

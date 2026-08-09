@@ -8,7 +8,7 @@ system-design §8.6 in the platform docs). Stapel modules never import each othe
 customization must be possible **without forking**.
 
 Package: `stapel-cdn` (PyPI) · Django app: `stapel_cdn` (app label `cdn`) ·
-Depends on `stapel-core` only · Optional extras: `images` (pyvips — core, unconditional
+Depends on `stapel-core` only · Optional extras: `images` (pyvips — the one image decoder,
 system check), `video`/`recordings` (ffmpeg — a system binary, not a pip package; these
 extras are opt-in markers, paired with `STAPEL_CDN["ENABLED_SUBMODULES"]`), `files` (no
 extra needed — passthrough), `s3` (boto3, reserved). See the submodule table below and
@@ -43,7 +43,7 @@ extra needed — passthrough), `s3` (boto3, reserved). See the submodule table b
   generated variants and re-runs the pipeline (the operational relaunch step —
   no compatibility file layouts are kept).
 - **Upload safety** (`stapel_cdn.validators`, `stapel_cdn.upload_handlers`):
-  `validate_image_file` (extension allowlist → Pillow decode check → decompression-bomb
+  `validate_image_file` (extension allowlist → libvips decode check → decompression-bomb
   cap); `SpeedLimitUploadHandler` (5-min absolute timeout, 2 KB/s sliding-window minimum
   speed) — opt-in via Django `FILE_UPLOAD_HANDLERS`.
 - **Comm surface**: provides functions `cdn.media_exists`, `cdn.describe`
@@ -82,7 +82,7 @@ See `CONFIG.MD` for the complete registry (source/required/default per key). Hig
 | `ALLOWED_IMAGE_EXTENSIONS` | `.jpg .jpeg .png .gif .webp .bmp .heic .heif` | Image extension allowlist in views, serializers and `validate_image_file`. |
 | `ALLOWED_VIDEO_EXTENSIONS` | `.mp4 .webm .mov .avi .mkv` | Video extension allowlist (`FileUploadSerializer`, `VideoUploadView`). |
 | `ALLOWED_AUDIO_EXTENSIONS` | `.mp3 .wav .m4a .ogg .opus .flac .aac` | Audio extension allowlist (`recordings` submodule — passthrough storage always accepts these regardless of `ENABLED_SUBMODULES`). |
-| `MAX_IMAGE_PIXELS` | `50_000_000` | Pillow decompression-bomb cap (`PIL.Image.MAX_IMAGE_PIXELS`). |
+| `MAX_IMAGE_PIXELS` | `50_000_000` | Decompression-bomb cap: an upload above this many pixels is refused. Exact since 0.10 — Pillow used to only raise above *2x* the configured number. |
 | `MAX_AUDIO_SIZE` | `50 * 1024 * 1024` (50 MiB) | Upload size cap for audio recordings. |
 | `WATERMARK` | `""` (**off**) | Watermark engine: dotted path to (or directly a) callable `(pyvips.Image) -> pyvips.Image` applied to preview variants. Empty disables watermarking. Built-in reference engine: `stapel_cdn.watermarks.text_watermark`. |
 | `WATERMARK_TEXT` | `""` | Label rendered by the built-in `text_watermark` engine (bottom-right corner). Ignored by custom engines unless they read it. |
@@ -94,7 +94,7 @@ boot-smoke time, not at first use:
 
 | Submodule | Model | Binary/library | Opt-in via `ENABLED_SUBMODULES`? | System check |
 |---|---|---|---|---|
-| `images` | `Image` | `libvips` (system, apt `libvips-dev`) + `pyvips` (pip, extra `images`) | No — core, unconditional | `stapel_cdn.images.E001` if `pyvips` isn't importable. Without it, `Image.save()` falls back to 1x1 placeholder dimensions with a loud `ERROR` log (no longer a silent `except Exception: pass`). |
+| `images` | `Image` | `libvips` (system, apt `libvips-dev`) + `pyvips` (pip, extra `images`) | Yes — on by default | `stapel_cdn.images.E001` if `"images"` is enabled and `pyvips` isn't importable: libvips is the **only** image decoder the library has (Pillow left in 0.10), so nothing on the image path works without it. `stapel_cdn.images.E004` if libvips is present but this build cannot read a format `ALLOWED_IMAGE_EXTENSIONS` declares allowed — the setting advertising what the deployment cannot honour. |
 | `recordings` | `Audio` | none for storage (always on); `ffmpeg` (system) once a real compression pipeline exists | Yes — gates the *compression* check only, storage is unconditional | `stapel_cdn.recordings.E003` if `"recordings"` is enabled and `ffmpeg` is missing |
 | `video` | `Video` | `ffmpeg` (system) — VPS/prod-only, never the stapel-studio devcontainer | Yes | `stapel_cdn.video.E002` if `"video"` is enabled and `ffmpeg` is missing |
 | `files` | `File` | none — passthrough, no processing | N/A (no extra) | none |
@@ -186,7 +186,7 @@ zero decorators added.
   swallowed pyvips failure used to silently produce 1x1 "dimensions" for every image in
   the deployment (cdn-modularity.md §0.3). `Image.save()` now distinguishes "pyvips not
   installed" from "file unreadable" and logs an `ERROR` either way; `checks.
-  check_submodule_binaries` (`stapel_cdn.images.E001`) catches the missing-library case
+  check_submodule_binaries` (`stapel_cdn.images.E001`/`E004`) catches the missing-decoder case
   at boot-smoke time. Don't reintroduce a bare `except: pass` around media processing.
 - **Importing `stapel_cdn` from another Stapel module.** Cross-module calls go through
   `stapel_core.comm.call("cdn.media_exists", ...)` / `call("cdn.refs_sync", ...)` or the

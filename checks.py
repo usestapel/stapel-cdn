@@ -8,9 +8,22 @@ binary/library fails silently deep inside the processing pipeline (or, for
 ``images``, silently degrades to 1x1 placeholder dimensions — §0.3) instead
 of at ``manage.py check`` / boot-smoke time.
 
-* **images** (``E001``) — core, unconditional: every ``Image.save()`` needs
-  pyvips (and the system ``libvips`` library behind it) to read real
-  dimensions. This check always runs; there is no "images disabled" state.
+* **images** (``E001``) — gated on ``"images"`` in
+  ``STAPEL_CDN["ENABLED_SUBMODULES"]`` (on by default). libvips is now the
+  *only* decoder on the image path — upload validation, admin validation,
+  URL-import format detection and every ``Image.save()`` dimension read all go
+  through it (Pillow left the library in 0.10). Without it the image path
+  cannot work at all, so this is an error, not a degradation. It is gated
+  because stapel-cdn also serves as passthrough file storage: a deployment that
+  stores PDFs and turns images off has no business being told to install
+  libvips.
+* **images** (``E004``) — the precise one, one level below E001: libvips is
+  present but this *build* of it cannot read a format
+  ``ALLOWED_IMAGE_EXTENSIONS`` declares allowed (libvips is modular — compiled
+  without libheif it has no ``heifload``, and .heic is then advertised and
+  unreadable). This is the defect class E004 exists for: a setting the library
+  offers but the deployment cannot honour (same family as CFG006), detectable
+  statically at boot rather than as a 503 on somebody's avatar.
 * **video** (``E002``) — VPS/prod-only submodule (cdn-modularity.md §3:
   never installed in the stapel-studio devcontainer). Only checked once a
   host project opts in via ``"video"`` in ``STAPEL_CDN["ENABLED_SUBMODULES"]``.
@@ -21,7 +34,6 @@ of at ``manage.py check`` / boot-smoke time.
 """
 from __future__ import annotations
 
-import importlib.util
 import shutil
 
 from django.core import checks
@@ -29,34 +41,63 @@ from django.core import checks
 E001_IMAGES_LIBRARY_MISSING = "stapel_cdn.images.E001"
 E002_VIDEO_BINARY_MISSING = "stapel_cdn.video.E002"
 E003_RECORDINGS_BINARY_MISSING = "stapel_cdn.recordings.E003"
-
-
-def _pyvips_importable() -> bool:
-    return importlib.util.find_spec("pyvips") is not None
+E004_IMAGE_FORMAT_UNDECODABLE = "stapel_cdn.images.E004"
 
 
 @checks.register("stapel_cdn")
 def check_submodule_binaries(app_configs=None, **kwargs):
-    """E001/E002/E003 — an enabled media submodule is missing its binary/library."""
+    """E001/E004 (images), E002/E003 (ffmpeg) — an enabled submodule cannot work."""
+    from . import decoders
     from .conf import cdn_settings
 
     findings = []
     enabled = set(cdn_settings.ENABLED_SUBMODULES)
 
-    # images: unconditional — every Image save needs pyvips, regardless of
-    # ENABLED_SUBMODULES (it isn't an opt-in; cdn-modularity.md §3 table).
-    if not _pyvips_importable():
+    # images: libvips is the one decoder on the image path. No libvips, no
+    # image path — uploads cannot be validated, dimensions cannot be read,
+    # variants cannot be generated.
+    if "images" in enabled and not decoders.available():
         findings.append(
             checks.Error(
-                "pyvips is not importable — Image.save() will silently fall "
-                "back to 1x1 placeholder dimensions for every uploaded "
-                "image (an honest ERROR is now logged per-save, but the "
-                "root cause is a missing dependency, not a per-file fluke).",
+                "'images' is in STAPEL_CDN['ENABLED_SUBMODULES'] but pyvips "
+                "is not importable — libvips is the only image decoder this "
+                "library has. Upload validation cannot verify that a file is "
+                "an image, Image.save() falls back to 1x1 placeholder "
+                "dimensions, and variant generation cannot run at all.",
                 hint="Install the system libvips library (apt: "
-                     "libvips-dev) and `pip install stapel-cdn[images]`.",
+                     "libvips-dev) and `pip install stapel-cdn[images]`, or "
+                     "remove 'images' from ENABLED_SUBMODULES to run this "
+                     "deployment as passthrough file storage.",
                 id=E001_IMAGES_LIBRARY_MISSING,
             )
         )
+
+    # images: libvips present, but this build cannot read a configured format.
+    # Silent when there is no libvips at all — that is E001's subject, and
+    # repeating every configured extension underneath it would bury the one
+    # finding that matters.
+    if "images" in enabled:
+        for extension in decoders.undecodable_allowed_extensions():
+            loaders = ", ".join(decoders.VIPS_LOADERS[extension])
+            findings.append(
+                checks.Error(
+                    f"STAPEL_CDN['ALLOWED_IMAGE_EXTENSIONS'] declares "
+                    f"{extension} allowed, but this libvips build has no "
+                    f"loader for it ({loaders} not registered) — every "
+                    f"{extension} upload is accepted by the extension "
+                    f"allowlist and then refused with "
+                    f"error.503.image_decoder_unavailable, which reads to the "
+                    f"uploader as their file being rejected.",
+                    hint=f"Install a libvips build that can read {extension} "
+                         f"(apt: libvips-dev pulls libheif for HEIC/HEIF/AVIF; "
+                         f"BMP needs the ImageMagick module), or remove "
+                         f"{extension} from "
+                         f"STAPEL_CDN['ALLOWED_IMAGE_EXTENSIONS'] so the "
+                         f"setting stops advertising what this deployment "
+                         f"cannot do.",
+                    id=E004_IMAGE_FORMAT_UNDECODABLE,
+                )
+            )
 
     # video: VPS/prod-only, opt-in via ENABLED_SUBMODULES.
     if "video" in enabled and shutil.which("ffmpeg") is None:
@@ -95,6 +136,7 @@ def check_submodule_binaries(app_configs=None, **kwargs):
 
 __all__ = [
     "E001_IMAGES_LIBRARY_MISSING",
+    "E004_IMAGE_FORMAT_UNDECODABLE",
     "E002_VIDEO_BINARY_MISSING",
     "E003_RECORDINGS_BINARY_MISSING",
     "check_submodule_binaries",

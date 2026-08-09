@@ -37,9 +37,10 @@ Every network step is guarded, and each guard has a dedicated test:
 * **timeout** on connect and read.
 * **content verification** — the declared ``Content-Type`` must be
   ``image/*`` and the bytes must decode as a real image whose detected
-  format maps to an allowed extension (magic-byte check via Pillow, routed
-  through the same ``validate_image_file`` / ``ALLOWED_IMAGE_EXTENSIONS``
-  the upload endpoints use). The URL's own extension is never trusted.
+  format maps to an allowed extension (magic-byte signature plus a real
+  libvips decode, routed through the same ``decoders`` module —
+  ``ALLOWED_IMAGE_EXTENSIONS`` and one decoder — that the upload endpoints
+  use). The URL's own extension is never trusted.
 
 Failures raise :class:`ImageImportError` with a stable, machine-readable
 ``.code``. The fetcher never fails *open*: there is no code path that
@@ -53,11 +54,11 @@ import logging
 import socket
 import ssl
 import time
-from io import BytesIO
 from urllib.parse import urljoin, urlsplit
 
-from PIL import Image as PILImage
+from django.core.files.base import ContentFile
 
+from . import decoders
 from .conf import cdn_settings
 
 logger = logging.getLogger(__name__)
@@ -70,18 +71,6 @@ _REDIRECT_STATUSES = frozenset({301, 302, 303, 307, 308})
 # Trust the *detected* image format (magic bytes), not the URL/Content-Type,
 # to choose the stored extension. Only formats whose extension survives the
 # ALLOWED_IMAGE_EXTENSIONS allowlist below are kept.
-_PIL_FORMAT_EXT = {
-    "JPEG": ".jpg",
-    "PNG": ".png",
-    "GIF": ".gif",
-    "WEBP": ".webp",
-    "BMP": ".bmp",
-    "HEIF": ".heic",
-    "HEIC": ".heic",
-    "MPO": ".jpg",  # multi-picture JPEG (some phone cameras)
-}
-
-
 class ImageImportError(Exception):
     """Structured failure of an import-from-URL attempt.
 
@@ -318,34 +307,51 @@ def fetch_image_bytes(url: str) -> bytes:
 # Content verification
 # --------------------------------------------------------------------------- #
 def detect_image_extension(data: bytes) -> str:
-    """Decode *data* with Pillow and map the detected format to an allowed
-    extension. This is the magic-byte gate: the URL/Content-Type is never
-    trusted to name the format.
+    """Map *data*'s real format to an allowed extension. This is the magic-byte
+    gate: the URL/Content-Type is never trusted to name the format.
 
-    Raises :class:`ImageImportError('not_an_image')` if the bytes do not
-    decode as an image, or ``('unsupported_image_format')`` if the real
-    format is not in ``ALLOWED_IMAGE_EXTENSIONS``.
+    Two independent steps, because they answer different questions. The
+    signature (``decoders.sniff``) says *what* the bytes claim to be and needs
+    no decoder to say it; the libvips decode says whether they really are that,
+    and rejects the truncated/hostile payloads a signature match alone would
+    wave through. The decode runs through the same ``decoders`` module the
+    upload validator uses, so a format this deployment can process is never
+    refused here and vice versa — before 0.10 this path decoded with Pillow and
+    a HEIC URL, readable by the pipeline waiting behind it, came back
+    ``not_an_image``.
+
+    Raises :class:`ImageImportError('not_an_image')` if the bytes are not a
+    decodable image, or ``('unsupported_image_format')`` if the real format is
+    not in ``ALLOWED_IMAGE_EXTENSIONS``.
     """
-    try:
-        from pillow_heif import register_heif_opener
-
-        register_heif_opener()
-    except ImportError:  # pragma: no cover - optional dependency
-        pass
-
-    try:
-        with PILImage.open(BytesIO(data)) as img:
-            fmt = (img.format or "").upper()
-            img.verify()  # decode-verify: rejects truncated/hostile payloads
-    except Exception as exc:
-        raise ImageImportError("not_an_image", f"payload is not a decodable image: {exc}") from exc
-
-    ext = _PIL_FORMAT_EXT.get(fmt)
-    allowed = {e.lower() for e in cdn_settings.ALLOWED_IMAGE_EXTENSIONS}
-    if ext is None or ext not in allowed:
+    ext = decoders.sniff(data[: decoders.SNIFF_BYTES])
+    if ext is None:
         raise ImageImportError(
-            "unsupported_image_format", f"detected format {fmt!r} is not allowed"
+            "not_an_image", "payload carries no known image signature"
         )
+
+    allowed = {e.lower() for e in cdn_settings.ALLOWED_IMAGE_EXTENSIONS}
+    if ext not in allowed:
+        raise ImageImportError(
+            "unsupported_image_format", f"detected format {ext!r} is not allowed"
+        )
+
+    # Decode-verify. `None` = no decoder in this deployment (checks.E001 is
+    # red); the signature check above is then all this gate has, and it says so
+    # rather than reporting a verification it did not perform.
+    try:
+        decoders.decode_dimensions(
+            ContentFile(data, name=f"fetched{ext}"), ext, verify=True
+        )
+    except decoders.ImageDecoderUnavailable as exc:
+        raise ImageImportError(
+            "unsupported_image_format", str(exc)
+        ) from exc
+    except Exception as exc:
+        raise ImageImportError(
+            "not_an_image", f"payload is not a decodable image: {exc}"
+        ) from exc
+
     return ext
 
 

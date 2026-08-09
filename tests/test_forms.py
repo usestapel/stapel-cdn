@@ -34,7 +34,6 @@ class TestCleanOriginal:
         form, result = _clean(make_jpeg(120, 80))
         assert result is not None
         assert form._image_dimensions == (120, 80)
-        assert form._is_heic is False
 
     def test_invalid_extension_rejected(self):
         bad = SimpleUploadedFile('a.exe', b'MZ', content_type='application/octet-stream')
@@ -54,15 +53,31 @@ class TestCleanOriginal:
         empty = SimpleUploadedFile('a.heic', b'', content_type='image/heic')
         form = ImageAdminForm()
         form.cleaned_data = {'original': empty}
-        with pytest.raises(ValidationError, match='empty'):
+        with pytest.raises(ValidationError, match='Invalid image file'):
             form.clean_original()
 
-    def test_heic_gets_placeholder_dimensions(self):
+    def test_bogus_heic_is_rejected_not_waved_through(self):
+        """Bytes that merely END in .heic are not an image and are refused.
+
+        This is the behaviour change 0.10 makes, and it is a hardening, not a
+        regression. The old form had a HEIC branch that skipped decoding
+        entirely — Pillow could not read HEIF, so rather than fail it accepted
+        ANY payload named .heic on trust and stored 1x1 placeholder dimensions.
+        An arbitrary file reached storage through the admin as long as it was
+        named right. With libvips there is no format needing that exemption.
+        """
         heic = SimpleUploadedFile('a.heic', b'fake heic bytes', content_type='image/heic')
-        form, result = _clean(heic)
+        form = ImageAdminForm()
+        form.cleaned_data = {'original': heic}
+        with pytest.raises(ValidationError, match='Invalid image file'):
+            form.clean_original()
+
+    def test_real_heic_extracts_real_dimensions(self, tiny_heic):
+        """The reported defect, from the admin side: a valid HEIC is accepted
+        and reports its true size instead of a 1x1 placeholder."""
+        form, result = _clean(tiny_heic)
         assert result is not None
-        assert form._image_dimensions == (1, 1)
-        assert form._is_heic is True
+        assert form._image_dimensions == (16, 16)
 
 
 @pytest.mark.django_db
@@ -98,14 +113,13 @@ class TestFormSave:
         assert instance.original_height == 80
         assert Image.objects.filter(pk=instance.pk).exists()
 
-    def test_save_heic_marks_unprocessed(self, user):
+    def test_save_heic_stores_real_dimensions(self, user, tiny_heic):
+        """HEIC saves with its real size — no placeholder, nothing deferred."""
         data = self._form_data(user)
         data['original_filename'] = 'a.heic'
         data['file_extension'] = '.heic'
-        heic = SimpleUploadedFile('a.heic', b'fake heic bytes', content_type='image/heic')
-        form = ImageAdminForm(data=data, files={'original': heic})
+        form = ImageAdminForm(data=data, files={'original': tiny_heic})
         assert form.is_valid(), form.errors
         instance = form.save(commit=False)
-        assert instance.original_width == 1
-        assert instance.original_height == 1
-        assert instance.is_processed is False
+        assert instance.original_width == 16
+        assert instance.original_height == 16

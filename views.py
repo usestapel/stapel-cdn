@@ -54,6 +54,7 @@ from stapel_core.django.api.permissions import (
 
 from django.core.exceptions import ValidationError
 
+from stapel_cdn.decoders import ImageDecoderUnavailable
 from stapel_cdn.errors import (
     ERR_400_FILE_HASH_REQUIRED,
     ERR_400_INVALID_FORMAT,
@@ -62,6 +63,7 @@ from stapel_cdn.errors import (
     ERR_400_NO_FILE,
     ERR_404_NO_IMAGES,
     ERR_413_FILE_TOO_LARGE,
+    ERR_503_IMAGE_DECODER_UNAVAILABLE,
 )
 from stapel_cdn.validators import validate_image_file
 
@@ -118,8 +120,9 @@ def _validate_image_upload(uploaded_file):
     """Run cheap-to-expensive upload checks BEFORE hashing or storing.
 
     Order matters: size cap first (hashing an unbounded body is a DoS),
-    then extension allowlist, then content verification (Pillow decode) —
-    a .jpg containing HTML/scripts must never reach storage.
+    then extension allowlist, then content verification (a libvips decode —
+    the same decoder that will process the file) — a .jpg containing
+    HTML/scripts must never reach storage.
 
     Returns an error response, or None when the file is acceptable.
     """
@@ -132,6 +135,22 @@ def _validate_image_upload(uploaded_file):
 
     try:
         validate_image_file(uploaded_file)
+    except ImageDecoderUnavailable as exc:
+        # NOT the caller's fault, so not a 4xx and not "invalid format": this
+        # deployment advertises an extension it has no decoder for. Logged at
+        # ERROR because the only party who can fix it is an operator, and
+        # checks.E004 already says the same thing at boot.
+        logger.error(
+            "image upload refused: no decoder for %s in this deployment "
+            "(STAPEL_CDN['ALLOWED_IMAGE_EXTENSIONS'] advertises it) — %s",
+            exc.extension,
+            exc,
+        )
+        return StapelErrorResponse(
+            503,
+            ERR_503_IMAGE_DECODER_UNAVAILABLE,
+            {"extension": exc.extension},
+        )
     except ValidationError:
         return StapelErrorResponse(400, ERR_400_INVALID_FORMAT)
     return None
