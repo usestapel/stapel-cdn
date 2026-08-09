@@ -39,7 +39,11 @@ jobs:
         run: pip install stapel-tools --quiet
 
       - name: Install test dependencies
-        run: pip install pytest pytest-django pytest-cov
+        # `.[test]` carries Pillow. It is NOT a dependency of the library —
+        # 0.10 moved the whole image path to libvips — but the suite generates
+        # its fixture images with it on purpose, so a decode bug cannot hide
+        # behind "vips writes exactly what vips reads".
+        run: pip install pytest pytest-django pytest-cov && pip install -e ".[test]"
 
       - name: Tests with coverage
         run: |
