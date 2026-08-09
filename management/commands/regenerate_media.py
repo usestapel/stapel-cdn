@@ -1,6 +1,6 @@
 """
 regenerate_media — wipe generated variants and re-process every Image under
-the current tier semantics (images-and-cdn.md §6 п.5).
+the current tier semantics (images-and-cdn.md §6 item 5).
 
 The operational launch step of the tier/branch redesign (alpha policy: no
 backward-compatibility file layouts, no data migrations): old variant files

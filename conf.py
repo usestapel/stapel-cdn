@@ -75,13 +75,12 @@ DEFAULTS = {
     # storage always accepts these; ffmpeg-audio compression (once
     # implemented) is gated by "recordings" in ENABLED_SUBMODULES.
     #
-    # РЕЗЕРВ, А НЕ ДЕЙСТВУЮЩАЯ РУЧКА. Аудио-загрузки в stapel-cdn нет вовсе:
-    # модель `Audio` объявлена, но не создаётся ни одной строкой библиотеки,
-    # а настоящая загрузка живёт в stapel-recordings со своим
-    # `MAX_UPLOAD_BYTES` в своём namespace. Тянуть эти ключи туда было бы
-    # связыванием либ через чужие настройки. Глушим осознанно и с адресом
-    # будущего потребителя: когда аудио-путь появится ЗДЕСЬ, снять noqa и
-    # проверять обе величины на входе.
+    # RESERVED, NOT AN ACTIVE KNOB. stapel-cdn has no audio upload at all:
+    # the `Audio` model is declared but never instantiated by this library —
+    # the real upload path lives in stapel-recordings with its own
+    # `MAX_UPLOAD_BYTES` in its own namespace. Pulling these keys over there
+    # would couple libs through each other's settings. Silenced on purpose:
+    # once an audio path lands HERE, drop the noqa and validate both values.
     "ALLOWED_AUDIO_EXTENSIONS": (  # noqa: CFG006
         ".mp3", ".wav", ".m4a", ".ogg", ".opus", ".flac", ".aac",
     ),
@@ -89,7 +88,7 @@ DEFAULTS = {
     # 2x this pixel count.
     "MAX_IMAGE_PIXELS": 50_000_000,
     # Upload size cap for audio recordings (bytes) — 50 MB.
-    # Тот же резерв, что и ALLOWED_AUDIO_EXTENSIONS выше.
+    # Same reserved status as ALLOWED_AUDIO_EXTENSIONS above.
     "MAX_AUDIO_SIZE": 50 * 1024 * 1024,  # noqa: CFG006
     # Watermark engine: dotted path to (or directly a) callable
     # ``(pyvips.Image) -> pyvips.Image`` applied to preview variants.

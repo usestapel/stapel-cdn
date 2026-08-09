@@ -76,7 +76,7 @@ class TestImageModel:
 
 @pytest.mark.django_db
 class TestImageDimensionFallbackLogging:
-    """cdn-modularity.md §0.3/(б): the pyvips dimension-extraction fallback
+    """cdn-modularity.md §0.3/(b): the pyvips dimension-extraction fallback
     used to be a single broad ``except Exception: pass`` — indistinguishable
     from a deliberately tiny 1x1 image. Both failure modes must now log an
     honest ERROR naming the image and the cause."""

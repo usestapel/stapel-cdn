@@ -4,9 +4,9 @@ Tests for the images-and-cdn.md §61 tier/branch semantics:
 - ``_resize`` axes (w / h / min);
 - min-side thumbnail ladder (§3.4);
 - two-branch preview generation with square dedup (§3.2-3.3);
-- persisted ``variants_meta`` geometry (§6 п.3);
+- persisted ``variants_meta`` geometry (§6 item 3);
 - ``cdn.describe`` render-metadata snapshot (§5);
-- ``regenerate_media`` management command (§6 п.5);
+- ``regenerate_media`` management command (§6 item 5);
 - the v1 URL canon (api-versioning.md §2).
 """
 import os
@@ -263,7 +263,7 @@ class TestDescribe:
 
 @pytest.mark.django_db
 class TestRegenerateMedia:
-    """regenerate_media — operational relaunch of the pipeline (§6 п.5)."""
+    """regenerate_media — operational relaunch of the pipeline (§6 item 5)."""
 
     def _upload_image(self, tmp_path, settings, width=600, height=1200):
         from django.core.files.uploadedfile import SimpleUploadedFile

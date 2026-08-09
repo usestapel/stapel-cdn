@@ -98,7 +98,7 @@ class Image(models.Model):
     )
 
     # Per-variant geometry, filled by the processing pipeline
-    # (images-and-cdn.md §5/§6 п.3): list of
+    # (images-and-cdn.md §5/§6 item 3): list of
     # {"tier": int, "branch": "w"|"h"|None, "url": str,
     #  "width": int, "height": int}. branch is None for thumbnail-class
     # (min-side) tiers; square images carry only the w-branch (§3.3).
@@ -601,7 +601,7 @@ class Audio(models.Model):
     def save(self, *args, **kwargs):
         """Override save to automatically extract metadata. Passthrough —
         no processing is required for storage to be usable (cdn-modularity.md
-        §7.2: "recordings: хранение всегда")."""
+        §7.2: "recordings: always storable")."""
         if not self.pk and self.original:
             if not self.file_hash:
                 self.file_hash = self.calculate_file_hash(self.original)
