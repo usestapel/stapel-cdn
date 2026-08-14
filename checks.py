@@ -42,6 +42,8 @@ E001_IMAGES_LIBRARY_MISSING = "stapel_cdn.images.E001"
 E002_VIDEO_BINARY_MISSING = "stapel_cdn.video.E002"
 E003_RECORDINGS_BINARY_MISSING = "stapel_cdn.recordings.E003"
 E004_IMAGE_FORMAT_UNDECODABLE = "stapel_cdn.images.E004"
+W005_DEDUP_SCOPE_INVALID = "stapel_cdn.ownership.W005"
+W006_DEDUP_SCOPE_GLOBAL = "stapel_cdn.ownership.W006"
 
 
 @checks.register("stapel_cdn")
@@ -134,10 +136,55 @@ def check_submodule_binaries(app_configs=None, **kwargs):
     return findings
 
 
+@checks.register("stapel_cdn")
+def check_dedup_scope(app_configs=None, **kwargs):
+    """W005/W006 — the deployment's answer to "who may a hash lookup see?".
+
+    Both findings are warnings, not errors: the module still runs, and the
+    second one is a legitimate (if narrow) configuration. They exist because
+    the failure mode of getting this wrong is silent — a global lookup leaks by
+    answering correctly, so nothing about it ever looks broken from inside.
+    """
+    from .conf import cdn_settings
+    from .ownership import SCOPE_GLOBAL, SCOPE_OWNER, VALID_DEDUP_SCOPES
+
+    raw = str(cdn_settings.DEDUP_SCOPE or "").strip().lower()
+    if raw not in VALID_DEDUP_SCOPES:
+        return [
+            checks.Warning(
+                f"STAPEL_CDN['DEDUP_SCOPE'] is {cdn_settings.DEDUP_SCOPE!r}, "
+                f"which is not one of {', '.join(VALID_DEDUP_SCOPES)}. The "
+                f"module falls back to {SCOPE_OWNER!r}, so nothing leaks — but "
+                f"the setting is not doing what it was written to do.",
+                hint=f"Set it to {SCOPE_OWNER!r} or {SCOPE_GLOBAL!r}.",
+                id=W005_DEDUP_SCOPE_INVALID,
+            )
+        ]
+    if raw == SCOPE_GLOBAL:
+        return [
+            checks.Warning(
+                "STAPEL_CDN['DEDUP_SCOPE'] is 'global': a content-hash lookup "
+                "matches objects uploaded by anyone. Every upload endpoint "
+                "then answers 'does this deployment already hold exactly these "
+                "bytes?' for any caller, and returns the holder's row — "
+                "identifier, original filename and reference list included.",
+                hint="Keep 'global' only where every principal is entitled to "
+                     "every other principal's media (a single-tenant "
+                     "deployment, or a deliberately shared public asset pool). "
+                     "Otherwise use 'owner'.",
+                id=W006_DEDUP_SCOPE_GLOBAL,
+            )
+        ]
+    return []
+
+
 __all__ = [
     "E001_IMAGES_LIBRARY_MISSING",
     "E004_IMAGE_FORMAT_UNDECODABLE",
     "E002_VIDEO_BINARY_MISSING",
     "E003_RECORDINGS_BINARY_MISSING",
+    "W005_DEDUP_SCOPE_INVALID",
+    "W006_DEDUP_SCOPE_GLOBAL",
+    "check_dedup_scope",
     "check_submodule_binaries",
 ]

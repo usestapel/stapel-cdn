@@ -71,6 +71,7 @@ class CDNGDPRProvider(GDPRProvider):
         rest of the platform. Idempotent. Returns the number of objects
         removed."""
         from .models import File, Image, Video
+        from .ownership import shared_binary_exists
 
         removed = 0
         for model in (Image, Video, File):
@@ -78,10 +79,16 @@ class CDNGDPRProvider(GDPRProvider):
             for obj in model.objects.filter(uploaded_by_id=user_id):
                 refs = obj.refs if isinstance(obj.refs, list) else []
                 if not refs:
-                    try:
-                        obj.original.delete(save=False)
-                    except Exception:
-                        pass
+                    # Storage is content-addressed: `<type>/<hash>/` is shared
+                    # by every principal holding the same bytes. The row is
+                    # this user's and always goes; the blob is only unlinked
+                    # once nothing else points at it, or erasing one holder
+                    # would blank an object another one is still serving.
+                    if not shared_binary_exists(obj):
+                        try:
+                            obj.original.delete(save=False)
+                        except Exception:
+                            pass
                     obj.delete()
                     removed += 1
         return removed

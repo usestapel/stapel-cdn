@@ -169,8 +169,14 @@ def import_from_url(payload: dict) -> dict:
 
     file_hash = hashlib.sha256(data).hexdigest()
 
-    # Content-addressed dedup: the same bytes for the same type reuse the ref.
-    existing = Image.objects.filter(file_hash=file_hash, type=image_type).first()
+    # Content-addressed dedup, scoped to the service-owned pool (CDN-02):
+    # this path runs for an opaque caller id with no user row behind it, so it
+    # must not read — or hand back — an object some end user uploaded.
+    from .ownership import service_scope_q
+
+    existing = Image.objects.filter(
+        service_scope_q(), file_hash=file_hash, type=image_type
+    ).first()
     if existing:
         return {"ref": f"{image_type}/{file_hash}"}
 

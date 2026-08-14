@@ -112,6 +112,57 @@ DEFAULTS = {
     "IMPORT_FROM_URL_MAX_REDIRECTS": 3,
     # Per-caller fixed-window quota ("N/s|m|h|d") — open-proxy defence.
     "IMPORT_FROM_URL_RATE": "10/h",
+    # --- ownership, dedup scoping and per-owner quotas -------------------
+    # Scope of content-hash deduplication on every intake path.
+    #
+    #   "owner"  — a hash lookup only ever matches objects the *calling*
+    #              principal already owns. The default.
+    #   "global" — a hash lookup matches any object with the same bytes,
+    #              whoever uploaded it.
+    #
+    # "global" is a disclosure channel, not just a storage optimisation: an
+    # upload that reports "already exists" answers "does somebody in this
+    # deployment hold exactly these bytes?" for any file the caller can guess
+    # or obtain, and the response carries the other holder's row — id,
+    # filename, refs, timestamps. A host that accepts that (single-tenant
+    # deployments, or a deliberately shared public asset pool) can opt back
+    # in; nothing in this library assumes it.
+    "DEDUP_SCOPE": "owner",
+    # Per-owner storage ceilings across images + videos + files. 0 disables
+    # the ceiling entirely. The defaults are deliberately generous rather
+    # than absent: an identity that costs one POST to mint must not have an
+    # unbounded quota, and a real user is nowhere near these numbers.
+    "MAX_OBJECTS_PER_OWNER": 1000,
+    "MAX_BYTES_PER_OWNER": 2 * 1024 * 1024 * 1024,
+    # --- generic (non-image, non-video) intake ---------------------------
+    # Upload size cap for GenericFileUploadView (bytes).
+    "MAX_FILE_SIZE": 50 * 1024 * 1024,
+    "ALLOWED_FILE_EXTENSIONS": (
+        ".pdf", ".doc", ".docx", ".xls", ".xlsx", ".ppt", ".pptx",
+        ".txt", ".csv", ".zip", ".rar", ".7z", ".gz",
+    ),
+    "ALLOWED_FILE_MIME_TYPES": (
+        "application/pdf",
+        "application/msword",
+        "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+        "application/vnd.ms-excel",
+        "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        "application/vnd.ms-powerpoint",
+        "application/vnd.openxmlformats-officedocument.presentationml.presentation",
+        "text/plain",
+        "text/csv",
+        "application/zip",
+        "application/x-rar-compressed",
+        "application/x-7z-compressed",
+        "application/gzip",
+        "application/octet-stream",
+    ),
+    # Path prefix under which non-image originals (documents, archives,
+    # audio) are stored, so an operator has ONE prefix to deny on the public
+    # media route / bucket policy instead of having to enumerate types.
+    # Empty keeps the historical flat layout; only NEW uploads move, stored
+    # rows keep the path recorded in the database.
+    "PRIVATE_MEDIA_PREFIX": "private",
 }
 
 cdn_settings = AppSettings(
