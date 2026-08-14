@@ -33,6 +33,7 @@ as passthrough file storage drops `images` from the tuple and is not asked to in
 | MAX_IMAGE_SIZE | env | upload size cap for images, bytes. | no | `20 * 1024 * 1024` |
 | ALLOWED_IMAGE_EXTENSIONS | env | accepted image file extensions. Must be decodable by the deployment's libvips — `checks.E004` fails the boot when this advertises a format that build cannot read, rather than letting an uploader be told their file is invalid. | no | `.jpg .jpeg .png .gif .webp .bmp .heic .heif` |
 | ALLOWED_VIDEO_EXTENSIONS | env | accepted video file extensions. | no | `.mp4 .webm .mov .avi .mkv` |
+| MAX_VIDEO_SIZE | env | upload size cap for videos, bytes — enforced before the body is hashed. | no | `100 * 1024 * 1024` |
 | ALLOWED_AUDIO_EXTENSIONS | env | accepted audio file extensions (`recordings` submodule — passthrough storage always accepts these). | no | `.mp3 .wav .m4a .ogg .opus .flac .aac` |
 | MAX_IMAGE_PIXELS | env | decompression-bomb cap — an upload wider*taller than this is refused. Exact since 0.10 (Pillow used to only raise above *2x* the configured number). | no | `50_000_000` |
 | MAX_AUDIO_SIZE | env | upload size cap for audio recordings, bytes. | no | `50 * 1024 * 1024` |

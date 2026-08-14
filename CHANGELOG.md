@@ -4,6 +4,42 @@ All notable changes to this project will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [Unreleased]
+
+### Security — the video intake gets the bounds every other intake already had
+
+`POST /cdn/api/v1/upload/video/` had **no size cap at all**, and no setting to
+give it one. The whole request body was read and SHA-256'd before anything was
+checked; the extension allowlist ran after that, and the per-owner byte quota —
+which a deployment may switch off — was the only ceiling underneath. Meanwhile
+the endpoint's own OpenAPI description told callers **"Maximum file size:
+100MB"**: documentation asserting a limit nothing enforced.
+
+It was also the one intake path that never looked at the bytes. The image path
+decodes, the generic path sniffs; a `.mp4` whose leading bytes are HTML or a
+script was stored under the media root and served from the media origin, where
+a browser runs what it is handed regardless of the name.
+
+- **New `STAPEL_CDN["MAX_VIDEO_SIZE"]`, default `100 * 1024 * 1024`** — the
+  number the endpoint has been claiming all along. Enforced *before* hashing;
+  over it the answer is `413`.
+- The video path now runs `sniff_is_active_content()` like the generic path,
+  and its extension allowlist moved ahead of the hash.
+- A size cap no longer skips a file that cannot state its size. The old form
+  (`if uploaded_file.size and uploaded_file.size > cap`) treated a `size` of
+  `None` as "small enough"; an unknown size is now refused on both the image
+  and video paths. `size == 0` is still not over any ceiling.
+
+**Upgrade note.** A deployment that accepts videos larger than 100MB now gets
+`413` for them. Raise `STAPEL_CDN["MAX_VIDEO_SIZE"]` to whatever that
+deployment actually intends to store — the point of the change is that the
+number is now stated somewhere and enforced, not that 100MB is right for
+everyone.
+
+The `**Maximum file size:** 100MB` line in the image/avatar/typed-image
+endpoint descriptions was wrong in the other direction (`MAX_IMAGE_SIZE` is
+20MB) and now names the setting instead of a stale literal.
+
 ## 0.10.0 — 2026-08-10
 
 ### Changed (BREAKING) — one decoder on the image path; Pillow is gone (#233)

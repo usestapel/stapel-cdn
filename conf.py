@@ -71,6 +71,14 @@ DEFAULTS = {
     "ALLOWED_VIDEO_EXTENSIONS": (
         ".mp4", ".webm", ".mov", ".avi", ".mkv",
     ),
+    # Upload size cap for videos (bytes) — 100 MB. The number is not new: the
+    # endpoint's own OpenAPI description has always told callers "Maximum file
+    # size: 100MB". Nothing enforced it, so the documented limit and the real
+    # one disagreed by infinity — the whole body was read and SHA-256'd before
+    # any bound was consulted, and the per-owner byte quota was the only
+    # ceiling underneath (itself opt-out-able). Now the documentation and the
+    # gate are the same value.
+    "MAX_VIDEO_SIZE": 100 * 1024 * 1024,
     # Upload extensions for the recordings (audio) submodule — passthrough
     # storage always accepts these; ffmpeg-audio compression (once
     # implemented) is gated by "recordings" in ENABLED_SUBMODULES.

@@ -119,6 +119,21 @@ class SerializerSeamMixin:
         return self.response_serializer_class
 
 
+def _over_size_cap(uploaded_file, cap) -> bool:
+    """Whether *uploaded_file* fails the byte ceiling *cap*.
+
+    A file that cannot state its size fails, rather than skipping the check:
+    the previous form (``if uploaded_file.size and uploaded_file.size > cap``)
+    let a ``size`` of ``None`` walk past the one gate that exists to keep an
+    unbounded body from being read, hashed and stored. An unknown size is not
+    evidence of a small file, and nothing downstream bounds the read either.
+    A genuinely empty upload (``size == 0``) is not over any ceiling and is
+    left to the format checks below.
+    """
+    size = getattr(uploaded_file, "size", None)
+    return size is None or size > cap
+
+
 def _validate_image_upload(uploaded_file):
     """Run cheap-to-expensive upload checks BEFORE hashing or storing.
 
@@ -129,7 +144,7 @@ def _validate_image_upload(uploaded_file):
 
     Returns an error response, or None when the file is acceptable.
     """
-    if uploaded_file.size and uploaded_file.size > cdn_settings.MAX_IMAGE_SIZE:
+    if _over_size_cap(uploaded_file, cdn_settings.MAX_IMAGE_SIZE):
         return StapelErrorResponse(413, ERR_413_FILE_TOO_LARGE)
 
     file_extension = os.path.splitext(uploaded_file.name)[1].lower()
@@ -156,6 +171,37 @@ def _validate_image_upload(uploaded_file):
         )
     except ValidationError:
         return StapelErrorResponse(400, ERR_400_INVALID_FORMAT)
+    return None
+
+
+def _validate_video_upload(uploaded_file):
+    """Run cheap-to-expensive upload checks BEFORE hashing or storing.
+
+    Same order and the same reasoning as :func:`_validate_image_upload`; the
+    video path simply had none of it. It read the whole body and SHA-256'd it
+    before consulting any bound at all, and the only ceiling behind that was
+    the per-owner byte quota — which a deployment may switch off.
+
+    There is no decode step here (no ffmpeg probe on the upload path yet), so
+    the byte-level question is the one :func:`sniff_is_active_content` answers:
+    every other intake asks it, and video was the single one that never did.
+    Extension and Content-Type are both written by the caller, so a `.mp4`
+    carrying HTML/script otherwise lands under the media root and is served
+    from the media origin — see :class:`GenericFileUploadView` for the full
+    version of that argument.
+
+    Returns an error response, or None when the file is acceptable.
+    """
+    if _over_size_cap(uploaded_file, cdn_settings.MAX_VIDEO_SIZE):
+        return StapelErrorResponse(413, ERR_413_FILE_TOO_LARGE)
+
+    file_extension = os.path.splitext(uploaded_file.name)[1].lower()
+    if file_extension not in cdn_settings.ALLOWED_VIDEO_EXTENSIONS:
+        return StapelErrorResponse(400, ERR_400_INVALID_FORMAT)
+
+    if sniff_is_active_content(uploaded_file):
+        return StapelErrorResponse(400, ERR_400_FILE_TYPE_NOT_ALLOWED)
+
     return None
 
 
@@ -189,7 +235,8 @@ class ImageUploadView(SerializerSeamMixin, APIView):
 
 **Request format:** `multipart/form-data` with `file` field
 
-**Maximum file size:** 100MB
+**Maximum file size:** `STAPEL_CDN["MAX_IMAGE_SIZE"]`, 20MB by default.
+Enforced before the body is hashed; over it the answer is 413.
 """,
         request=FileUploadSerializer,
         responses={
@@ -325,7 +372,8 @@ class VideoUploadView(SerializerSeamMixin, APIView):
 
 **Request format:** `multipart/form-data` with `file` field
 
-**Maximum file size:** 100MB
+**Maximum file size:** `STAPEL_CDN["MAX_VIDEO_SIZE"]`, 100MB by default.
+Enforced before the body is hashed; over it the answer is 413.
 """,
         request={
             "multipart/form-data": {
@@ -345,6 +393,7 @@ class VideoUploadView(SerializerSeamMixin, APIView):
             200: VideoUploadResponseSerializer,
             400: StapelErrorSerializer,
             401: StapelErrorSerializer,
+            413: StapelErrorSerializer,
             500: StapelErrorSerializer,
         },
     )
@@ -358,8 +407,14 @@ class VideoUploadView(SerializerSeamMixin, APIView):
 
         uploaded_file = serializer.validated_data["file"]
 
-        # Calculate file hash
+        # Size cap, extension allowlist and byte sniff run BEFORE the body is
+        # read for hashing — hashing first is what made the cap unenforceable.
+        error = _validate_video_upload(uploaded_file)
+        if error:
+            return error
+
         file_hash = Video.calculate_file_hash(uploaded_file)
+        file_extension = os.path.splitext(uploaded_file.name)[1].lower()
 
         response_serializer_class = self.get_response_serializer_class()
 
@@ -376,13 +431,6 @@ class VideoUploadView(SerializerSeamMixin, APIView):
                 ),
                 status=status.HTTP_200_OK,
             )
-
-        # Get file extension
-        file_extension = os.path.splitext(uploaded_file.name)[1].lower()
-
-        # Check if it's a video
-        if file_extension not in cdn_settings.ALLOWED_VIDEO_EXTENSIONS:
-            return StapelErrorResponse(400, ERR_400_INVALID_FORMAT)
 
         over = quota_exceeded(request.user, uploaded_file.size)
         if over:
@@ -600,7 +648,8 @@ class AvatarUploadView(SerializerSeamMixin, APIView):
 
 **Supported formats:** JPEG, PNG, GIF, WebP, BMP, HEIC, HEIF
 
-**Maximum file size:** 100MB
+**Maximum file size:** `STAPEL_CDN["MAX_IMAGE_SIZE"]`, 20MB by default.
+Enforced before the body is hashed; over it the answer is 413.
 """,
         request={
             "multipart/form-data": {
@@ -700,7 +749,8 @@ class TypedImageUploadView(SerializerSeamMixin, APIView):
 
 **Available types:** product, avatar
 
-**Maximum file size:** 100MB
+**Maximum file size:** `STAPEL_CDN["MAX_IMAGE_SIZE"]`, 20MB by default.
+Enforced before the body is hashed; over it the answer is 413.
 """,
         request={
             "multipart/form-data": {
