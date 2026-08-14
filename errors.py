@@ -25,6 +25,13 @@ ERR_400_FILE_TYPE_NOT_ALLOWED = 'error.400.file_type_not_allowed'
 #: about it before a user does. 503, not 4xx: from the caller's side this
 #: endpoint genuinely cannot be served here.
 ERR_503_IMAGE_DECODER_UNAVAILABLE = 'error.503.image_decoder_unavailable'
+#: The upload is fine and the caller is authorized; the caller's own storage
+#: ceiling (STAPEL_CDN["MAX_OBJECTS_PER_OWNER"] / ["MAX_BYTES_PER_OWNER"]) has
+#: no room for it. 403 rather than 413: nothing about THIS payload is wrong, so
+#: retrying with a smaller file is not the fix — the caller has to free space
+#: or be granted a larger ceiling. Details carry `limit`, `max` and `used` so
+#: the client can say which one and by how much.
+ERR_403_QUOTA_EXCEEDED = 'error.403.storage_quota_exceeded'
 
 CDN_ERRORS = {
     ERR_400_NO_FILE: 'No file provided',
@@ -38,6 +45,7 @@ CDN_ERRORS = {
     ERR_400_FILE_TYPE_NOT_ALLOWED: 'File type not allowed',
     ERR_503_IMAGE_DECODER_UNAVAILABLE:
         'This server cannot process {extension} images right now',
+    ERR_403_QUOTA_EXCEEDED: 'Storage quota exceeded',
 }
 
 # Remediation (frontend-core-architecture §2.5). Only the key whose hint the

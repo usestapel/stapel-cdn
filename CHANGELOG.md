@@ -4,6 +4,181 @@ All notable changes to this project will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [Unreleased]
+
+### Security — the video intake gets the bounds every other intake already had
+
+`POST /cdn/api/v1/upload/video/` had **no size cap at all**, and no setting to
+give it one. The whole request body was read and SHA-256'd before anything was
+checked; the extension allowlist ran after that, and the per-owner byte quota —
+which a deployment may switch off — was the only ceiling underneath. Meanwhile
+the endpoint's own OpenAPI description told callers **"Maximum file size:
+100MB"**: documentation asserting a limit nothing enforced.
+
+It was also the one intake path that never looked at the bytes. The image path
+decodes, the generic path sniffs; a `.mp4` whose leading bytes are HTML or a
+script was stored under the media root and served from the media origin, where
+a browser runs what it is handed regardless of the name.
+
+- **New `STAPEL_CDN["MAX_VIDEO_SIZE"]`, default `100 * 1024 * 1024`** — the
+  number the endpoint has been claiming all along. Enforced *before* hashing;
+  over it the answer is `413`.
+- The video path now runs `sniff_is_active_content()` like the generic path,
+  and its extension allowlist moved ahead of the hash.
+- A size cap no longer skips a file that cannot state its size. The old form
+  (`if uploaded_file.size and uploaded_file.size > cap`) treated a `size` of
+  `None` as "small enough"; an unknown size is now refused on both the image
+  and video paths. `size == 0` is still not over any ceiling.
+
+**Upgrade note.** A deployment that accepts videos larger than 100MB now gets
+`413` for them. Raise `STAPEL_CDN["MAX_VIDEO_SIZE"]` to whatever that
+deployment actually intends to store — the point of the change is that the
+number is now stated somewhere and enforced, not that 100MB is right for
+everyone.
+
+The `**Maximum file size:** 100MB` line in the image/avatar/typed-image
+endpoint descriptions was wrong in the other direction (`MAX_IMAGE_SIZE` is
+20MB) and now names the setting instead of a stale literal.
+
+### Security — the generic intake's MIME allowlist is no longer opt-out-able
+
+Two halves of the same hole, both in `GenericFileUploadView`:
+
+```python
+if content_type and content_type not in set(ALLOWED_FILE_MIME_TYPES):
+```
+
+The allowlist ran **only when the caller volunteered a Content-Type**. Omit
+the part header and the check was skipped entirely — a gate any client could
+decline by saying nothing. And the shipped list ended with
+`application/octet-stream`, the universal "some bytes" type any client may
+declare for anything, which reduced the gate to a no-op by construction: every
+payload the list excludes passes it by naming that.
+
+- **An upload that declares no Content-Type is now refused.** Absent is not
+  allowed.
+- **`application/octet-stream` is out of the default
+  `STAPEL_CDN["ALLOWED_FILE_MIME_TYPES"]`.**
+
+**Upgrade note.** Clients that upload documents without a Content-Type, or
+that label everything `application/octet-stream`, now get `400`. The fix in
+almost every case is the client sending the real type. A deployment that
+genuinely intakes opaque binaries opts back in explicitly:
+
+```python
+STAPEL_CDN = {
+    "ALLOWED_FILE_MIME_TYPES": (*DEFAULTS["ALLOWED_FILE_MIME_TYPES"],
+                                "application/octet-stream"),
+}
+```
+
+Note what that does *not* buy back: a declared type is still not evidence
+about the bytes, and `sniff_is_active_content()` refuses executable content
+under any declared type.
+
+`CONFIG.MD` also gains the rows 0.10's ownership/generic-intake work never
+added: `DEDUP_SCOPE`, `MAX_OBJECTS_PER_OWNER`, `MAX_BYTES_PER_OWNER`,
+`MAX_FILE_SIZE`, `ALLOWED_FILE_EXTENSIONS`, `ALLOWED_FILE_MIME_TYPES`,
+`PRIVATE_MEDIA_PREFIX`.
+
+### Security — removing a per-owner ceiling is now something you have to say
+
+`quota_exceeded()` read its ceilings as `int(cdn_settings.X or 0)` and treated
+0 as "unbounded", so `0`, `None`, `""` and a missing key **all** meant "no
+ceiling" — three of the four by accident rather than by intent. An empty
+environment variable, or a refactor that drops a key, silently removed the
+storage ceiling of a module whose identities cost one POST to mint. (A
+non-numeric value was worse still: `int("lots")` raised `ValueError` out of
+the upload path, i.e. a 500 on every upload.)
+
+It also exempted the one principal it could not measure: `if
+owner_id(principal) is None: return None`. No owner means no usage to count
+against, which is exactly why that caller needs refusing rather than waving
+through — its effective ceiling was infinite.
+
+- **`STAPEL_CDN["MAX_OBJECTS_PER_OWNER"]` / `["MAX_BYTES_PER_OWNER"]` accept
+  the string `"unlimited"` to remove a ceiling.** That is the only thing that
+  removes one.
+- Any other unusable value (`0`, `None`, `""`, a word) **falls back to the
+  shipped default** — 1000 objects / 2 GiB — instead of to "no ceiling", and
+  **`checks.W007`** names it at boot.
+- A principal with no primary key is refused with
+  `error.403.storage_quota_exceeded` and `params.limit == "owner"`.
+
+**Upgrade note.** A deployment that switched its quotas off with `0` is now
+back on the shipped default ceilings and will start refusing uploads from
+owners past them. Set the value to `"unlimited"` to restore the previous
+behaviour deliberately:
+
+```python
+STAPEL_CDN = {
+    "MAX_OBJECTS_PER_OWNER": "unlimited",
+    "MAX_BYTES_PER_OWNER": "unlimited",
+}
+```
+
+### Security — a failed erasure is no longer reported as an erasure
+
+`purge_unreferenced()` wrapped the only step that removes the actual bytes in
+`except Exception: pass`, then deleted the row anyway and counted the object
+as removed:
+
+```python
+try:
+    obj.original.delete(save=False)
+except Exception:
+    pass          # <- the bytes stayed; the row went
+obj.delete()
+removed += 1
+```
+
+`CDNGDPRProvider.delete()` then returned normally, which stapel-gdpr's
+orchestrator treats as a receipt and which lets a closure flip to `DELETED`.
+A fail-open in the one path whose whole contract is provable erasure — and an
+unrecoverable one, because the row is the only record of where the file is, so
+a failed erasure became personal data nobody can ever locate again.
+
+- A blob that cannot be unlinked **keeps its row** (and its `uploaded_by`, so
+  it stays attributable) and is logged at ERROR.
+- `purge_unreferenced()` / `delete()` raise the new
+  **`stapel_cdn.gdpr.MediaErasureIncomplete`** instead of returning. In
+  `handle_user_deleted` that rolls the `gdpr.section.erased` confirmation back
+  with it, so the closure stays `DELETING` and at-least-once delivery retries.
+  Erasure is idempotent, and an already-missing blob still counts as erased.
+- `delete()` raises *before* the anonymisation pass, which would otherwise
+  strip `uploaded_by` off objects whose bytes are still on disk.
+
+**Upgrade note.** A deployment with a media root the app cannot write to (a
+read-only mount, an S3 policy without `DeleteObject`) now sees account
+deletions fail loudly and retry instead of completing. That is the point: they
+were completing over data that was never erased. **No opt-out is offered** —
+a switch restoring the old behaviour would be a switch for reporting erasures
+that did not happen.
+
+### Security — a deployment with no decoder stops storing unverified images
+
+With no libvips installed, `decoders.decode_dimensions()` returns `None` and
+`validate_image_file()` degraded to a magic-byte signature check. So
+`MAX_IMAGE_PIXELS` — the decompression-bomb cap — was **never reached**, and
+nothing confirmed the bytes decode as the image they claim to be. The
+degradation was deliberate and documented, and `checks.E001` is red about it,
+which is the honest posture; what it was not is a decision anybody made per
+deployment.
+
+- **New `STAPEL_CDN["REQUIRE_DECODER"]`, default `True`.** With no decoder,
+  image uploads are refused with `error.503.image_decoder_unavailable` — the
+  same answer as "this build cannot read that format", because from the
+  uploader's side it is the same situation: their file is fine and this
+  deployment cannot handle it.
+- **The passthrough stays available as the explicit opt-out:**
+  `STAPEL_CDN = {"REQUIRE_DECODER": False}` restores the signature-only gate.
+
+**Upgrade note.** A deployment running without libvips (`checks.E001` already
+failing) now answers `503` on image uploads instead of storing them. Install
+libvips (`apt: libvips-dev` plus `pip install stapel-cdn[images]`), or drop
+`"images"` from `ENABLED_SUBMODULES` if it is really file-only storage, or set
+`REQUIRE_DECODER` to `False` to keep storing images that nothing verifies.
+
 ## 0.10.0 — 2026-08-10
 
 ### Changed (BREAKING) — one decoder on the image path; Pillow is gone (#233)

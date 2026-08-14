@@ -208,10 +208,26 @@ class TestDecompressionBombCap:
 
 
 class TestNoDecoderAtAll:
-    """Passthrough storage: honest degradation, not silent success."""
+    """Passthrough storage: honest degradation, and only when asked for.
 
-    def test_degrades_to_the_signature_check(self, poisoned_pyvips, settings, tiny_heic_bytes):
+    Degrading to a signature check means ``MAX_IMAGE_PIXELS`` is never reached
+    and nothing confirms the bytes decode, so it is a posture a deployment
+    chooses — ``STAPEL_CDN["REQUIRE_DECODER"] = False`` — rather than what
+    happens by default when libvips is missing.
+    """
+
+    def test_refuses_storage_by_default(self, poisoned_pyvips, settings, tiny_heic_bytes):
         settings.STAPEL_CDN = {"ALLOWED_IMAGE_EXTENSIONS": (".heic",)}
+        upload = SimpleUploadedFile("a.heic", tiny_heic_bytes, content_type="image/heic")
+        # An operator's problem, not the uploader's — the view answers 503.
+        with pytest.raises(decoders.ImageDecoderUnavailable):
+            validate_image_file(upload)
+
+    def test_degrades_to_the_signature_check_when_asked_to(
+        self, poisoned_pyvips, settings, tiny_heic_bytes
+    ):
+        settings.STAPEL_CDN = {"ALLOWED_IMAGE_EXTENSIONS": (".heic",),
+                               "REQUIRE_DECODER": False}
         upload = SimpleUploadedFile("a.heic", tiny_heic_bytes, content_type="image/heic")
         # Accepted on its signature — the pixels are simply not verifiable here.
         assert validate_image_file(upload) is upload
@@ -219,7 +235,8 @@ class TestNoDecoderAtAll:
     def test_still_keeps_a_script_payload_out_of_storage(
         self, poisoned_pyvips, settings
     ):
-        settings.STAPEL_CDN = {"ALLOWED_IMAGE_EXTENSIONS": (".jpg",)}
+        settings.STAPEL_CDN = {"ALLOWED_IMAGE_EXTENSIONS": (".jpg",),
+                               "REQUIRE_DECODER": False}
         upload = SimpleUploadedFile(
             "a.jpg", b"<html><script>alert(1)</script>", content_type="image/jpeg"
         )

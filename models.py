@@ -6,6 +6,7 @@ Uses pyvips for all image processing (supports JPEG, PNG, HEIC, etc.)
 import hashlib
 import logging
 import os
+import re
 
 from django.conf import settings
 from django.db import models
@@ -19,24 +20,58 @@ from .storage import cdn_storage
 logger = logging.getLogger(__name__)
 
 
+#: Names the preview/thumbnail pipeline writes into ``<type>/<hash>/``:
+#: ``120.webp`` (thumbnail tiers) and ``720w.webp`` / ``720h.webp`` (preview
+#: branches). See ``services.ImageProcessingService``.
+_VARIANT_NAME_RE = re.compile(r"^\d+[wh]?\.webp$", re.IGNORECASE)
+
+
+def _safe_original_name(filename: str) -> str:
+    """Keep a client-supplied name out of the generated-variant namespace.
+
+    The original and every generated variant share one content-addressed
+    directory. A caller that names its upload ``720w.webp`` would land exactly
+    where the preview pipeline writes, and ``OverwriteStorage`` lets the last
+    writer win — so anyone holding the bytes of an object (its hash *is* those
+    bytes) could replace a variant that is being served for it with content of
+    their own choosing. Reserved names get a prefix; nothing else is touched.
+    """
+    base = os.path.basename(filename or "")
+    return f"original_{base}" if _VARIANT_NAME_RE.match(base) else base
+
+
+def _private_prefix() -> str:
+    """``STAPEL_CDN["PRIVATE_MEDIA_PREFIX"]``, normalised to ``""`` or ``"x/"``.
+
+    One prefix an operator can deny on the public media route, instead of
+    having to enumerate every non-image type that must not be world-readable.
+    """
+    prefix = str(cdn_settings.PRIVATE_MEDIA_PREFIX or "").strip().strip("/")
+    return f"{prefix}/" if prefix else ""
+
+
 def image_upload_path(instance, filename):
     """Generate upload path for images: <type>/<hash>/<filename>"""
-    return f"{instance.type}/{instance.file_hash}/{filename}"
+    return f"{instance.type}/{instance.file_hash}/{_safe_original_name(filename)}"
 
 
 def video_upload_path(instance, filename):
     """Generate upload path for videos: video/<hash>/<filename>"""
-    return f"video/{instance.file_hash}/{filename}"
+    return f"video/{instance.file_hash}/{os.path.basename(filename or '')}"
 
 
 def file_upload_path(instance, filename):
-    """Generate upload path for files: file/<hash>/<filename>"""
-    return f"file/{instance.file_hash}/{filename}"
+    """Generate upload path for files: <private>/file/<hash>/<filename>
+
+    Documents and archives are the payloads the audit calls out as "may not be
+    intended public", so they carry the private prefix.
+    """
+    return f"{_private_prefix()}file/{instance.file_hash}/{os.path.basename(filename or '')}"
 
 
 def audio_upload_path(instance, filename):
-    """Generate upload path for audio recordings: audio/<hash>/<filename>"""
-    return f"audio/{instance.file_hash}/{filename}"
+    """Generate upload path for audio recordings: <private>/audio/<hash>/<filename>"""
+    return f"{_private_prefix()}audio/{instance.file_hash}/{os.path.basename(filename or '')}"
 
 
 def get_image_type_choices():
@@ -139,8 +174,25 @@ class Image(models.Model):
             models.Index(fields=["is_processed"]),
         ]
         constraints = [
+            # One row per (content, type, owner). Identical bytes held by two
+            # principals are two rows over one content-addressed blob: dedup is
+            # scoped to the owner (``ownership.dedup_scope_q``), so a second
+            # owner has to be able to record its own object rather than inherit
+            # the first one's identity, filename and reference list.
+            #
+            # Split in two because SQL counts NULLs as distinct: the partial
+            # constraint keeps the service-owned pool (``uploaded_by IS NULL``,
+            # written by ``cdn.import_from_url``) at exactly one row per
+            # (content, type), which a plain three-column constraint would not.
             models.UniqueConstraint(
-                fields=["file_hash", "type"], name="cdn_image_hash_type_unique"
+                fields=["file_hash", "type", "uploaded_by"],
+                name="cdn_image_hash_type_owner_unique",
+                condition=models.Q(uploaded_by__isnull=False),
+            ),
+            models.UniqueConstraint(
+                fields=["file_hash", "type"],
+                name="cdn_image_hash_type_service_unique",
+                condition=models.Q(uploaded_by__isnull=True),
             ),
         ]
 
@@ -286,7 +338,6 @@ class Video(models.Model):
     # File identification
     file_hash = models.CharField(
         max_length=64,
-        unique=True,
         db_index=True,
         help_text="SHA-256 hash of the original file",
     )
@@ -409,6 +460,20 @@ class Video(models.Model):
             models.Index(fields=["created_at"]),
             models.Index(fields=["is_processed"]),
         ]
+        # Per-owner uniqueness, for the reason spelled out on Image.Meta:
+        # owner-scoped dedup means two principals may hold the same bytes.
+        constraints = [
+            models.UniqueConstraint(
+                fields=["file_hash", "uploaded_by"],
+                name="cdn_video_hash_owner_unique",
+                condition=models.Q(uploaded_by__isnull=False),
+            ),
+            models.UniqueConstraint(
+                fields=["file_hash"],
+                name="cdn_video_hash_service_unique",
+                condition=models.Q(uploaded_by__isnull=True),
+            ),
+        ]
 
     def __str__(self):
         return f"Video: {self.file_hash[:8]}... ({self.original_filename})"
@@ -454,7 +519,6 @@ class File(models.Model):
     # File identification
     file_hash = models.CharField(
         max_length=64,
-        unique=True,
         db_index=True,
         help_text="SHA-256 hash of the original file",
     )
@@ -498,6 +562,19 @@ class File(models.Model):
         indexes = [
             models.Index(fields=["file_hash"]),
             models.Index(fields=["created_at"]),
+        ]
+        # Per-owner uniqueness, for the reason spelled out on Image.Meta.
+        constraints = [
+            models.UniqueConstraint(
+                fields=["file_hash", "uploaded_by"],
+                name="cdn_file_hash_owner_unique",
+                condition=models.Q(uploaded_by__isnull=False),
+            ),
+            models.UniqueConstraint(
+                fields=["file_hash"],
+                name="cdn_file_hash_service_unique",
+                condition=models.Q(uploaded_by__isnull=True),
+            ),
         ]
 
     def __str__(self):

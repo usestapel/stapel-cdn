@@ -57,7 +57,10 @@ extra needed — passthrough), `s3` (boto3, reserved). See the submodule table b
   `stapel.cdn.ref-sync`, overridable via `STAPEL_TOPIC_CDN_REF_SYNC` in stapel-core).
 - **GDPR** (`stapel_cdn.gdpr.CDNGDPRProvider`, section `media`): export / staged export /
   delete (ref-counted: unreferenced files deleted, referenced files anonymized),
-  registered in `CdnConfig.ready()`.
+  registered in `CdnConfig.ready()`. A blob that cannot be unlinked raises
+  `MediaErasureIncomplete` and keeps its row — returning normally is the
+  receipt the gdpr orchestrator acts on, so it may only mean the bytes are
+  gone.
 - **Public API** (`stapel_cdn.__all__`, lazily exported, Django-free import):
   `cdn_settings`, `media_exists`, `refs_sync`, `validate_image_file`.
 

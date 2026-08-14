@@ -71,6 +71,14 @@ DEFAULTS = {
     "ALLOWED_VIDEO_EXTENSIONS": (
         ".mp4", ".webm", ".mov", ".avi", ".mkv",
     ),
+    # Upload size cap for videos (bytes) — 100 MB. The number is not new: the
+    # endpoint's own OpenAPI description has always told callers "Maximum file
+    # size: 100MB". Nothing enforced it, so the documented limit and the real
+    # one disagreed by infinity — the whole body was read and SHA-256'd before
+    # any bound was consulted, and the per-owner byte quota was the only
+    # ceiling underneath (itself opt-out-able). Now the documentation and the
+    # gate are the same value.
+    "MAX_VIDEO_SIZE": 100 * 1024 * 1024,
     # Upload extensions for the recordings (audio) submodule — passthrough
     # storage always accepts these; ffmpeg-audio compression (once
     # implemented) is gated by "recordings" in ENABLED_SUBMODULES.
@@ -90,6 +98,17 @@ DEFAULTS = {
     # name always claimed: Pillow used to only raise above *2x* this number, so
     # the effective ceiling was quietly double the configured one.
     "MAX_IMAGE_PIXELS": 50_000_000,
+    # Whether image storage requires a working decoder in this deployment.
+    #
+    # With no libvips at all, `decoders.decode_dimensions` returns None and the
+    # upload gate degrades to a magic-byte signature: MAX_IMAGE_PIXELS is never
+    # reached, and nothing confirms the file decodes as the image it claims to
+    # be. That passthrough posture is documented and deliberate (checks.E001 is
+    # red in such a deployment), but it is a posture, not a default — storing
+    # bytes you cannot verify has to be the thing somebody chose. True refuses
+    # the upload with error.503.image_decoder_unavailable instead; set False to
+    # keep the signature-only passthrough.
+    "REQUIRE_DECODER": True,
     # Upload size cap for audio recordings (bytes) — 50 MB.
     # Same reserved status as ALLOWED_AUDIO_EXTENSIONS above.
     "MAX_AUDIO_SIZE": 50 * 1024 * 1024,  # noqa: CFG006
@@ -112,6 +131,69 @@ DEFAULTS = {
     "IMPORT_FROM_URL_MAX_REDIRECTS": 3,
     # Per-caller fixed-window quota ("N/s|m|h|d") — open-proxy defence.
     "IMPORT_FROM_URL_RATE": "10/h",
+    # --- ownership, dedup scoping and per-owner quotas -------------------
+    # Scope of content-hash deduplication on every intake path.
+    #
+    #   "owner"  — a hash lookup only ever matches objects the *calling*
+    #              principal already owns. The default.
+    #   "global" — a hash lookup matches any object with the same bytes,
+    #              whoever uploaded it.
+    #
+    # "global" is a disclosure channel, not just a storage optimisation: an
+    # upload that reports "already exists" answers "does somebody in this
+    # deployment hold exactly these bytes?" for any file the caller can guess
+    # or obtain, and the response carries the other holder's row — id,
+    # filename, refs, timestamps. A host that accepts that (single-tenant
+    # deployments, or a deliberately shared public asset pool) can opt back
+    # in; nothing in this library assumes it.
+    "DEDUP_SCOPE": "owner",
+    # Per-owner storage ceilings across images + videos + files. The defaults
+    # are deliberately generous rather than absent: an identity that costs one
+    # POST to mint must not have an unbounded quota, and a real user is
+    # nowhere near these numbers.
+    #
+    # Removing a ceiling takes the literal string "unlimited". It used to take
+    # 0 — and, because the code read `int(setting or 0)`, also None, "" and a
+    # missing key, so three ways of *saying nothing* meant "no ceiling". A
+    # value that is neither "unlimited" nor a positive number falls back to
+    # the default below and is reported by checks.W007.
+    "MAX_OBJECTS_PER_OWNER": 1000,
+    "MAX_BYTES_PER_OWNER": 2 * 1024 * 1024 * 1024,
+    # --- generic (non-image, non-video) intake ---------------------------
+    # Upload size cap for GenericFileUploadView (bytes).
+    "MAX_FILE_SIZE": 50 * 1024 * 1024,
+    "ALLOWED_FILE_EXTENSIONS": (
+        ".pdf", ".doc", ".docx", ".xls", ".xlsx", ".ppt", ".pptx",
+        ".txt", ".csv", ".zip", ".rar", ".7z", ".gz",
+    ),
+    # A Content-Type the caller declares is not evidence, so this list is a
+    # narrowing device, not a verdict — which is exactly why
+    # "application/octet-stream" is NOT in it. It is the universal "some
+    # bytes" type any client may declare for anything, so shipping it in the
+    # default allowlist reduced the gate to a no-op by construction: every
+    # payload the list was written to exclude passes it by naming it. A host
+    # that genuinely intakes opaque binaries adds it back explicitly.
+    "ALLOWED_FILE_MIME_TYPES": (
+        "application/pdf",
+        "application/msword",
+        "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+        "application/vnd.ms-excel",
+        "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        "application/vnd.ms-powerpoint",
+        "application/vnd.openxmlformats-officedocument.presentationml.presentation",
+        "text/plain",
+        "text/csv",
+        "application/zip",
+        "application/x-rar-compressed",
+        "application/x-7z-compressed",
+        "application/gzip",
+    ),
+    # Path prefix under which non-image originals (documents, archives,
+    # audio) are stored, so an operator has ONE prefix to deny on the public
+    # media route / bucket policy instead of having to enumerate types.
+    # Empty keeps the historical flat layout; only NEW uploads move, stored
+    # rows keep the path recorded in the database.
+    "PRIVATE_MEDIA_PREFIX": "private",
 }
 
 cdn_settings = AppSettings(

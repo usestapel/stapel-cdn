@@ -42,6 +42,9 @@ E001_IMAGES_LIBRARY_MISSING = "stapel_cdn.images.E001"
 E002_VIDEO_BINARY_MISSING = "stapel_cdn.video.E002"
 E003_RECORDINGS_BINARY_MISSING = "stapel_cdn.recordings.E003"
 E004_IMAGE_FORMAT_UNDECODABLE = "stapel_cdn.images.E004"
+W005_DEDUP_SCOPE_INVALID = "stapel_cdn.ownership.W005"
+W006_DEDUP_SCOPE_GLOBAL = "stapel_cdn.ownership.W006"
+W007_QUOTA_CEILING_INVALID = "stapel_cdn.ownership.W007"
 
 
 @checks.register("stapel_cdn")
@@ -134,10 +137,96 @@ def check_submodule_binaries(app_configs=None, **kwargs):
     return findings
 
 
+@checks.register("stapel_cdn")
+def check_dedup_scope(app_configs=None, **kwargs):
+    """W005/W006 — the deployment's answer to "who may a hash lookup see?".
+
+    Both findings are warnings, not errors: the module still runs, and the
+    second one is a legitimate (if narrow) configuration. They exist because
+    the failure mode of getting this wrong is silent — a global lookup leaks by
+    answering correctly, so nothing about it ever looks broken from inside.
+    """
+    from .conf import cdn_settings
+    from .ownership import SCOPE_GLOBAL, SCOPE_OWNER, VALID_DEDUP_SCOPES
+
+    raw = str(cdn_settings.DEDUP_SCOPE or "").strip().lower()
+    if raw not in VALID_DEDUP_SCOPES:
+        return [
+            checks.Warning(
+                f"STAPEL_CDN['DEDUP_SCOPE'] is {cdn_settings.DEDUP_SCOPE!r}, "
+                f"which is not one of {', '.join(VALID_DEDUP_SCOPES)}. The "
+                f"module falls back to {SCOPE_OWNER!r}, so nothing leaks — but "
+                f"the setting is not doing what it was written to do.",
+                hint=f"Set it to {SCOPE_OWNER!r} or {SCOPE_GLOBAL!r}.",
+                id=W005_DEDUP_SCOPE_INVALID,
+            )
+        ]
+    if raw == SCOPE_GLOBAL:
+        return [
+            checks.Warning(
+                "STAPEL_CDN['DEDUP_SCOPE'] is 'global': a content-hash lookup "
+                "matches objects uploaded by anyone. Every upload endpoint "
+                "then answers 'does this deployment already hold exactly these "
+                "bytes?' for any caller, and returns the holder's row — "
+                "identifier, original filename and reference list included.",
+                hint="Keep 'global' only where every principal is entitled to "
+                     "every other principal's media (a single-tenant "
+                     "deployment, or a deliberately shared public asset pool). "
+                     "Otherwise use 'owner'.",
+                id=W006_DEDUP_SCOPE_GLOBAL,
+            )
+        ]
+    return []
+
+
+@checks.register("stapel_cdn")
+def check_owner_quotas(app_configs=None, **kwargs):
+    """W007 — a per-owner ceiling nobody can act on.
+
+    A warning rather than an error because the module keeps working: an
+    unusable value falls back to the shipped default (``ownership.
+    quota_ceiling``), so the deployment is bounded either way. It is reported
+    because the failure mode is otherwise invisible — the operator who wrote
+    ``MAX_BYTES_PER_OWNER = ""`` believes they configured something, and used
+    to get "no ceiling at all" for it.
+    """
+    from .conf import cdn_settings
+    from .ownership import QUOTA_CEILING_KEYS, QUOTA_UNLIMITED, quota_ceiling
+
+    findings = []
+    for key in QUOTA_CEILING_KEYS:
+        raw = getattr(cdn_settings, key)
+        if isinstance(raw, str) and raw.strip().lower() == QUOTA_UNLIMITED:
+            continue
+        if isinstance(raw, int) and not isinstance(raw, bool) and raw > 0:
+            continue
+        findings.append(
+            checks.Warning(
+                f"STAPEL_CDN['{key}'] is {raw!r}, which is neither "
+                f"{QUOTA_UNLIMITED!r} nor a positive number of "
+                f"{'objects' if 'OBJECTS' in key else 'bytes'}. The module "
+                f"falls back to its shipped default "
+                f"({quota_ceiling(key)}) rather than treating an unusable "
+                f"value as 'no ceiling', so storage stays bounded — but the "
+                f"setting is not doing what it was written to do.",
+                hint=f"Set a positive number, or {QUOTA_UNLIMITED!r} to "
+                     f"remove the ceiling on purpose. 0 no longer means "
+                     f"unlimited: opting out is an explicit act.",
+                id=W007_QUOTA_CEILING_INVALID,
+            )
+        )
+    return findings
+
+
 __all__ = [
     "E001_IMAGES_LIBRARY_MISSING",
     "E004_IMAGE_FORMAT_UNDECODABLE",
     "E002_VIDEO_BINARY_MISSING",
     "E003_RECORDINGS_BINARY_MISSING",
+    "W005_DEDUP_SCOPE_INVALID",
+    "W006_DEDUP_SCOPE_GLOBAL",
+    "W007_QUOTA_CEILING_INVALID",
+    "check_dedup_scope",
+    "check_owner_quotas",
     "check_submodule_binaries",
 ]

@@ -57,15 +57,18 @@ from django.core.exceptions import ValidationError
 from stapel_cdn.decoders import ImageDecoderUnavailable
 from stapel_cdn.errors import (
     ERR_400_FILE_HASH_REQUIRED,
+    ERR_400_FILE_TYPE_NOT_ALLOWED,
     ERR_400_INVALID_FORMAT,
     ERR_400_INVALID_IMAGE_TYPE,
     ERR_400_MISSING_FIELDS,
     ERR_400_NO_FILE,
+    ERR_403_QUOTA_EXCEEDED,
     ERR_404_NO_IMAGES,
     ERR_413_FILE_TOO_LARGE,
     ERR_503_IMAGE_DECODER_UNAVAILABLE,
 )
-from stapel_cdn.validators import validate_image_file
+from stapel_cdn.ownership import dedup_scope_q, quota_exceeded
+from stapel_cdn.validators import sniff_is_active_content, validate_image_file
 
 from .dto import (
     FileExistsResponse,
@@ -73,7 +76,7 @@ from .dto import (
     RefSyncResponse,
     VideoUploadResponse,
 )
-from .conf import cdn_settings
+from .conf import DEFAULTS, cdn_settings
 from .dto import (
     FileUploadResponse as FileUploadResponseDTO,
 )
@@ -116,6 +119,21 @@ class SerializerSeamMixin:
         return self.response_serializer_class
 
 
+def _over_size_cap(uploaded_file, cap) -> bool:
+    """Whether *uploaded_file* fails the byte ceiling *cap*.
+
+    A file that cannot state its size fails, rather than skipping the check:
+    the previous form (``if uploaded_file.size and uploaded_file.size > cap``)
+    let a ``size`` of ``None`` walk past the one gate that exists to keep an
+    unbounded body from being read, hashed and stored. An unknown size is not
+    evidence of a small file, and nothing downstream bounds the read either.
+    A genuinely empty upload (``size == 0``) is not over any ceiling and is
+    left to the format checks below.
+    """
+    size = getattr(uploaded_file, "size", None)
+    return size is None or size > cap
+
+
 def _validate_image_upload(uploaded_file):
     """Run cheap-to-expensive upload checks BEFORE hashing or storing.
 
@@ -126,7 +144,7 @@ def _validate_image_upload(uploaded_file):
 
     Returns an error response, or None when the file is acceptable.
     """
-    if uploaded_file.size and uploaded_file.size > cdn_settings.MAX_IMAGE_SIZE:
+    if _over_size_cap(uploaded_file, cdn_settings.MAX_IMAGE_SIZE):
         return StapelErrorResponse(413, ERR_413_FILE_TOO_LARGE)
 
     file_extension = os.path.splitext(uploaded_file.name)[1].lower()
@@ -153,6 +171,37 @@ def _validate_image_upload(uploaded_file):
         )
     except ValidationError:
         return StapelErrorResponse(400, ERR_400_INVALID_FORMAT)
+    return None
+
+
+def _validate_video_upload(uploaded_file):
+    """Run cheap-to-expensive upload checks BEFORE hashing or storing.
+
+    Same order and the same reasoning as :func:`_validate_image_upload`; the
+    video path simply had none of it. It read the whole body and SHA-256'd it
+    before consulting any bound at all, and the only ceiling behind that was
+    the per-owner byte quota — which a deployment may switch off.
+
+    There is no decode step here (no ffmpeg probe on the upload path yet), so
+    the byte-level question is the one :func:`sniff_is_active_content` answers:
+    every other intake asks it, and video was the single one that never did.
+    Extension and Content-Type are both written by the caller, so a `.mp4`
+    carrying HTML/script otherwise lands under the media root and is served
+    from the media origin — see :class:`GenericFileUploadView` for the full
+    version of that argument.
+
+    Returns an error response, or None when the file is acceptable.
+    """
+    if _over_size_cap(uploaded_file, cdn_settings.MAX_VIDEO_SIZE):
+        return StapelErrorResponse(413, ERR_413_FILE_TOO_LARGE)
+
+    file_extension = os.path.splitext(uploaded_file.name)[1].lower()
+    if file_extension not in cdn_settings.ALLOWED_VIDEO_EXTENSIONS:
+        return StapelErrorResponse(400, ERR_400_INVALID_FORMAT)
+
+    if sniff_is_active_content(uploaded_file):
+        return StapelErrorResponse(400, ERR_400_FILE_TYPE_NOT_ALLOWED)
+
     return None
 
 
@@ -186,7 +235,8 @@ class ImageUploadView(SerializerSeamMixin, APIView):
 
 **Request format:** `multipart/form-data` with `file` field
 
-**Maximum file size:** 100MB
+**Maximum file size:** `STAPEL_CDN["MAX_IMAGE_SIZE"]`, 20MB by default.
+Enforced before the body is hashed; over it the answer is 413.
 """,
         request=FileUploadSerializer,
         responses={
@@ -247,9 +297,10 @@ class ImageUploadView(SerializerSeamMixin, APIView):
 
         response_serializer_class = self.get_response_serializer_class()
 
-        # Check if file already exists (default type is 'product')
+        # Owner-scoped dedup (CDN-02): "have these bytes been seen before?"
+        # is answered only about objects this caller already owns.
         existing_image = Image.objects.filter(
-            file_hash=file_hash, type="product"
+            dedup_scope_q(request.user), file_hash=file_hash, type="product"
         ).first()
         if existing_image:
             return StapelResponse(
@@ -260,6 +311,10 @@ class ImageUploadView(SerializerSeamMixin, APIView):
                 ),
                 status=status.HTTP_200_OK,
             )
+
+        over = quota_exceeded(request.user, uploaded_file.size)
+        if over:
+            return StapelErrorResponse(403, ERR_403_QUOTA_EXCEEDED, over)
 
         file_extension = os.path.splitext(uploaded_file.name)[1].lower()
 
@@ -317,7 +372,8 @@ class VideoUploadView(SerializerSeamMixin, APIView):
 
 **Request format:** `multipart/form-data` with `file` field
 
-**Maximum file size:** 100MB
+**Maximum file size:** `STAPEL_CDN["MAX_VIDEO_SIZE"]`, 100MB by default.
+Enforced before the body is hashed; over it the answer is 413.
 """,
         request={
             "multipart/form-data": {
@@ -337,6 +393,7 @@ class VideoUploadView(SerializerSeamMixin, APIView):
             200: VideoUploadResponseSerializer,
             400: StapelErrorSerializer,
             401: StapelErrorSerializer,
+            413: StapelErrorSerializer,
             500: StapelErrorSerializer,
         },
     )
@@ -350,13 +407,21 @@ class VideoUploadView(SerializerSeamMixin, APIView):
 
         uploaded_file = serializer.validated_data["file"]
 
-        # Calculate file hash
+        # Size cap, extension allowlist and byte sniff run BEFORE the body is
+        # read for hashing — hashing first is what made the cap unenforceable.
+        error = _validate_video_upload(uploaded_file)
+        if error:
+            return error
+
         file_hash = Video.calculate_file_hash(uploaded_file)
+        file_extension = os.path.splitext(uploaded_file.name)[1].lower()
 
         response_serializer_class = self.get_response_serializer_class()
 
-        # Check if file already exists
-        existing_video = Video.objects.filter(file_hash=file_hash).first()
+        # Owner-scoped dedup (CDN-02) — see ImageUploadView.
+        existing_video = Video.objects.filter(
+            dedup_scope_q(request.user), file_hash=file_hash
+        ).first()
         if existing_video:
             return StapelResponse(
                 response_serializer_class(
@@ -367,12 +432,9 @@ class VideoUploadView(SerializerSeamMixin, APIView):
                 status=status.HTTP_200_OK,
             )
 
-        # Get file extension
-        file_extension = os.path.splitext(uploaded_file.name)[1].lower()
-
-        # Check if it's a video
-        if file_extension not in cdn_settings.ALLOWED_VIDEO_EXTENSIONS:
-            return StapelErrorResponse(400, ERR_400_INVALID_FORMAT)
+        over = quota_exceeded(request.user, uploaded_file.size)
+        if over:
+            return StapelErrorResponse(403, ERR_403_QUOTA_EXCEEDED, over)
 
         # Create Video record
         # Variants will be automatically generated via post_save signal (TODO: implement)
@@ -586,7 +648,8 @@ class AvatarUploadView(SerializerSeamMixin, APIView):
 
 **Supported formats:** JPEG, PNG, GIF, WebP, BMP, HEIC, HEIF
 
-**Maximum file size:** 100MB
+**Maximum file size:** `STAPEL_CDN["MAX_IMAGE_SIZE"]`, 20MB by default.
+Enforced before the body is hashed; over it the answer is 413.
 """,
         request={
             "multipart/form-data": {
@@ -624,9 +687,9 @@ class AvatarUploadView(SerializerSeamMixin, APIView):
 
         response_serializer_class = self.get_response_serializer_class()
 
-        # Check for existing avatar with same hash
+        # Owner-scoped dedup (CDN-02) — see ImageUploadView.
         existing_image = Image.objects.filter(
-            file_hash=file_hash, type="avatar"
+            dedup_scope_q(request.user), file_hash=file_hash, type="avatar"
         ).first()
         if existing_image:
             return StapelResponse(
@@ -637,6 +700,10 @@ class AvatarUploadView(SerializerSeamMixin, APIView):
                 ),
                 status=status.HTTP_200_OK,
             )
+
+        over = quota_exceeded(request.user, uploaded_file.size)
+        if over:
+            return StapelErrorResponse(403, ERR_403_QUOTA_EXCEEDED, over)
 
         file_extension = os.path.splitext(uploaded_file.name)[1].lower()
 
@@ -682,7 +749,8 @@ class TypedImageUploadView(SerializerSeamMixin, APIView):
 
 **Available types:** product, avatar
 
-**Maximum file size:** 100MB
+**Maximum file size:** `STAPEL_CDN["MAX_IMAGE_SIZE"]`, 20MB by default.
+Enforced before the body is hashed; over it the answer is 413.
 """,
         request={
             "multipart/form-data": {
@@ -725,9 +793,9 @@ class TypedImageUploadView(SerializerSeamMixin, APIView):
 
         response_serializer_class = self.get_response_serializer_class()
 
-        # Check for existing image with same hash AND type
+        # Owner-scoped dedup (CDN-02) — see ImageUploadView.
         existing_image = Image.objects.filter(
-            file_hash=file_hash, type=image_type
+            dedup_scope_q(request.user), file_hash=file_hash, type=image_type
         ).first()
         if existing_image:
             return StapelResponse(
@@ -738,6 +806,10 @@ class TypedImageUploadView(SerializerSeamMixin, APIView):
                 ),
                 status=status.HTTP_200_OK,
             )
+
+        over = quota_exceeded(request.user, uploaded_file.size)
+        if over:
+            return StapelErrorResponse(403, ERR_403_QUOTA_EXCEEDED, over)
 
         file_extension = os.path.splitext(uploaded_file.name)[1].lower()
 
@@ -810,38 +882,14 @@ class RandomImageView(SerializerSeamMixin, APIView):
         )
 
 
-MAX_GENERIC_FILE_SIZE = 50 * 1024 * 1024  # 50 MB
-ALLOWED_FILE_EXTENSIONS = {
-    ".pdf",
-    ".doc",
-    ".docx",
-    ".xls",
-    ".xlsx",
-    ".ppt",
-    ".pptx",
-    ".txt",
-    ".csv",
-    ".zip",
-    ".rar",
-    ".7z",
-    ".gz",
-}
-ALLOWED_MIME_TYPES = {
-    "application/pdf",
-    "application/msword",
-    "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
-    "application/vnd.ms-excel",
-    "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-    "application/vnd.ms-powerpoint",
-    "application/vnd.openxmlformats-officedocument.presentationml.presentation",
-    "text/plain",
-    "text/csv",
-    "application/zip",
-    "application/x-rar-compressed",
-    "application/x-7z-compressed",
-    "application/gzip",
-    "application/octet-stream",
-}
+#: Legacy module-level aliases for the generic-file intake limits. The values
+#: now live in the ``STAPEL_CDN`` namespace (``MAX_FILE_SIZE``,
+#: ``ALLOWED_FILE_EXTENSIONS``, ``ALLOWED_FILE_MIME_TYPES``) so an operator can
+#: shrink "50 MB of anything" without forking the view; these names are kept
+#: for host projects importing them and are resolved at call time, not here.
+MAX_GENERIC_FILE_SIZE = DEFAULTS["MAX_FILE_SIZE"]
+ALLOWED_FILE_EXTENSIONS = frozenset(DEFAULTS["ALLOWED_FILE_EXTENSIONS"])
+ALLOWED_MIME_TYPES = frozenset(DEFAULTS["ALLOWED_FILE_MIME_TYPES"])
 
 
 IMAGE_PREFIXES = {"product", "avatar"}
@@ -857,6 +905,12 @@ def _batch_resolve_media(ref_strings, for_update=False):
       - file/<hash>                   → File
 
     Returns dict: ref_str → instance (missing refs are absent).
+
+    A ref names *content*, and owner-scoped dedup (see ``ownership``) means the
+    same content can be held by more than one principal. Resolution is pinned
+    to the oldest row for the content — one canonical carrier per ref — so that
+    reference tracking cannot drift onto a different row between two calls and
+    leave an entity's reference recorded against an object nobody looks up.
     """
     image_lookups = {}  # (type, hash) → ref_str
     video_lookups = {}  # hash → ref_str
@@ -883,30 +937,34 @@ def _batch_resolve_media(ref_strings, for_update=False):
         q = Q()
         for img_type, file_hash in image_lookups:
             q |= Q(type=img_type, file_hash=file_hash)
-        qs = Image.objects.filter(q)
+        qs = Image.objects.filter(q).order_by("created_at", "pk")
         if for_update:
             qs = qs.select_for_update()
         for obj in qs:
             key = (obj.type, obj.file_hash)
-            if key in image_lookups:
+            if key in image_lookups and image_lookups[key] not in result:
                 result[image_lookups[key]] = obj
 
     # Batch-fetch videos
     if video_lookups:
-        qs = Video.objects.filter(file_hash__in=video_lookups.keys())
+        qs = Video.objects.filter(file_hash__in=video_lookups.keys()).order_by(
+            "created_at", "pk"
+        )
         if for_update:
             qs = qs.select_for_update()
         for obj in qs:
-            if obj.file_hash in video_lookups:
+            if obj.file_hash in video_lookups and video_lookups[obj.file_hash] not in result:
                 result[video_lookups[obj.file_hash]] = obj
 
     # Batch-fetch files
     if file_lookups:
-        qs = File.objects.filter(file_hash__in=file_lookups.keys())
+        qs = File.objects.filter(file_hash__in=file_lookups.keys()).order_by(
+            "created_at", "pk"
+        )
         if for_update:
             qs = qs.select_for_update()
         for obj in qs:
-            if obj.file_hash in file_lookups:
+            if obj.file_hash in file_lookups and file_lookups[obj.file_hash] not in result:
                 result[file_lookups[obj.file_hash]] = obj
 
     return result
@@ -994,22 +1052,38 @@ class GenericFileUploadView(SerializerSeamMixin, APIView):
 
         uploaded_file = request.FILES["file"]
 
-        if uploaded_file.size > MAX_GENERIC_FILE_SIZE:
+        if uploaded_file.size > cdn_settings.MAX_FILE_SIZE:
             return StapelErrorResponse(400, ERR_400_INVALID_FORMAT)
 
         file_extension = os.path.splitext(uploaded_file.name)[1].lower()
-        if file_extension not in ALLOWED_FILE_EXTENSIONS:
+        if file_extension not in set(cdn_settings.ALLOWED_FILE_EXTENSIONS):
             return StapelErrorResponse(400, ERR_400_INVALID_FORMAT)
 
-        content_type = (uploaded_file.content_type or "").lower()
-        if content_type and content_type not in ALLOWED_MIME_TYPES:
+        # No `if content_type and ...`: the allowlist used to run ONLY when the
+        # caller volunteered a value, so omitting the part header opted out of
+        # it entirely — a gate any client could decline. An absent type is not
+        # an allowed type; a caller that will not say what it is sending is
+        # refused like one that names something off the list.
+        content_type = (uploaded_file.content_type or "").strip().lower()
+        if content_type not in set(cdn_settings.ALLOWED_FILE_MIME_TYPES):
             return StapelErrorResponse(400, ERR_400_INVALID_FORMAT)
+
+        # Extension and Content-Type are both caller-supplied, so neither says
+        # anything about the bytes. Everything under the media root is served
+        # by path, and a browser that is handed markup will run it in the media
+        # origin regardless of the name it was stored under — so the actual
+        # leading bytes get the last word.
+        if sniff_is_active_content(uploaded_file):
+            return StapelErrorResponse(400, ERR_400_FILE_TYPE_NOT_ALLOWED)
 
         file_hash = File.calculate_file_hash(uploaded_file)
 
         response_serializer_class = self.get_response_serializer_class()
 
-        existing = File.objects.filter(file_hash=file_hash).first()
+        # Owner-scoped dedup (CDN-02) — see ImageUploadView.
+        existing = File.objects.filter(
+            dedup_scope_q(request.user), file_hash=file_hash
+        ).first()
         if existing:
             return StapelResponse(
                 response_serializer_class(
@@ -1017,6 +1091,10 @@ class GenericFileUploadView(SerializerSeamMixin, APIView):
                 ),
                 status=status.HTTP_200_OK,
             )
+
+        over = quota_exceeded(request.user, uploaded_file.size)
+        if over:
+            return StapelErrorResponse(403, ERR_403_QUOTA_EXCEEDED, over)
 
         try:
             file_obj = File.objects.create(

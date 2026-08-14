@@ -643,36 +643,42 @@ def _batch_resolve_media(ref_strings, for_update=False):
         q = Q()
         for img_type, file_hash in image_lookups:
             q |= Q(type=img_type, file_hash=file_hash)
-        qs = Image.objects.filter(q)
+        qs = Image.objects.filter(q).order_by("created_at", "pk")
         if for_update:
             qs = qs.select_for_update()
         for obj in qs:
             key = (obj.type, obj.file_hash)
-            if key in image_lookups:
+            if key in image_lookups and image_lookups[key] not in result:
                 result[image_lookups[key]] = obj
 
     if video_lookups:
-        qs = Video.objects.filter(file_hash__in=video_lookups.keys())
+        qs = Video.objects.filter(file_hash__in=video_lookups.keys()).order_by(
+            "created_at", "pk"
+        )
         if for_update:
             qs = qs.select_for_update()
         for obj in qs:
-            if obj.file_hash in video_lookups:
+            if obj.file_hash in video_lookups and video_lookups[obj.file_hash] not in result:
                 result[video_lookups[obj.file_hash]] = obj
 
     if file_lookups:
-        qs = File.objects.filter(file_hash__in=file_lookups.keys())
+        qs = File.objects.filter(file_hash__in=file_lookups.keys()).order_by(
+            "created_at", "pk"
+        )
         if for_update:
             qs = qs.select_for_update()
         for obj in qs:
-            if obj.file_hash in file_lookups:
+            if obj.file_hash in file_lookups and file_lookups[obj.file_hash] not in result:
                 result[file_lookups[obj.file_hash]] = obj
 
     if audio_lookups:
-        qs = Audio.objects.filter(file_hash__in=audio_lookups.keys())
+        qs = Audio.objects.filter(file_hash__in=audio_lookups.keys()).order_by(
+            "created_at", "pk"
+        )
         if for_update:
             qs = qs.select_for_update()
         for obj in qs:
-            if obj.file_hash in audio_lookups:
+            if obj.file_hash in audio_lookups and audio_lookups[obj.file_hash] not in result:
                 result[audio_lookups[obj.file_hash]] = obj
 
     return result

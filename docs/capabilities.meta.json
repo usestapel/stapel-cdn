@@ -24,6 +24,14 @@
         "hand-rolled image validation"
       ]
     },
+    "sniff_is_active_content": {
+      "kind": "gate_function",
+      "intent": "Answer, from the leading BYTES alone, whether an upload is markup or script a browser would execute — HTML, SVG, XML, PHP, a shebang — ignoring the caller-supplied filename and Content-Type, and ignoring leading whitespace or a UTF-8 BOM used to walk past a naive prefix check. Reach for this on any non-image intake whose bytes end up under a path that a web server hands to a browser: extension and Content-Type are both written by the uploader, so a '.csv' or '.pdf' that actually starts with <script> runs in the media origin. Returns a bool; it is a refusal test, not a sanitiser — keep the extension/MIME allowlists in front of it.",
+      "instead_of": [
+        "trusting the upload's extension or Content-Type",
+        "hand-rolled startswith(b'<') checks"
+      ]
+    },
     "text_watermark": {
       "kind": "factory",
       "intent": "The built-in WATERMARK engine (`(pyvips.Image) -> pyvips.Image`) the preview-generation pipeline applies when STAPEL_CDN['WATERMARK'] points at it. Point the setting here directly for a plain bottom-right text label (STAPEL_CDN['WATERMARK_TEXT']), or call it from your own callable to layer a logo/opacity effect on top — reach for this before writing a pyvips text/compositing routine from scratch.",
