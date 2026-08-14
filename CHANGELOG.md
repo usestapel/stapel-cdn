@@ -6,6 +6,8 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+## 0.11.0 — 2026-08-14
+
 ### Security — the video intake gets the bounds every other intake already had
 
 `POST /cdn/api/v1/upload/video/` had **no size cap at all**, and no setting to
