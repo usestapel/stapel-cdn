@@ -1059,10 +1059,13 @@ class GenericFileUploadView(SerializerSeamMixin, APIView):
         if file_extension not in set(cdn_settings.ALLOWED_FILE_EXTENSIONS):
             return StapelErrorResponse(400, ERR_400_INVALID_FORMAT)
 
-        content_type = (uploaded_file.content_type or "").lower()
-        if content_type and content_type not in set(
-            cdn_settings.ALLOWED_FILE_MIME_TYPES
-        ):
+        # No `if content_type and ...`: the allowlist used to run ONLY when the
+        # caller volunteered a value, so omitting the part header opted out of
+        # it entirely — a gate any client could decline. An absent type is not
+        # an allowed type; a caller that will not say what it is sending is
+        # refused like one that names something off the list.
+        content_type = (uploaded_file.content_type or "").strip().lower()
+        if content_type not in set(cdn_settings.ALLOWED_FILE_MIME_TYPES):
             return StapelErrorResponse(400, ERR_400_INVALID_FORMAT)
 
         # Extension and Content-Type are both caller-supplied, so neither says

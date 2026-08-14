@@ -149,6 +149,13 @@ DEFAULTS = {
         ".pdf", ".doc", ".docx", ".xls", ".xlsx", ".ppt", ".pptx",
         ".txt", ".csv", ".zip", ".rar", ".7z", ".gz",
     ),
+    # A Content-Type the caller declares is not evidence, so this list is a
+    # narrowing device, not a verdict — which is exactly why
+    # "application/octet-stream" is NOT in it. It is the universal "some
+    # bytes" type any client may declare for anything, so shipping it in the
+    # default allowlist reduced the gate to a no-op by construction: every
+    # payload the list was written to exclude passes it by naming it. A host
+    # that genuinely intakes opaque binaries adds it back explicitly.
     "ALLOWED_FILE_MIME_TYPES": (
         "application/pdf",
         "application/msword",
@@ -163,7 +170,6 @@ DEFAULTS = {
         "application/x-rar-compressed",
         "application/x-7z-compressed",
         "application/gzip",
-        "application/octet-stream",
     ),
     # Path prefix under which non-image originals (documents, archives,
     # audio) are stored, so an operator has ONE prefix to deny on the public

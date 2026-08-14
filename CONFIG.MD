@@ -43,3 +43,10 @@ as passthrough file storage drops `images` from the tuple and is not asked to in
 | IMPORT_FROM_URL_TIMEOUT | env | `cdn.import_from_url` connect/read timeout, seconds. | no | `5.0` |
 | IMPORT_FROM_URL_MAX_REDIRECTS | env | `cdn.import_from_url` max redirect hops (each re-validated: scheme + DNS + IP). | no | `3` |
 | IMPORT_FROM_URL_RATE | env | `cdn.import_from_url` per-caller fixed-window quota (`N/s\|m\|h\|d`). | no | `10/h` |
+| DEDUP_SCOPE | env | axis: who a content-hash lookup may match — `owner` (only the calling principal's rows) or `global` (deployment-wide pool; opt-in, warned about by `checks.W006`). | no | `owner` |
+| MAX_OBJECTS_PER_OWNER | env | per-owner object ceiling across images + videos + files. `"unlimited"` opts out explicitly; any other unusable value fails closed to this default (`checks.W007`). | no | `1000` |
+| MAX_BYTES_PER_OWNER | env | per-owner byte ceiling across images + videos + files. Same `"unlimited"` opt-out and same fail-closed rule. | no | `2 * 1024 * 1024 * 1024` |
+| MAX_FILE_SIZE | env | upload size cap for the generic (non-image, non-video) intake, bytes. | no | `50 * 1024 * 1024` |
+| ALLOWED_FILE_EXTENSIONS | env | accepted generic-file extensions. | no | `.pdf .doc .docx .xls .xlsx .ppt .pptx .txt .csv .zip .rar .7z .gz` |
+| ALLOWED_FILE_MIME_TYPES | env | accepted generic-file `Content-Type` values. An upload that declares none is refused; `application/octet-stream` is deliberately NOT shipped (it is any client's word for "anything") — a host intaking opaque binaries adds it back. | no | the document/archive list in `conf.py` |
+| PRIVATE_MEDIA_PREFIX | env | path prefix for non-image originals, so an operator has one prefix to deny on the public media route. Empty keeps the flat layout. | no | `private` |

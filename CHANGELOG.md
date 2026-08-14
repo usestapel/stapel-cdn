@@ -40,6 +40,47 @@ The `**Maximum file size:** 100MB` line in the image/avatar/typed-image
 endpoint descriptions was wrong in the other direction (`MAX_IMAGE_SIZE` is
 20MB) and now names the setting instead of a stale literal.
 
+### Security — the generic intake's MIME allowlist is no longer opt-out-able
+
+Two halves of the same hole, both in `GenericFileUploadView`:
+
+```python
+if content_type and content_type not in set(ALLOWED_FILE_MIME_TYPES):
+```
+
+The allowlist ran **only when the caller volunteered a Content-Type**. Omit
+the part header and the check was skipped entirely — a gate any client could
+decline by saying nothing. And the shipped list ended with
+`application/octet-stream`, the universal "some bytes" type any client may
+declare for anything, which reduced the gate to a no-op by construction: every
+payload the list excludes passes it by naming that.
+
+- **An upload that declares no Content-Type is now refused.** Absent is not
+  allowed.
+- **`application/octet-stream` is out of the default
+  `STAPEL_CDN["ALLOWED_FILE_MIME_TYPES"]`.**
+
+**Upgrade note.** Clients that upload documents without a Content-Type, or
+that label everything `application/octet-stream`, now get `400`. The fix in
+almost every case is the client sending the real type. A deployment that
+genuinely intakes opaque binaries opts back in explicitly:
+
+```python
+STAPEL_CDN = {
+    "ALLOWED_FILE_MIME_TYPES": (*DEFAULTS["ALLOWED_FILE_MIME_TYPES"],
+                                "application/octet-stream"),
+}
+```
+
+Note what that does *not* buy back: a declared type is still not evidence
+about the bytes, and `sniff_is_active_content()` refuses executable content
+under any declared type.
+
+`CONFIG.MD` also gains the rows 0.10's ownership/generic-intake work never
+added: `DEDUP_SCOPE`, `MAX_OBJECTS_PER_OWNER`, `MAX_BYTES_PER_OWNER`,
+`MAX_FILE_SIZE`, `ALLOWED_FILE_EXTENSIONS`, `ALLOWED_FILE_MIME_TYPES`,
+`PRIVATE_MEDIA_PREFIX`.
+
 ## 0.10.0 — 2026-08-10
 
 ### Changed (BREAKING) — one decoder on the image path; Pillow is gone (#233)
