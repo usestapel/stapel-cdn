@@ -63,9 +63,16 @@ def validate_image_file(file):
     fails the decode, which is the property this gate exists for.
 
     In a deployment with no libvips at all (passthrough storage; checks.E001 is
-    red) there is nothing to decode with, and the gate degrades to what is
-    knowable without a decoder: the allowlist plus a magic-byte signature. It
-    still keeps a script payload out of storage; it cannot confirm the pixels.
+    red) there is nothing to decode with. What happens then is a policy
+    question, and ``STAPEL_CDN["REQUIRE_DECODER"]`` answers it. The default,
+    ``True``, refuses the upload: with no decoder the pixel cap
+    (``MAX_IMAGE_PIXELS``) is never reached and nothing confirms the bytes are
+    the image they claim to be, so the honest answer is that this deployment
+    cannot serve image storage — not that it will store whatever arrives.
+    ``False`` restores the historical passthrough, where the gate degrades to
+    what is knowable without a decoder: the allowlist plus a magic-byte
+    signature. That still keeps a script payload out of storage; it cannot
+    confirm the pixels.
 
     Raises :class:`decoders.ImageDecoderUnavailable` (a ``ValidationError``
     subclass) when the extension is allowed by configuration but no decoder in
@@ -85,6 +92,12 @@ def validate_image_file(file):
     # there is no decoder at all — only then does the magic-byte fallback stand
     # in, so a format libvips reads but the table does not list is never refused.
     if decoders.decode_dimensions(file, file_extension) is None:
+        if cdn_settings.REQUIRE_DECODER:
+            # Same answer as "this build cannot read that format", because from
+            # the uploader's side it is the same situation: their file is fine
+            # and this deployment cannot handle it. 503 + the operator-facing
+            # log, never a 4xx blaming the caller for an unconfigured host.
+            raise decoders.ImageDecoderUnavailable(file_extension)
         if decoders.sniff(decoders.read_head(file)) is None:
             raise ValidationError(
                 "Invalid image file: the content does not carry a known image "

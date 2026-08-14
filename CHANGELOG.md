@@ -155,6 +155,30 @@ were completing over data that was never erased. **No opt-out is offered** —
 a switch restoring the old behaviour would be a switch for reporting erasures
 that did not happen.
 
+### Security — a deployment with no decoder stops storing unverified images
+
+With no libvips installed, `decoders.decode_dimensions()` returns `None` and
+`validate_image_file()` degraded to a magic-byte signature check. So
+`MAX_IMAGE_PIXELS` — the decompression-bomb cap — was **never reached**, and
+nothing confirmed the bytes decode as the image they claim to be. The
+degradation was deliberate and documented, and `checks.E001` is red about it,
+which is the honest posture; what it was not is a decision anybody made per
+deployment.
+
+- **New `STAPEL_CDN["REQUIRE_DECODER"]`, default `True`.** With no decoder,
+  image uploads are refused with `error.503.image_decoder_unavailable` — the
+  same answer as "this build cannot read that format", because from the
+  uploader's side it is the same situation: their file is fine and this
+  deployment cannot handle it.
+- **The passthrough stays available as the explicit opt-out:**
+  `STAPEL_CDN = {"REQUIRE_DECODER": False}` restores the signature-only gate.
+
+**Upgrade note.** A deployment running without libvips (`checks.E001` already
+failing) now answers `503` on image uploads instead of storing them. Install
+libvips (`apt: libvips-dev` plus `pip install stapel-cdn[images]`), or drop
+`"images"` from `ENABLED_SUBMODULES` if it is really file-only storage, or set
+`REQUIRE_DECODER` to `False` to keep storing images that nothing verifies.
+
 ## 0.10.0 — 2026-08-10
 
 ### Changed (BREAKING) — one decoder on the image path; Pillow is gone (#233)

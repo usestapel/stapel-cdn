@@ -98,6 +98,17 @@ DEFAULTS = {
     # name always claimed: Pillow used to only raise above *2x* this number, so
     # the effective ceiling was quietly double the configured one.
     "MAX_IMAGE_PIXELS": 50_000_000,
+    # Whether image storage requires a working decoder in this deployment.
+    #
+    # With no libvips at all, `decoders.decode_dimensions` returns None and the
+    # upload gate degrades to a magic-byte signature: MAX_IMAGE_PIXELS is never
+    # reached, and nothing confirms the file decodes as the image it claims to
+    # be. That passthrough posture is documented and deliberate (checks.E001 is
+    # red in such a deployment), but it is a posture, not a default — storing
+    # bytes you cannot verify has to be the thing somebody chose. True refuses
+    # the upload with error.503.image_decoder_unavailable instead; set False to
+    # keep the signature-only passthrough.
+    "REQUIRE_DECODER": True,
     # Upload size cap for audio recordings (bytes) — 50 MB.
     # Same reserved status as ALLOWED_AUDIO_EXTENSIONS above.
     "MAX_AUDIO_SIZE": 50 * 1024 * 1024,  # noqa: CFG006

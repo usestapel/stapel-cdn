@@ -37,6 +37,7 @@ as passthrough file storage drops `images` from the tuple and is not asked to in
 | ALLOWED_AUDIO_EXTENSIONS | env | accepted audio file extensions (`recordings` submodule — passthrough storage always accepts these). | no | `.mp3 .wav .m4a .ogg .opus .flac .aac` |
 | MAX_IMAGE_PIXELS | env | decompression-bomb cap — an upload wider*taller than this is refused. Exact since 0.10 (Pillow used to only raise above *2x* the configured number). | no | `50_000_000` |
 | MAX_AUDIO_SIZE | env | upload size cap for audio recordings, bytes. | no | `50 * 1024 * 1024` |
+| REQUIRE_DECODER | env | whether image storage requires a working decoder. With no libvips the pixel cap and the decode never run, so `True` refuses the upload (503) instead; `False` keeps the signature-only passthrough. | no | `True` |
 | WATERMARK | env | dotted path to (or a) callable `(pyvips.Image) -> pyvips.Image` applied to preview variants; empty disables watermarking. | no | `""` |
 | WATERMARK_TEXT | env | text rendered by the built-in `stapel_cdn.watermarks.text_watermark` engine. | no | `""` |
 | IMPORT_FROM_URL_MAX_BYTES | env | `cdn.import_from_url` body size cap, bytes. | no | `10 * 1024 * 1024` |
