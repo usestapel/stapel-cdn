@@ -4,6 +4,7 @@ and the user.deleted action subscription.
 """
 import json
 import pytest
+from pathlib import Path
 from unittest.mock import MagicMock, patch
 from django.core.files.uploadedfile import SimpleUploadedFile
 from stapel_cdn.actions import handle_user_deleted, handle_user_deletion_initiated
@@ -231,3 +232,88 @@ class TestHandleDeletionInitiated:
         event.event_id = 'evt-2'
         handle_user_deletion_initiated(event)
         assert Image.objects.count() == 1
+
+
+@pytest.mark.django_db
+class TestErasureFailureIsNotAReceipt:
+    """The one path whose whole contract is provable erasure.
+
+    ``delete()`` returning normally is what stapel-gdpr's orchestrator treats
+    as a receipt, and what lets a closure flip to DELETED. The unlink — the
+    only step that removes the actual bytes — used to sit under
+    ``except Exception: pass``, after which the row was deleted anyway and the
+    object counted as removed. That is unrecoverable rather than merely wrong:
+    the row is the only record of where the file is, so a failed erasure
+    became personal data nobody can ever locate again.
+    """
+
+    @staticmethod
+    def _image_with_bytes(user):
+        return _make_image(
+            user,
+            original=SimpleUploadedFile('pic.jpg', b'personal bytes', 'image/jpeg'),
+        )
+
+    @staticmethod
+    def _unlink_fails():
+        """Storage that refuses to remove the blob (read-only mount, S3 denial)."""
+        return patch(
+            'stapel_cdn.storage.OverwriteStorage.delete',
+            side_effect=OSError('read-only file system'),
+        )
+
+    def test_a_failed_unlink_raises_instead_of_reporting_success(self, user):
+        from stapel_cdn.gdpr import MediaErasureIncomplete
+
+        image = self._image_with_bytes(user)
+
+        with self._unlink_fails(), pytest.raises(MediaErasureIncomplete):
+            CDNGDPRProvider().delete(user.id)
+
+        # The row survives, which is what keeps the stranded file findable.
+        assert Image.objects.filter(pk=image.pk).exists()
+
+    def test_the_row_is_kept_so_a_retry_can_find_the_file(self, user):
+        from stapel_cdn.gdpr import MediaErasureIncomplete
+
+        image = self._image_with_bytes(user)
+
+        with self._unlink_fails(), pytest.raises(MediaErasureIncomplete):
+            CDNGDPRProvider().purge_unreferenced(user.id)
+
+        image.refresh_from_db()
+        assert image.uploaded_by_id == user.id, (
+            'ownership must survive a failed erasure, or the file can no '
+            'longer be attributed to the person it belongs to'
+        )
+
+    def test_no_section_erased_confirmation_when_the_bytes_survive(self, user):
+        """Without this, the closure flips to DELETED over data still on disk."""
+        self._image_with_bytes(user)
+        event = MagicMock()
+        event.payload = {'user_id': user.id, 'correlation_id': 'corr-43'}
+
+        with patch('stapel_core.comm.emit') as m_emit:
+            with self._unlink_fails(), pytest.raises(Exception):
+                handle_user_deleted(event)
+
+        m_emit.assert_not_called()
+        assert Image.objects.count() == 1
+
+    def test_a_successful_erasure_still_reports_success(self, user):
+        image = self._image_with_bytes(user)
+        stored_path = image.original.path
+
+        removed = CDNGDPRProvider().purge_unreferenced(user.id)
+
+        assert removed == 1
+        assert not Image.objects.filter(pk=image.pk).exists()
+        assert not Path(stored_path).exists()
+
+    def test_an_already_missing_blob_is_erased_not_stranded(self, user):
+        """Idempotence: a retry meets files the first attempt already removed."""
+        image = self._image_with_bytes(user)
+        Path(image.original.path).unlink()
+
+        assert CDNGDPRProvider().purge_unreferenced(user.id) == 1
+        assert not Image.objects.filter(pk=image.pk).exists()

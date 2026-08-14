@@ -117,6 +117,44 @@ STAPEL_CDN = {
 }
 ```
 
+### Security — a failed erasure is no longer reported as an erasure
+
+`purge_unreferenced()` wrapped the only step that removes the actual bytes in
+`except Exception: pass`, then deleted the row anyway and counted the object
+as removed:
+
+```python
+try:
+    obj.original.delete(save=False)
+except Exception:
+    pass          # <- the bytes stayed; the row went
+obj.delete()
+removed += 1
+```
+
+`CDNGDPRProvider.delete()` then returned normally, which stapel-gdpr's
+orchestrator treats as a receipt and which lets a closure flip to `DELETED`.
+A fail-open in the one path whose whole contract is provable erasure — and an
+unrecoverable one, because the row is the only record of where the file is, so
+a failed erasure became personal data nobody can ever locate again.
+
+- A blob that cannot be unlinked **keeps its row** (and its `uploaded_by`, so
+  it stays attributable) and is logged at ERROR.
+- `purge_unreferenced()` / `delete()` raise the new
+  **`stapel_cdn.gdpr.MediaErasureIncomplete`** instead of returning. In
+  `handle_user_deleted` that rolls the `gdpr.section.erased` confirmation back
+  with it, so the closure stays `DELETING` and at-least-once delivery retries.
+  Erasure is idempotent, and an already-missing blob still counts as erased.
+- `delete()` raises *before* the anonymisation pass, which would otherwise
+  strip `uploaded_by` off objects whose bytes are still on disk.
+
+**Upgrade note.** A deployment with a media root the app cannot write to (a
+read-only mount, an S3 policy without `DeleteObject`) now sees account
+deletions fail loudly and retry instead of completing. That is the point: they
+were completing over data that was never erased. **No opt-out is offered** —
+a switch restoring the old behaviour would be a switch for reporting erasures
+that did not happen.
+
 ## 0.10.0 — 2026-08-10
 
 ### Changed (BREAKING) — one decoder on the image path; Pillow is gone (#233)
