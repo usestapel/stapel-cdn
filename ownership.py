@@ -25,7 +25,7 @@ from __future__ import annotations
 
 from django.db.models import Q, Sum
 
-from .conf import cdn_settings
+from .conf import DEFAULTS, cdn_settings
 
 #: A hash lookup matches only objects the calling principal owns.
 SCOPE_OWNER = "owner"
@@ -33,6 +33,12 @@ SCOPE_OWNER = "owner"
 SCOPE_GLOBAL = "global"
 
 VALID_DEDUP_SCOPES = (SCOPE_OWNER, SCOPE_GLOBAL)
+
+#: The one way to switch a per-owner ceiling off, spelled out.
+QUOTA_UNLIMITED = "unlimited"
+
+#: Settings keys holding a per-owner ceiling.
+QUOTA_CEILING_KEYS = ("MAX_OBJECTS_PER_OWNER", "MAX_BYTES_PER_OWNER")
 
 def _owned_models():
     """Models an owner's quota is counted across."""
@@ -55,8 +61,9 @@ def dedup_scope() -> str:
 def owner_id(principal) -> int | None:
     """Primary key of a principal, or None when there is no identified one.
 
-    ``AnonymousUser`` and an unsaved instance both answer None here — they are
-    not *an* owner, so they can neither own nor inherit anything.
+    ``AnonymousUser`` and anything else without a primary key answer None here
+    — they are not *an* owner, so they can neither own nor inherit anything,
+    and :func:`quota_exceeded` refuses rather than exempts them.
     """
     pk = getattr(principal, "pk", None)
     if pk is None or not getattr(principal, "is_authenticated", True):
@@ -121,6 +128,31 @@ def owner_usage(principal) -> tuple[int, int]:
     return (objects, total)
 
 
+def quota_ceiling(key: str) -> int | None:
+    """Resolve one per-owner ceiling from settings. ``None`` means no ceiling.
+
+    Switching a ceiling off has to be *said*: the value ``"unlimited"``, and
+    nothing else, does it. The previous rule was ``int(setting or 0)`` with 0
+    meaning unbounded, so ``0``, ``None``, ``""`` and a missing key all landed
+    on "no ceiling" — three of the four by accident rather than by intent. A
+    storage ceiling that removes itself on a typo, an empty environment
+    variable or a refactor that drops a key is not a ceiling.
+
+    So anything that is neither ``"unlimited"`` nor a positive whole number
+    falls back to the shipped default, which is the safe direction, and
+    ``checks.W007`` names the value at boot so it is fixed rather than
+    silently absorbed.
+    """
+    raw = getattr(cdn_settings, key)
+    if isinstance(raw, str) and raw.strip().lower() == QUOTA_UNLIMITED:
+        return None
+    try:
+        value = int(raw)
+    except (TypeError, ValueError):
+        return int(DEFAULTS[key])
+    return value if value > 0 else int(DEFAULTS[key])
+
+
 def quota_exceeded(principal, incoming_bytes: int = 0) -> dict | None:
     """Report which per-owner ceiling ``incoming_bytes`` would cross, if any.
 
@@ -128,16 +160,21 @@ def quota_exceeded(principal, incoming_bytes: int = 0) -> dict | None:
     limit — the intake path turns that into a 403 the caller can act on
     (delete something) instead of an opaque refusal.
 
-    An unidentified principal is not quota-checked here: it cannot own a row,
-    so it has no usage to bound. Whether such a caller may upload at all is a
-    permission decision, made by the view.
+    A principal the quota cannot attribute an object to is **refused**, not
+    exempted. It used to return ``None`` here on the reasoning that such a
+    caller "has no usage to bound" — which is true, and is exactly the
+    problem: with nothing to count against it, its ceiling is infinite, so the
+    one caller the quota cannot measure was the one caller it did not bound.
+    Storing bytes nobody can be billed, quota'd or GDPR-erased for is not a
+    thing this module should do quietly, so the ceilings being configured at
+    all is enough to require an owner.
     """
-    max_objects = int(cdn_settings.MAX_OBJECTS_PER_OWNER or 0)
-    max_bytes = int(cdn_settings.MAX_BYTES_PER_OWNER or 0)
-    if not max_objects and not max_bytes:
+    max_objects = quota_ceiling("MAX_OBJECTS_PER_OWNER")
+    max_bytes = quota_ceiling("MAX_BYTES_PER_OWNER")
+    if max_objects is None and max_bytes is None:
         return None
     if owner_id(principal) is None:
-        return None
+        return {"limit": "owner", "max": 0, "used": 0}
 
     objects, used = owner_usage(principal)
     if max_objects and objects + 1 > max_objects:
@@ -148,6 +185,8 @@ def quota_exceeded(principal, incoming_bytes: int = 0) -> dict | None:
 
 
 __all__ = [
+    "QUOTA_CEILING_KEYS",
+    "QUOTA_UNLIMITED",
     "SCOPE_GLOBAL",
     "SCOPE_OWNER",
     "VALID_DEDUP_SCOPES",
@@ -155,6 +194,7 @@ __all__ = [
     "dedup_scope_q",
     "owner_id",
     "owner_usage",
+    "quota_ceiling",
     "quota_exceeded",
     "service_scope_q",
     "shared_binary_exists",

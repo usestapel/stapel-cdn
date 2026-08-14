@@ -136,10 +136,16 @@ DEFAULTS = {
     # deployments, or a deliberately shared public asset pool) can opt back
     # in; nothing in this library assumes it.
     "DEDUP_SCOPE": "owner",
-    # Per-owner storage ceilings across images + videos + files. 0 disables
-    # the ceiling entirely. The defaults are deliberately generous rather
-    # than absent: an identity that costs one POST to mint must not have an
-    # unbounded quota, and a real user is nowhere near these numbers.
+    # Per-owner storage ceilings across images + videos + files. The defaults
+    # are deliberately generous rather than absent: an identity that costs one
+    # POST to mint must not have an unbounded quota, and a real user is
+    # nowhere near these numbers.
+    #
+    # Removing a ceiling takes the literal string "unlimited". It used to take
+    # 0 — and, because the code read `int(setting or 0)`, also None, "" and a
+    # missing key, so three ways of *saying nothing* meant "no ceiling". A
+    # value that is neither "unlimited" nor a positive number falls back to
+    # the default below and is reported by checks.W007.
     "MAX_OBJECTS_PER_OWNER": 1000,
     "MAX_BYTES_PER_OWNER": 2 * 1024 * 1024 * 1024,
     # --- generic (non-image, non-video) intake ---------------------------

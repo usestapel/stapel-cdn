@@ -81,6 +81,42 @@ added: `DEDUP_SCOPE`, `MAX_OBJECTS_PER_OWNER`, `MAX_BYTES_PER_OWNER`,
 `MAX_FILE_SIZE`, `ALLOWED_FILE_EXTENSIONS`, `ALLOWED_FILE_MIME_TYPES`,
 `PRIVATE_MEDIA_PREFIX`.
 
+### Security — removing a per-owner ceiling is now something you have to say
+
+`quota_exceeded()` read its ceilings as `int(cdn_settings.X or 0)` and treated
+0 as "unbounded", so `0`, `None`, `""` and a missing key **all** meant "no
+ceiling" — three of the four by accident rather than by intent. An empty
+environment variable, or a refactor that drops a key, silently removed the
+storage ceiling of a module whose identities cost one POST to mint. (A
+non-numeric value was worse still: `int("lots")` raised `ValueError` out of
+the upload path, i.e. a 500 on every upload.)
+
+It also exempted the one principal it could not measure: `if
+owner_id(principal) is None: return None`. No owner means no usage to count
+against, which is exactly why that caller needs refusing rather than waving
+through — its effective ceiling was infinite.
+
+- **`STAPEL_CDN["MAX_OBJECTS_PER_OWNER"]` / `["MAX_BYTES_PER_OWNER"]` accept
+  the string `"unlimited"` to remove a ceiling.** That is the only thing that
+  removes one.
+- Any other unusable value (`0`, `None`, `""`, a word) **falls back to the
+  shipped default** — 1000 objects / 2 GiB — instead of to "no ceiling", and
+  **`checks.W007`** names it at boot.
+- A principal with no primary key is refused with
+  `error.403.storage_quota_exceeded` and `params.limit == "owner"`.
+
+**Upgrade note.** A deployment that switched its quotas off with `0` is now
+back on the shipped default ceilings and will start refusing uploads from
+owners past them. Set the value to `"unlimited"` to restore the previous
+behaviour deliberately:
+
+```python
+STAPEL_CDN = {
+    "MAX_OBJECTS_PER_OWNER": "unlimited",
+    "MAX_BYTES_PER_OWNER": "unlimited",
+}
+```
+
 ## 0.10.0 — 2026-08-10
 
 ### Changed (BREAKING) — one decoder on the image path; Pillow is gone (#233)

@@ -30,6 +30,7 @@ from stapel_cdn.ownership import (
     SCOPE_OWNER,
     dedup_scope,
     owner_usage,
+    quota_ceiling,
     quota_exceeded,
     shared_binary_exists,
 )
@@ -377,10 +378,63 @@ class TestPerOwnerQuota:
         assert response.status_code == status.HTTP_201_CREATED
 
     @override_settings(STAPEL_CDN={"ASSET_TYPES": ("avatar", "product"),
-                                   "MAX_OBJECTS_PER_OWNER": 0,
-                                   "MAX_BYTES_PER_OWNER": 0})
-    def test_zero_disables_the_ceiling(self, tenant_b):
+                                   "MAX_OBJECTS_PER_OWNER": "unlimited",
+                                   "MAX_BYTES_PER_OWNER": "unlimited"})
+    def test_the_explicit_opt_out_disables_the_ceiling(self, tenant_b):
+        """Removing a ceiling is a thing a deployment SAYS."""
         assert quota_exceeded(tenant_b, 10 ** 12) is None
+
+    @pytest.mark.parametrize("nothing", [0, None, "", "  ", "none", -1, "lots"])
+    def test_saying_nothing_no_longer_means_unlimited(self, tenant_b, nothing):
+        """0/None/""/garbage used to land on "no ceiling" — three by accident."""
+        with override_settings(STAPEL_CDN={"ASSET_TYPES": ("avatar", "product"),
+                                           "MAX_OBJECTS_PER_OWNER": nothing,
+                                           "MAX_BYTES_PER_OWNER": nothing}):
+            assert quota_ceiling("MAX_OBJECTS_PER_OWNER") == 1000
+            assert quota_ceiling("MAX_BYTES_PER_OWNER") == 2 * 1024 * 1024 * 1024
+            over = quota_exceeded(tenant_b, 10 ** 12)
+            assert over is not None and over["limit"] == "bytes"
+
+    def test_shipped_defaults_are_ceilings(self):
+        assert quota_ceiling("MAX_OBJECTS_PER_OWNER") == 1000
+        assert quota_ceiling("MAX_BYTES_PER_OWNER") == 2 * 1024 * 1024 * 1024
+
+    @pytest.mark.parametrize("nothing", [0, None, "", "lots"])
+    def test_an_unusable_ceiling_is_reported_at_boot(self, nothing):
+        from stapel_cdn.checks import W007_QUOTA_CEILING_INVALID, check_owner_quotas
+
+        with override_settings(STAPEL_CDN={"MAX_BYTES_PER_OWNER": nothing}):
+            findings = check_owner_quotas()
+        assert [f.id for f in findings] == [W007_QUOTA_CEILING_INVALID]
+
+    @pytest.mark.parametrize("usable", [1, 4096, "unlimited", "UNLIMITED"])
+    def test_a_usable_ceiling_is_silent_at_boot(self, usable):
+        from stapel_cdn.checks import check_owner_quotas
+
+        with override_settings(STAPEL_CDN={"MAX_OBJECTS_PER_OWNER": usable,
+                                           "MAX_BYTES_PER_OWNER": usable}):
+            assert check_owner_quotas() == []
+
+    def test_a_principal_the_quota_cannot_attribute_is_refused(self):
+        """No owner, no usage to count against — so no ceiling at all.
+
+        The exemption meant the ONE caller the quota could not measure was
+        the one caller it did not bound.
+        """
+        from django.contrib.auth.models import AnonymousUser
+
+        over = quota_exceeded(AnonymousUser(), 1)
+        assert over is not None
+        assert over["limit"] == "owner"
+
+    def test_a_principal_without_a_primary_key_is_refused_too(self):
+        class Nobody:
+            pk = None
+            is_authenticated = True
+
+        over = quota_exceeded(Nobody(), 1)
+        assert over is not None
+        assert over["limit"] == "owner"
 
     def test_usage_counts_every_media_kind(self, tenant_b):
         client = client_for(tenant_b)
