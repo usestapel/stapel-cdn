@@ -1,0 +1,1520 @@
+{
+  "openapi": "3.0.3",
+  "info": {
+    "title": "",
+    "version": "0.0.0"
+  },
+  "paths": {
+    "/cdn/api/v1/file/exists/": {
+      "get": {
+        "operationId": "check_file_exists_get",
+        "description": "Check if a file with the given hash already exists in the CDN.\n\nUse this before uploading to avoid duplicate uploads.\n\n**How to calculate hash:**\n```python\nimport hashlib\n\ndef calculate_file_hash(file_content: bytes) -> str:\n    return hashlib.sha256(file_content).hexdigest()\n```\n\n**Response:**\n- `exists: true` - file found, returns file details\n- `exists: false` - file not found, `type` and `file` are null\n\n\n**Permissions:** `OperandHolder`",
+        "summary": "Check if file exists (GET)",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "file_hash",
+            "schema": {
+              "type": "string"
+            },
+            "description": "SHA-256 hash of the file (64 hex characters)",
+            "required": true,
+            "examples": {
+              "ExampleHash": {
+                "value": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+                "summary": "Example hash"
+              }
+            }
+          }
+        ],
+        "tags": [
+          "Files"
+        ],
+        "security": [
+          {
+            "JWTCookieAuth": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/FileExistsResponse"
+                },
+                "examples": {
+                  "FileFound(image)": {
+                    "value": {
+                      "exists": true,
+                      "type": "image",
+                      "file": {
+                        "id": "550e8400-e29b-41d4-a716-446655440000",
+                        "file_hash": "e3b0c44298fc1c14...",
+                        "original_filename": "photo.jpg",
+                        "variant_720_url": "/media/cdn/images/720/e3b0c442.webp"
+                      }
+                    },
+                    "summary": "File found (image)"
+                  },
+                  "FileNotFound": {
+                    "value": {
+                      "exists": false,
+                      "type": null,
+                      "file": null
+                    },
+                    "summary": "File not found"
+                  }
+                }
+              }
+            },
+            "description": ""
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/StapelError"
+                }
+              }
+            },
+            "description": ""
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/StapelError"
+                }
+              }
+            },
+            "description": ""
+          }
+        }
+      },
+      "post": {
+        "operationId": "check_file_exists_post",
+        "description": "Check if a file with the given hash already exists in the CDN.\n\nSame as GET method but accepts hash in request body.\nUseful when hash is very long or contains special characters.\n\n\n**Permissions:** `OperandHolder`",
+        "summary": "Check if file exists (POST)",
+        "tags": [
+          "Files"
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/FileExists"
+              }
+            },
+            "application/x-www-form-urlencoded": {
+              "schema": {
+                "$ref": "#/components/schemas/FileExists"
+              }
+            },
+            "multipart/form-data": {
+              "schema": {
+                "$ref": "#/components/schemas/FileExists"
+              }
+            }
+          },
+          "required": true
+        },
+        "security": [
+          {
+            "JWTCookieAuth": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/FileExistsResponse"
+                },
+                "examples": {
+                  "FileExistsResponse": {
+                    "value": {
+                      "exists": true,
+                      "type": "image"
+                    }
+                  }
+                }
+              }
+            },
+            "description": ""
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/StapelError"
+                }
+              }
+            },
+            "description": ""
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/StapelError"
+                }
+              }
+            },
+            "description": ""
+          }
+        }
+      }
+    },
+    "/cdn/api/v1/images/{image_type}/random/": {
+      "get": {
+        "operationId": "random_image",
+        "description": "Get a random image of the specified type.\n\n**Available types:** product, avatar\n\n**Requires:** Staff user or API key authentication.\n\n**Use case:** Admin UI for quickly selecting test images.\n\n\n**Permissions:** `IsStaffUser`",
+        "summary": "Get random image by type",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "image_type",
+            "schema": {
+              "type": "string"
+            },
+            "required": true
+          }
+        ],
+        "tags": [
+          "Images"
+        ],
+        "security": [
+          {
+            "JWTCookieAuth": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Image"
+                }
+              }
+            },
+            "description": ""
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/StapelError"
+                }
+              }
+            },
+            "description": ""
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/StapelError"
+                }
+              }
+            },
+            "description": ""
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/StapelError"
+                }
+              }
+            },
+            "description": ""
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/StapelError"
+                }
+              }
+            },
+            "description": ""
+          }
+        }
+      }
+    },
+    "/cdn/api/v1/images/{image_type}/upload/": {
+      "post": {
+        "operationId": "upload_typed_image",
+        "description": "Upload an image file with a specific type (product, avatar).\n\n**Supported formats:** JPEG, PNG, GIF, WebP, BMP, HEIC, HEIF\n\n**Available types:** product, avatar\n\n**Maximum file size:** `STAPEL_CDN[\"MAX_IMAGE_SIZE\"]`, 20MB by default.\nEnforced before the body is hashed; over it the answer is 413.\n\n\n**Permissions:** `IsNotAnonymousUser`",
+        "summary": "Upload an image with specific type",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "image_type",
+            "schema": {
+              "type": "string"
+            },
+            "required": true
+          }
+        ],
+        "tags": [
+          "Images"
+        ],
+        "requestBody": {
+          "content": {
+            "multipart/form-data": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "file": {
+                    "type": "string",
+                    "format": "binary",
+                    "description": "Image file to upload"
+                  }
+                },
+                "required": [
+                  "file"
+                ]
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "JWTCookieAuth": []
+          }
+        ],
+        "responses": {
+          "201": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ImageUploadResponse"
+                },
+                "examples": {
+                  "ImageUploadResponse": {
+                    "value": {
+                      "message": "Image uploaded successfully"
+                    }
+                  }
+                }
+              }
+            },
+            "description": ""
+          },
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ImageUploadResponse"
+                },
+                "examples": {
+                  "ImageUploadResponse": {
+                    "value": {
+                      "message": "Image uploaded successfully"
+                    }
+                  }
+                }
+              }
+            },
+            "description": ""
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/StapelError"
+                }
+              }
+            },
+            "description": ""
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/StapelError"
+                }
+              }
+            },
+            "description": ""
+          },
+          "500": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/StapelError"
+                }
+              }
+            },
+            "description": ""
+          }
+        }
+      }
+    },
+    "/cdn/api/v1/refs/sync/": {
+      "post": {
+        "operationId": "sync_refs",
+        "description": "Add/remove reference tracking for media files. Used by other services to track which entities reference which media.\n\n**Permissions:** `IsServiceRequest`",
+        "summary": "Sync media references",
+        "tags": [
+          "Refs"
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/RefSyncRequest"
+              }
+            },
+            "application/x-www-form-urlencoded": {
+              "schema": {
+                "$ref": "#/components/schemas/RefSyncRequest"
+              }
+            },
+            "multipart/form-data": {
+              "schema": {
+                "$ref": "#/components/schemas/RefSyncRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "security": [
+          {
+            "JWTCookieAuth": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RefSyncResponse"
+                },
+                "examples": {
+                  "RefSyncResponse": {
+                    "value": {
+                      "added": 1,
+                      "removed": 1,
+                      "errors": [
+                        "product/nonexistent"
+                      ]
+                    }
+                  }
+                }
+              }
+            },
+            "description": ""
+          }
+        }
+      }
+    },
+    "/cdn/api/v1/upload/avatar/": {
+      "post": {
+        "operationId": "upload_avatar",
+        "description": "Upload an avatar image file for processing.\n\n**Same as image upload but sets type to 'avatar'.**\n\n**Supported formats:** JPEG, PNG, GIF, WebP, BMP, HEIC, HEIF\n\n**Maximum file size:** `STAPEL_CDN[\"MAX_IMAGE_SIZE\"]`, 20MB by default.\nEnforced before the body is hashed; over it the answer is 413.\n\n\n**Permissions:** `IsAuthenticated`",
+        "summary": "Upload an avatar image",
+        "tags": [
+          "Images"
+        ],
+        "requestBody": {
+          "content": {
+            "multipart/form-data": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "file": {
+                    "type": "string",
+                    "format": "binary",
+                    "description": "Avatar image file to upload"
+                  }
+                },
+                "required": [
+                  "file"
+                ]
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "JWTCookieAuth": []
+          }
+        ],
+        "responses": {
+          "201": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ImageUploadResponse"
+                },
+                "examples": {
+                  "ImageUploadResponse": {
+                    "value": {
+                      "message": "Image uploaded successfully"
+                    }
+                  }
+                }
+              }
+            },
+            "description": ""
+          },
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ImageUploadResponse"
+                },
+                "examples": {
+                  "ImageUploadResponse": {
+                    "value": {
+                      "message": "Image uploaded successfully"
+                    }
+                  }
+                }
+              }
+            },
+            "description": ""
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/StapelError"
+                }
+              }
+            },
+            "description": ""
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/StapelError"
+                }
+              }
+            },
+            "description": ""
+          },
+          "500": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/StapelError"
+                }
+              }
+            },
+            "description": ""
+          }
+        }
+      }
+    },
+    "/cdn/api/v1/upload/file/": {
+      "post": {
+        "operationId": "upload_file",
+        "description": "Upload a generic file (document, archive, etc.).\n\n**Permissions:** `IsNotAnonymousUser`",
+        "summary": "Upload a file",
+        "tags": [
+          "Files"
+        ],
+        "requestBody": {
+          "content": {
+            "multipart/form-data": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "file": {
+                    "type": "string",
+                    "format": "binary",
+                    "description": "File to upload"
+                  }
+                },
+                "required": [
+                  "file"
+                ]
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "JWTCookieAuth": []
+          }
+        ],
+        "responses": {
+          "201": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/FileUploadResponse"
+                },
+                "examples": {
+                  "FileUploadResponse": {
+                    "value": {
+                      "message": "File uploaded successfully"
+                    }
+                  }
+                }
+              }
+            },
+            "description": ""
+          },
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/FileUploadResponse"
+                },
+                "examples": {
+                  "FileUploadResponse": {
+                    "value": {
+                      "message": "File uploaded successfully"
+                    }
+                  }
+                }
+              }
+            },
+            "description": ""
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/StapelError"
+                }
+              }
+            },
+            "description": ""
+          }
+        }
+      }
+    },
+    "/cdn/api/v1/upload/image/": {
+      "post": {
+        "operationId": "upload_image",
+        "description": "Upload an image file for processing.\n\n**Supported formats:** JPEG, PNG, GIF, WebP, BMP, HEIC, HEIF\n\n**What happens on upload:**\n1. File hash (SHA-256) is calculated for deduplication\n2. If file already exists, returns existing image data (200 OK)\n3. If new file, creates image record and generates variants via background task\n4. Variants are generated in WebP format at multiple resolutions\n\n**Generated variants (all WebP):**\n- 16px, 32px, 64px, 120px - min-side thumbnails\n- 160px, 240px, 480px, 560px, 720px, 1080px - w/h preview branches\n\n**Request format:** `multipart/form-data` with `file` field\n\n**Maximum file size:** `STAPEL_CDN[\"MAX_IMAGE_SIZE\"]`, 20MB by default.\nEnforced before the body is hashed; over it the answer is 413.\n\n\n**Permissions:** `IsNotAnonymousUser`",
+        "summary": "Upload an image",
+        "tags": [
+          "Images"
+        ],
+        "requestBody": {
+          "content": {
+            "multipart/form-data": {
+              "schema": {
+                "$ref": "#/components/schemas/FileUpload"
+              }
+            },
+            "application/x-www-form-urlencoded": {
+              "schema": {
+                "$ref": "#/components/schemas/FileUpload"
+              }
+            }
+          },
+          "required": true
+        },
+        "security": [
+          {
+            "JWTCookieAuth": []
+          }
+        ],
+        "responses": {
+          "201": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ImageUploadResponse"
+                },
+                "examples": {
+                  "ImageUploadedSuccessfully": {
+                    "value": {
+                      "message": "Image uploaded successfully",
+                      "image": {
+                        "id": "550e8400-e29b-41d4-a716-446655440000",
+                        "file_hash": "a1b2c3d4e5f6...",
+                        "original_filename": "photo.jpg",
+                        "file_extension": ".jpg",
+                        "original_width": 1920,
+                        "original_height": 1080,
+                        "original_size": 2048576,
+                        "original_url": "/media/cdn/images/original/a1b2c3d4.jpg",
+                        "variant_720_url": "/media/cdn/images/720/a1b2c3d4.webp",
+                        "is_processed": false
+                      }
+                    },
+                    "summary": "Image uploaded successfully"
+                  }
+                }
+              }
+            },
+            "description": ""
+          },
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ImageUploadResponse"
+                },
+                "examples": {
+                  "ImageAlreadyExists": {
+                    "value": {
+                      "message": "Image already exists",
+                      "image": {
+                        "id": "...",
+                        "file_hash": "..."
+                      }
+                    },
+                    "summary": "Image already exists"
+                  }
+                }
+              }
+            },
+            "description": ""
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/StapelError"
+                }
+              }
+            },
+            "description": ""
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/StapelError"
+                }
+              }
+            },
+            "description": ""
+          },
+          "500": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/StapelError"
+                }
+              }
+            },
+            "description": ""
+          }
+        }
+      }
+    },
+    "/cdn/api/v1/upload/video/": {
+      "post": {
+        "operationId": "upload_video",
+        "description": "Upload a video file for processing.\n\n**Supported formats:** MP4, WebM, MOV, AVI, MKV\n\n**What happens on upload:**\n1. File hash (SHA-256) is calculated for deduplication\n2. If file already exists, returns existing video data (200 OK)\n3. If new file, creates video record\n4. Variant generation via FFmpeg (TODO: not yet implemented)\n\n**Planned variants:**\n- 16p, 32p - animated thumbnails\n- 240p, 480p, 720p, 1080p, 2160p - video resolutions\n\n**Request format:** `multipart/form-data` with `file` field\n\n**Maximum file size:** `STAPEL_CDN[\"MAX_VIDEO_SIZE\"]`, 100MB by default.\nEnforced before the body is hashed; over it the answer is 413.\n\n\n**Permissions:** `IsNotAnonymousUser`",
+        "summary": "Upload a video",
+        "tags": [
+          "Videos"
+        ],
+        "requestBody": {
+          "content": {
+            "multipart/form-data": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "file": {
+                    "type": "string",
+                    "format": "binary",
+                    "description": "Video file to upload (mp4, webm, mov, avi, mkv)"
+                  }
+                },
+                "required": [
+                  "file"
+                ]
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "JWTCookieAuth": []
+          }
+        ],
+        "responses": {
+          "201": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/VideoUploadResponse"
+                },
+                "examples": {
+                  "VideoUploadResponse": {
+                    "value": {
+                      "message": "Video uploaded successfully"
+                    }
+                  }
+                }
+              }
+            },
+            "description": ""
+          },
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/VideoUploadResponse"
+                },
+                "examples": {
+                  "VideoUploadResponse": {
+                    "value": {
+                      "message": "Video uploaded successfully"
+                    }
+                  }
+                }
+              }
+            },
+            "description": ""
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/StapelError"
+                }
+              }
+            },
+            "description": ""
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/StapelError"
+                }
+              }
+            },
+            "description": ""
+          },
+          "413": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/StapelError"
+                }
+              }
+            },
+            "description": ""
+          },
+          "500": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/StapelError"
+                }
+              }
+            },
+            "description": ""
+          }
+        }
+      }
+    }
+  },
+  "components": {
+    "schemas": {
+      "FileExists": {
+        "type": "object",
+        "description": "Serializer for file existence check by hash.",
+        "properties": {
+          "file_hash": {
+            "type": "string",
+            "description": "SHA-256 hash of the file content (64 hex characters)",
+            "maxLength": 64
+          }
+        },
+        "required": [
+          "file_hash"
+        ]
+      },
+      "FileExistsResponse": {
+        "type": "object",
+        "description": "File existence check result.",
+        "properties": {
+          "file": {
+            "oneOf": [
+              {
+                "$ref": "#/components/schemas/Image"
+              },
+              {
+                "$ref": "#/components/schemas/Video"
+              },
+              {
+                "$ref": "#/components/schemas/FileModel"
+              }
+            ],
+            "nullable": true,
+            "description": "File object if found, null otherwise"
+          },
+          "exists": {
+            "type": "boolean",
+            "description": "Whether the file exists",
+            "example": true
+          },
+          "type": {
+            "type": "string",
+            "nullable": true,
+            "description": "File type if found (image or video)",
+            "example": "image"
+          }
+        },
+        "required": [
+          "exists",
+          "file",
+          "type"
+        ]
+      },
+      "FileModel": {
+        "type": "object",
+        "description": "Serializer for File model.",
+        "properties": {
+          "id": {
+            "type": "integer",
+            "readOnly": true
+          },
+          "file_hash": {
+            "type": "string",
+            "readOnly": true,
+            "description": "SHA-256 hash of the original file"
+          },
+          "original_filename": {
+            "type": "string",
+            "maxLength": 255
+          },
+          "file_extension": {
+            "type": "string",
+            "maxLength": 10
+          },
+          "mime_type": {
+            "type": "string",
+            "maxLength": 100
+          },
+          "original_size": {
+            "type": "integer",
+            "readOnly": true,
+            "description": "File size in bytes"
+          },
+          "prefix": {
+            "type": "string",
+            "readOnly": true,
+            "description": "URL prefix: file/<hash>"
+          },
+          "original_url": {
+            "type": "string",
+            "format": "uri",
+            "readOnly": true,
+            "description": "URL to original uploaded file"
+          },
+          "refs": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "List of references: service/entity_type/entity_id"
+          },
+          "uploaded_by": {
+            "type": "string",
+            "format": "uuid",
+            "readOnly": true,
+            "nullable": true
+          },
+          "uploaded_by_username": {
+            "type": "string",
+            "readOnly": true
+          },
+          "created_at": {
+            "type": "string",
+            "format": "date-time",
+            "readOnly": true
+          },
+          "updated_at": {
+            "type": "string",
+            "format": "date-time",
+            "readOnly": true
+          }
+        },
+        "required": [
+          "created_at",
+          "file_extension",
+          "file_hash",
+          "id",
+          "original_filename",
+          "original_size",
+          "original_url",
+          "prefix",
+          "updated_at",
+          "uploaded_by",
+          "uploaded_by_username"
+        ]
+      },
+      "FileUpload": {
+        "type": "object",
+        "description": "Serializer for file upload requests.\n\nUpload a file using multipart/form-data with the 'file' field.",
+        "properties": {
+          "file": {
+            "type": "string",
+            "format": "uri",
+            "description": "The file to upload. Images: jpg, jpeg, png, gif, webp, bmp, heic, heif. Videos: mp4, webm, mov, avi, mkv."
+          }
+        },
+        "required": [
+          "file"
+        ]
+      },
+      "FileUploadResponse": {
+        "type": "object",
+        "description": "Successful file upload.",
+        "properties": {
+          "file": {
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/FileModel"
+              }
+            ],
+            "description": "Uploaded file object"
+          },
+          "message": {
+            "type": "string",
+            "description": "Confirmation message",
+            "example": "File uploaded successfully"
+          }
+        },
+        "required": [
+          "file",
+          "message"
+        ]
+      },
+      "Image": {
+        "type": "object",
+        "description": "Serializer for Image model.\n\nReturns complete image information including all generated variants.\nVariants are auto-generated in WebP format for optimal compression.",
+        "properties": {
+          "id": {
+            "type": "integer",
+            "readOnly": true
+          },
+          "file_hash": {
+            "type": "string",
+            "readOnly": true,
+            "description": "SHA-256 hash of the original file"
+          },
+          "original_filename": {
+            "type": "string",
+            "maxLength": 255
+          },
+          "file_extension": {
+            "type": "string",
+            "maxLength": 10
+          },
+          "type": {
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/TypeEnum"
+              }
+            ],
+            "readOnly": true,
+            "default": "product",
+            "description": "Image type — validated against STAPEL_CDN['ASSET_TYPES'] (default ('avatar',); the historical 'product' default value here is only in scope for host projects that still add it).\n\n* `avatar` - Avatar"
+          },
+          "prefix": {
+            "type": "string",
+            "readOnly": true,
+            "description": "URL prefix: <type>/<hash>"
+          },
+          "original_width": {
+            "type": "integer",
+            "readOnly": true
+          },
+          "original_height": {
+            "type": "integer",
+            "readOnly": true
+          },
+          "original_size": {
+            "type": "integer",
+            "readOnly": true,
+            "description": "File size in bytes"
+          },
+          "original_url": {
+            "type": "string",
+            "format": "uri",
+            "readOnly": true,
+            "description": "URL to original uploaded image"
+          },
+          "variant_16_url": {
+            "type": "string",
+            "format": "uri",
+            "readOnly": true,
+            "description": "16px micro thumbnail, min-side (WebP)"
+          },
+          "variant_32_url": {
+            "type": "string",
+            "format": "uri",
+            "readOnly": true,
+            "description": "32px thumbnail, min-side (WebP)"
+          },
+          "variant_64_url": {
+            "type": "string",
+            "format": "uri",
+            "readOnly": true,
+            "description": "64px thumbnail, min-side (WebP)"
+          },
+          "variant_120_url": {
+            "type": "string",
+            "format": "uri",
+            "readOnly": true,
+            "description": "120px thumbnail, min-side (WebP)"
+          },
+          "variant_160_url": {
+            "type": "string",
+            "format": "uri",
+            "readOnly": true,
+            "description": "160px preview, w-branch (WebP)"
+          },
+          "variant_240_url": {
+            "type": "string",
+            "format": "uri",
+            "readOnly": true,
+            "description": "240px preview, w-branch (WebP)"
+          },
+          "variant_480_url": {
+            "type": "string",
+            "format": "uri",
+            "readOnly": true,
+            "description": "480px preview, w-branch (WebP)"
+          },
+          "variant_560_url": {
+            "type": "string",
+            "format": "uri",
+            "readOnly": true,
+            "description": "560px preview, w-branch (WebP)"
+          },
+          "variant_720_url": {
+            "type": "string",
+            "format": "uri",
+            "readOnly": true,
+            "description": "720px preview, w-branch (WebP)"
+          },
+          "variant_1080_url": {
+            "type": "string",
+            "format": "uri",
+            "readOnly": true,
+            "description": "1080px preview, w-branch (WebP)"
+          },
+          "variant_1440_url": {
+            "type": "string",
+            "format": "uri",
+            "readOnly": true,
+            "description": "1440px 2K (WebP)"
+          },
+          "variant_2160_url": {
+            "type": "string",
+            "format": "uri",
+            "readOnly": true,
+            "description": "2160px 4K (WebP)"
+          },
+          "variants_meta": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "tier": {
+                  "type": "integer"
+                },
+                "branch": {
+                  "type": "string",
+                  "enum": [
+                    "w",
+                    "h"
+                  ],
+                  "nullable": true,
+                  "description": "None for thumbnail-class (min-side) tiers."
+                },
+                "url": {
+                  "type": "string"
+                },
+                "width": {
+                  "type": "integer"
+                },
+                "height": {
+                  "type": "integer"
+                }
+              },
+              "required": [
+                "tier",
+                "url",
+                "width",
+                "height"
+              ]
+            },
+            "readOnly": true,
+            "description": "Generated variants with geometry: [{tier, branch, url, width, height}]"
+          },
+          "is_processed": {
+            "type": "boolean",
+            "readOnly": true,
+            "description": "Whether variants have been generated"
+          },
+          "uploaded_by": {
+            "type": "string",
+            "format": "uuid",
+            "readOnly": true,
+            "nullable": true
+          },
+          "uploaded_by_username": {
+            "type": "string",
+            "readOnly": true
+          },
+          "created_at": {
+            "type": "string",
+            "format": "date-time",
+            "readOnly": true
+          },
+          "updated_at": {
+            "type": "string",
+            "format": "date-time",
+            "readOnly": true
+          }
+        },
+        "required": [
+          "created_at",
+          "file_extension",
+          "file_hash",
+          "id",
+          "is_processed",
+          "original_filename",
+          "original_height",
+          "original_size",
+          "original_url",
+          "original_width",
+          "prefix",
+          "type",
+          "updated_at",
+          "uploaded_by",
+          "uploaded_by_username",
+          "variant_1080_url",
+          "variant_120_url",
+          "variant_1440_url",
+          "variant_160_url",
+          "variant_16_url",
+          "variant_2160_url",
+          "variant_240_url",
+          "variant_32_url",
+          "variant_480_url",
+          "variant_560_url",
+          "variant_64_url",
+          "variant_720_url",
+          "variants_meta"
+        ]
+      },
+      "ImageUploadResponse": {
+        "type": "object",
+        "description": "Successful image upload.",
+        "properties": {
+          "image": {
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/Image"
+              }
+            ],
+            "description": "Uploaded image object (serialized by ImageSerializer)"
+          },
+          "message": {
+            "type": "string",
+            "description": "Confirmation message",
+            "example": "Image uploaded successfully"
+          }
+        },
+        "required": [
+          "image",
+          "message"
+        ]
+      },
+      "RefSyncRequest": {
+        "type": "object",
+        "description": "CDN reference sync request.",
+        "properties": {
+          "service": {
+            "type": "string",
+            "description": "Service name",
+            "example": "auth"
+          },
+          "entity_type": {
+            "type": "string",
+            "description": "Entity type",
+            "example": "profile"
+          },
+          "entity_id": {
+            "type": "string",
+            "description": "Entity identifier",
+            "example": 464
+          },
+          "old_hashes": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "Previous media references",
+            "example": [
+              "product/hash1",
+              "product/hash2"
+            ]
+          },
+          "new_hashes": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "Current media references",
+            "example": [
+              "product/hash2",
+              "product/hash3"
+            ]
+          }
+        },
+        "required": [
+          "entity_id",
+          "entity_type",
+          "new_hashes",
+          "old_hashes",
+          "service"
+        ]
+      },
+      "RefSyncResponse": {
+        "type": "object",
+        "description": "CDN reference sync result.",
+        "properties": {
+          "added": {
+            "type": "integer",
+            "description": "Number of refs added",
+            "example": 1
+          },
+          "removed": {
+            "type": "integer",
+            "description": "Number of refs removed",
+            "example": 1
+          },
+          "errors": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "List of unresolved media references",
+            "example": [
+              "product/nonexistent"
+            ]
+          }
+        },
+        "required": [
+          "added",
+          "errors",
+          "removed"
+        ]
+      },
+      "StapelError": {
+        "type": "object",
+        "description": "Structured error returned by all Stapel API endpoints.",
+        "properties": {
+          "localizable_error": {
+            "type": "string",
+            "description": "Translation key for client-side localization",
+            "example": "error.404.not_found"
+          },
+          "error": {
+            "type": "string",
+            "description": "Human-readable fallback/debug message — not reliably English,"
+          },
+          "params": {
+            "type": "object",
+            "additionalProperties": {},
+            "description": "Context values for template placeholders",
+            "example": {
+              "retry_after": 30
+            }
+          },
+          "error_language": {
+            "type": "string",
+            "description": "Active Django locale `error` was rendered in (e.g"
+          }
+        },
+        "required": [
+          "error",
+          "localizable_error"
+        ]
+      },
+      "TypeEnum": {
+        "enum": [
+          "avatar"
+        ],
+        "type": "string",
+        "description": "* `avatar` - Avatar"
+      },
+      "Video": {
+        "type": "object",
+        "description": "Serializer for Video model.",
+        "properties": {
+          "id": {
+            "type": "integer",
+            "readOnly": true
+          },
+          "file_hash": {
+            "type": "string",
+            "readOnly": true,
+            "description": "SHA-256 hash of the original file"
+          },
+          "original_filename": {
+            "type": "string",
+            "maxLength": 255
+          },
+          "file_extension": {
+            "type": "string",
+            "maxLength": 10
+          },
+          "original_width": {
+            "type": "integer",
+            "readOnly": true,
+            "nullable": true
+          },
+          "original_height": {
+            "type": "integer",
+            "readOnly": true,
+            "nullable": true
+          },
+          "original_size": {
+            "type": "integer",
+            "readOnly": true,
+            "description": "File size in bytes"
+          },
+          "duration": {
+            "type": "number",
+            "format": "double",
+            "readOnly": true,
+            "nullable": true,
+            "description": "Duration in seconds"
+          },
+          "original_url": {
+            "type": "string",
+            "format": "uri",
+            "readOnly": true
+          },
+          "variant_16p_url": {
+            "type": "string",
+            "format": "uri",
+            "readOnly": true
+          },
+          "variant_32p_url": {
+            "type": "string",
+            "format": "uri",
+            "readOnly": true
+          },
+          "variant_240p_url": {
+            "type": "string",
+            "format": "uri",
+            "readOnly": true
+          },
+          "variant_480p_url": {
+            "type": "string",
+            "format": "uri",
+            "readOnly": true
+          },
+          "variant_720p_url": {
+            "type": "string",
+            "format": "uri",
+            "readOnly": true
+          },
+          "variant_1080p_url": {
+            "type": "string",
+            "format": "uri",
+            "readOnly": true
+          },
+          "variant_2160p_url": {
+            "type": "string",
+            "format": "uri",
+            "readOnly": true
+          },
+          "is_processed": {
+            "type": "boolean",
+            "readOnly": true,
+            "description": "Whether variants have been generated"
+          },
+          "uploaded_by": {
+            "type": "string",
+            "format": "uuid",
+            "readOnly": true,
+            "nullable": true
+          },
+          "uploaded_by_username": {
+            "type": "string",
+            "readOnly": true
+          },
+          "created_at": {
+            "type": "string",
+            "format": "date-time",
+            "readOnly": true
+          },
+          "updated_at": {
+            "type": "string",
+            "format": "date-time",
+            "readOnly": true
+          }
+        },
+        "required": [
+          "created_at",
+          "duration",
+          "file_extension",
+          "file_hash",
+          "id",
+          "is_processed",
+          "original_filename",
+          "original_height",
+          "original_size",
+          "original_url",
+          "original_width",
+          "updated_at",
+          "uploaded_by",
+          "uploaded_by_username",
+          "variant_1080p_url",
+          "variant_16p_url",
+          "variant_2160p_url",
+          "variant_240p_url",
+          "variant_32p_url",
+          "variant_480p_url",
+          "variant_720p_url"
+        ]
+      },
+      "VideoUploadResponse": {
+        "type": "object",
+        "description": "Successful video upload.",
+        "properties": {
+          "video": {
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/Video"
+              }
+            ],
+            "description": "Uploaded video object (serialized by VideoSerializer)"
+          },
+          "message": {
+            "type": "string",
+            "description": "Confirmation message",
+            "example": "Video uploaded successfully"
+          }
+        },
+        "required": [
+          "message",
+          "video"
+        ]
+      }
+    },
+    "securitySchemes": {
+      "JWTCookieAuth": {
+        "type": "apiKey",
+        "in": "cookie",
+        "name": "stapel_jwt",
+        "description": "JWT token stored in cookie. Login via /auth/admin/ to get the cookie."
+      }
+    }
+  }
+}

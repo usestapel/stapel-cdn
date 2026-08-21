@@ -2,6 +2,7 @@
 Serializers for stapel-cdn service.
 """
 
+from drf_spectacular.extensions import OpenApiSerializerFieldExtension
 from drf_spectacular.types import OpenApiTypes
 from drf_spectacular.utils import extend_schema_field
 from rest_framework import serializers
@@ -18,6 +19,71 @@ from .dto import (
 )
 from .errors import ERR_400_FILE_TYPE_NOT_ALLOWED
 from .models import File, Image, Video
+
+
+class VariantsMetaField(serializers.JSONField):
+    """``[{tier, branch, url, width, height}]`` — fixed-shape per-variant geometry.
+
+    Unlike Feature/config-style polymorphic fields elsewhere in the fleet,
+    ``Image.variants_meta`` (models.py) has ONE shape, not a `type`-keyed
+    union — so it is typed directly as an array of objects rather than a
+    discriminated ``oneOf`` (A1 delta: typed instead of the bare `JSONField`
+    this endpoint shipped with).
+    """
+
+
+class VariantsMetaFieldExtension(OpenApiSerializerFieldExtension):
+    target_class = VariantsMetaField
+
+    def map_serializer_field(self, auto_schema, direction):
+        return {
+            "type": "array",
+            "items": {
+                "type": "object",
+                "properties": {
+                    "tier": {"type": "integer"},
+                    "branch": {
+                        "type": "string",
+                        "enum": ["w", "h"],
+                        "nullable": True,
+                        "description": "None for thumbnail-class (min-side) tiers.",
+                    },
+                    "url": {"type": "string"},
+                    "width": {"type": "integer"},
+                    "height": {"type": "integer"},
+                },
+                "required": ["tier", "url", "width", "height"],
+            },
+        }
+
+
+class FileResultField(serializers.JSONField):
+    """``ImageSerializer | VideoSerializer | FileModelSerializer`` result.
+
+    The concrete shape is picked by a SIBLING field in the same envelope
+    (``FileExistsResponse.type == "image"|"video"|"file"``, views.py
+    ``_exists_response``), not by a key inside this object itself — so
+    unlike ``FeatureDto``/``FeatureConfig`` elsewhere in the fleet, this
+    cannot carry an OpenAPI ``discriminator`` (that requires the
+    discriminating property to live inside the oneOf'd object). A plain
+    ``oneOf`` of the three concrete serializers is still real typing, not
+    the `any` a bare ``JSONField`` described before.
+    """
+
+
+class FileResultFieldExtension(OpenApiSerializerFieldExtension):
+    target_class = FileResultField
+
+    def map_serializer_field(self, auto_schema, direction):
+        # Referenced by name, resolved when the schema is actually built
+        # (well after this module finishes importing) — ImageSerializer is
+        # defined above, FileModelSerializer below; forward references are
+        # fine here because none of this runs at class-body-eval time.
+        refs = []
+        for serializer_class in (ImageSerializer, VideoSerializer, FileModelSerializer):
+            component = auto_schema.resolve_serializer(serializer_class, direction)
+            refs.append({"$ref": f"#/components/schemas/{component.name}"})
+        return {"oneOf": refs, "nullable": True}
 
 
 class ImageSerializer(serializers.ModelSerializer):
@@ -46,7 +112,7 @@ class ImageSerializer(serializers.ModelSerializer):
     variant_560_url = serializers.URLField(read_only=True, help_text="560px preview, w-branch (WebP)")
     variant_720_url = serializers.URLField(read_only=True, help_text="720px preview, w-branch (WebP)")
     variant_1080_url = serializers.URLField(read_only=True, help_text="1080px preview, w-branch (WebP)")
-    variants_meta = serializers.JSONField(
+    variants_meta = VariantsMetaField(
         read_only=True,
         help_text="Generated variants with geometry: [{tier, branch, url, width, height}]",
     )
@@ -271,7 +337,7 @@ class VideoUploadResponseSerializer(StapelDataclassSerializer):
 class FileExistsResponseSerializer(StapelDataclassSerializer):
     """Response for file existence check."""
 
-    file = serializers.JSONField(
+    file = FileResultField(
         allow_null=True,
         help_text="File details (ImageSerializer or VideoSerializer) if found, null otherwise",
     )
@@ -289,6 +355,17 @@ class FileModelSerializer(serializers.ModelSerializer):
     )
     uploaded_by_username = serializers.CharField(
         source="uploaded_by.username", read_only=True
+    )
+    # ModelSerializer has no source override for `refs` (models.py "List of
+    # references: service/entity_type/entity_id"), so without this explicit
+    # declaration it falls back to a bare untyped JSONField in the OpenAPI
+    # schema (contract-pipeline.md A1 — typed where typeable, no free-form
+    # blob for something that is, in fact, `list[str]`). Same
+    # required/read-only-ness as the auto-generated field it replaces
+    # (blank=True on the model -> required=False, not otherwise read-only).
+    refs = serializers.ListField(
+        child=serializers.CharField(), required=False,
+        help_text="List of references: service/entity_type/entity_id",
     )
 
     class Meta:

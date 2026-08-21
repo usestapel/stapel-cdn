@@ -6,6 +6,51 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+## 0.12.0 — 2026-08-22
+
+**This module now emits its own contract triad.** `docs/schema.json`,
+`docs/flows.json` and `docs/errors.json` did not exist before this release —
+the Makefile said so out loud, and `tests/test_capabilities_contract.py`
+called stapel-cdn "the one module with no schema/flows/errors emitter" —
+which blocked the react codegen pipeline (`gen:api`/`gen:errors`/
+`gen:manifest`) for any `-react` pair generated against this module
+(darom-storefront-design.md §1.8, §3.10, A1).
+
+### Added
+
+- `_codegen.py` + `_codegen_settings.py` + `codegen_urls.py`: a
+  single-module `{cdn + core}` Django harness that emits
+  `docs/{schema,flows,errors}.json` at the canonical `/cdn/api/v1` prefix,
+  the same mechanism stapel-search/-chat/-forms already use. `make
+  contract` / `make contract-check` now cover the triad in addition to the
+  existing `surface`/`docs/llms.txt` gates. `docs/capabilities.json`'s
+  `provides`/`axes`/`extension_points`/`requires` stay hand-authored — a
+  full generator for that document is a separate, tracked project.
+- `docs/schema.json` (8 paths — `error-keys/` stays undescribed on purpose,
+  the stapel-translate collector's internal listing, not a product route),
+  `docs/flows.json` (`[]` — no `@flow` is declared yet, same state as every
+  other contract-complete module today), `docs/errors.json` (53 keys: 11
+  owned by this module, the rest inherited from stapel-core).
+- `tests/test_contract.py`: every mounted route is described in
+  `docs/schema.json`; every `CDN_ERRORS` code is declared with the
+  correct `owner`.
+
+### Changed
+
+- **Dependency floor:** `stapel-core>=0.24.0` → `>=0.26.0`. Emission needs
+  `generate_error_keys`'s `owner` field on every entry (0.26.0+); on 0.24.0
+  the key was missing outright rather than carrying `owner: null`, and the
+  new drift gate requires it.
+- Three fields that used to fall back to an untyped `JSONField` now declare
+  their real shape: `Image.variants_meta` is `array[{tier, branch, url,
+  width, height}]` (one fixed shape, not a polymorphic union — models.py
+  already documented it precisely); `FileExistsResponse.file` is a `oneOf`
+  of `Image`/`Video`/`FileModel` (the concrete type is a sibling `type`
+  field in the same envelope, so it can't carry an OpenAPI
+  `discriminator`, but `oneOf` alone is still real typing); `FileModel.refs`
+  is `array[string]` (opaque `service/entity_type/entity_id` ref keys).
+  Response bytes are unchanged; only the declared OpenAPI type is.
+
 ## 0.11.0 — 2026-08-14
 
 ### Security — the video intake gets the bounds every other intake already had
