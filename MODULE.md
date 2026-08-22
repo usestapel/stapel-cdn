@@ -215,6 +215,22 @@ zero decorators added.
   redelivery (outbox retries, at-least-once broker semantics).
 - **Reading flat `CDN_*` settings.** The legacy flat aliases are gone; code reads
   `cdn_settings.<KEY>` so the namespace dict, env vars and test overrides all work.
+- **Expecting a public "read media by ref" HTTP endpoint.** `file/exists/`
+  filters `uploaded_by=request.user` unconditionally (`views.FileExistsView.
+  _exists_response`) — it answers "does *my* upload have these bytes?" for
+  dedup-checking, not "describe this ref" for an arbitrary owner, and
+  `refs/sync/` is `IsServiceRequest`, unreachable from a browser. This is
+  deliberate, not a missing route: a consumer that needs another principal's
+  media metadata resolves it **server-side**, at write time, via the comm
+  functions (`cdn.describe` / `cdn.media_exists`) and denormalizes what it
+  needs (`variants_meta`, `prefix`, dimensions) into its own API response —
+  the same pattern `RefSyncView` already uses for reference bookkeeping. The
+  original bytes/variants are still fetched directly off the public media
+  route by URL (`Image.variant_urls` / `get_variant_url`), subject only to
+  `PRIVATE_MEDIA_PREFIX`; nothing about that requires an authenticated
+  lookup. Do not invent a `GET /media/<ref>/` metadata endpoint or widen
+  `file/exists/`'s scope to work around this — route the resolution through
+  the owning service's own API instead.
 
 ## App-layer override vs upstream contribution — rule of thumb
 

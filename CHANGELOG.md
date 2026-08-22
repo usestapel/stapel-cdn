@@ -6,6 +6,58 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+## 0.13.0 — 2026-08-22
+
+**`POST /upload/image/` and `POST /images/product/upload/` now agree on
+"product."** The generic endpoint stored `type="product"` unconditionally,
+never checking it against `STAPEL_CDN["ASSET_TYPES"]` the way
+`TypedImageUploadView` already does for its caller-chosen type. On the
+shipped default (`ASSET_TYPES = ("avatar",)` only), that meant a POST to
+`/upload/image/` created an `Image` row whose `type` wasn't a member of its
+own model's choices — and wasn't a member of `docs/schema.json`'s
+`TypeEnum` either, which is generated from the same setting — while a POST
+of the identical string to `/images/product/upload/` correctly 400'd. One
+endpoint silently accepted what the other, correctly, refused.
+
+### Fixed
+
+- `ImageUploadView.post` now validates `"product"` against
+  `STAPEL_CDN["ASSET_TYPES"]` before touching the upload, the same guard
+  `TypedImageUploadView` runs for its `image_type` path parameter —
+  `error.400.invalid_image_type` on a deployment that never added
+  `"product"`. This package's own default library, config-driven `ASSET_TYPES`
+  (conf.py) was always the intended single source of truth for what
+  `Image.type` may hold (MODULE.md: "`TypedImageUploadView` and
+  `RandomImageView` validate against it"); the generic endpoint was the one
+  path that didn't. The enum wasn't stale — the view was.
+- `413` was returned by the three image upload endpoints
+  (`ImageUploadView`, `AvatarUploadView`, `TypedImageUploadView`) whenever
+  `STAPEL_CDN["MAX_IMAGE_SIZE"]` was exceeded, but only `VideoUploadView`
+  declared it in `responses`. All three now declare `413` alongside `400`/
+  `401`/`500`, matching what they already return.
+
+### Docs
+
+- MODULE.md anti-patterns: documented, explicitly, that `file/exists/`'s
+  owner-scoping (`uploaded_by=request.user`, unconditional) and
+  `refs/sync/`'s `IsServiceRequest` are deliberate — there is no public
+  "read media by ref" HTTP surface, by design. A consumer that needs
+  another principal's media metadata resolves it server-side via
+  `cdn.describe`/`cdn.media_exists` and denormalizes into its own response
+  (the pattern `@stapel/cdn-react` already had to work around by treating
+  refs as opaque strings — darom-storefront-design.md §13.6 item 10). Raw
+  bytes/variants stay reachable over the public media route by URL
+  regardless, subject only to `PRIVATE_MEDIA_PREFIX`.
+
+**Upgrade note.** A deployment that has been relying on `/upload/image/`
+silently storing `type="product"` **without** `"product"` in
+`STAPEL_CDN["ASSET_TYPES"]` now gets `400 error.400.invalid_image_type`
+from that endpoint instead. Add `"product"` (or whatever value that
+deployment uses) to `ASSET_TYPES` to keep the endpoint working — the
+existing rows are unaffected, and any deployment that already configured
+`ASSET_TYPES` to include it (as this package's own test suite always has)
+sees no behavior change at all.
+
 ## 0.12.0 — 2026-08-22
 
 **This module now emits its own contract triad.** `docs/schema.json`,

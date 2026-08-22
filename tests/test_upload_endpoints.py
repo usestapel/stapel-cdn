@@ -344,13 +344,74 @@ class TestTypedImageUploadView:
 
 
 @pytest.mark.django_db
+class TestImageUploadTypeReconciliation:
+    """`/upload/image/`'s fixed "product" type is one ASSET_TYPES value like
+    any other — it must be accepted/rejected the same way
+    `/images/product/upload/` accepts/rejects that identical string, on
+    whatever ASSET_TYPES a deployment configures. Regression coverage for
+    the shipped-default gap: ASSET_TYPES defaults to ``("avatar",)`` only
+    (conf.py), a scope this package's own test settings paper over with
+    ``("avatar", "product")`` (conftest.py) — reproduced here explicitly.
+    """
+
+    url = '/cdn/api/v1/upload/image/'
+    typed_url = '/cdn/api/v1/images/product/upload/'
+
+    def test_rejected_on_a_default_asset_types_deployment(self, authenticated_client):
+        with override_settings(STAPEL_CDN={'ASSET_TYPES': ('avatar',)}):
+            response = authenticated_client.post(
+                self.url, {'file': make_image_upload()}, format='multipart'
+            )
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        assert response.data['error'] == 'Invalid image type'
+        assert Image.objects.count() == 0
+
+    def test_agrees_with_the_typed_endpoint_for_the_same_string(self, authenticated_client):
+        """Whatever ASSET_TYPES says about "product", both endpoints say the
+        same thing about it — never one 201 and the other 400 for identical
+        bytes and an identical type string."""
+        for asset_types in [('avatar',), ('avatar', 'product')]:
+            with override_settings(STAPEL_CDN={'ASSET_TYPES': asset_types}):
+                generic = authenticated_client.post(
+                    self.url, {'file': make_image_upload(color='teal')}, format='multipart'
+                )
+                typed = authenticated_client.post(
+                    self.typed_url,
+                    {'file': make_image_upload('t.jpg', color='maroon')},
+                    format='multipart',
+                )
+            assert (generic.status_code == status.HTTP_400_BAD_REQUEST) == (
+                typed.status_code == status.HTTP_400_BAD_REQUEST
+            ), (asset_types, generic.status_code, typed.status_code)
+
+    def test_accepted_once_product_is_configured(self, authenticated_client, user):
+        # Covered implicitly by every other test in this module (conftest's
+        # package-wide ASSET_TYPES override) — spelled out here once, next to
+        # the rejection case above, so the two outcomes read as one behavior.
+        response = authenticated_client.post(
+            self.url, {'file': make_image_upload(color='gold')}, format='multipart'
+        )
+        assert response.status_code == status.HTTP_201_CREATED
+        assert response.data['image']['type'] == 'product'
+        image = Image.objects.get(id=response.data['image']['id'])
+        assert image.uploaded_by == user
+
+
+@pytest.mark.django_db
 class TestImageUploadValidationMatrix:
     """Validation matrix for image uploads: size, extension, content, bombs."""
 
     url = '/cdn/api/v1/upload/image/'
 
     def test_oversize_rejected_with_413(self, authenticated_client):
-        with override_settings(STAPEL_CDN={'MAX_IMAGE_SIZE': 10}):
+        # ASSET_TYPES carried over explicitly: STAPEL_CDN overrides REPLACE
+        # the whole dict (Django's override_settings does not merge), so
+        # dropping it here would fall back to the shipped ("avatar",) default
+        # and 400 on ImageUploadView's own "product" type check before ever
+        # reaching the size cap this test means to exercise.
+        with override_settings(
+            STAPEL_CDN={'MAX_IMAGE_SIZE': 10, 'ASSET_TYPES': ('avatar', 'product')}
+        ):
             response = authenticated_client.post(
                 self.url, {'file': make_image_upload('big.jpg')}, format='multipart'
             )
@@ -386,7 +447,10 @@ class TestImageUploadValidationMatrix:
         bomb = SimpleUploadedFile(
             'bomb.png', make_image_bytes(100, 100, fmt='PNG'), content_type='image/png'
         )
-        with override_settings(STAPEL_CDN={'MAX_IMAGE_PIXELS': 1000}):
+        # See test_oversize_rejected_with_413 above re: ASSET_TYPES carry-over.
+        with override_settings(
+            STAPEL_CDN={'MAX_IMAGE_PIXELS': 1000, 'ASSET_TYPES': ('avatar', 'product')}
+        ):
             response = authenticated_client.post(self.url, {'file': bomb}, format='multipart')
         assert response.status_code == status.HTTP_400_BAD_REQUEST
         assert response.data['error'] == 'Unsupported file format'

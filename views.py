@@ -237,6 +237,12 @@ class ImageUploadView(SerializerSeamMixin, APIView):
 
 **Maximum file size:** `STAPEL_CDN["MAX_IMAGE_SIZE"]`, 20MB by default.
 Enforced before the body is hashed; over it the answer is 413.
+
+**Stored type:** `"product"` — one value from `STAPEL_CDN["ASSET_TYPES"]`,
+same as any type `TypedImageUploadView` accepts. The zero-infra default is
+`("avatar",)` only (see `ASSET_TYPES` in CONFIG.MD), so a deployment that
+never added `"product"` gets a 400 here, exactly as
+`/images/product/upload/` already does for that string.
 """,
         request=FileUploadSerializer,
         responses={
@@ -244,6 +250,7 @@ Enforced before the body is hashed; over it the answer is 413.
             200: ImageUploadResponseSerializer,
             400: StapelErrorSerializer,
             401: StapelErrorSerializer,
+            413: StapelErrorSerializer,
             500: StapelErrorSerializer,
         },
         examples=[
@@ -283,6 +290,17 @@ Enforced before the body is hashed; over it the answer is 413.
         Upload an image file.
         Variants are automatically generated via Django signals.
         """
+        # This endpoint's type is fixed rather than caller-chosen (see
+        # TypedImageUploadView for that), but "product" is still one value
+        # from STAPEL_CDN["ASSET_TYPES"] like any other choice on the model —
+        # it must be validated the same way, or a zero-infra deployment
+        # (ASSET_TYPES defaults to ("avatar",) only) would silently store an
+        # image whose type isn't in its own choices, while
+        # /images/product/upload/ 400s for that identical string.
+        valid_types = [choice[0] for choice in get_image_type_choices()]
+        if "product" not in valid_types:
+            return StapelErrorResponse(400, ERR_400_INVALID_IMAGE_TYPE)
+
         serializer = self.get_request_serializer_class()(data=request.data)
         serializer.is_valid(raise_exception=True)
 
@@ -669,6 +687,7 @@ Enforced before the body is hashed; over it the answer is 413.
             200: ImageUploadResponseSerializer,
             400: StapelErrorSerializer,
             401: StapelErrorSerializer,
+            413: StapelErrorSerializer,
             500: StapelErrorSerializer,
         },
     )
@@ -770,6 +789,7 @@ Enforced before the body is hashed; over it the answer is 413.
             200: ImageUploadResponseSerializer,
             400: StapelErrorSerializer,
             401: StapelErrorSerializer,
+            413: StapelErrorSerializer,
             500: StapelErrorSerializer,
         },
     )
