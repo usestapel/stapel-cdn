@@ -11,7 +11,7 @@ tests/test_capabilities_surface.py), specifically so the version field can't
 rot again.
 
 This module DOES now emit the contract TRIAD proper — docs/{schema,flows,
-errors}.json, via ``stapel_cdn._codegen`` (A1, darom-storefront-design.md
+errors}.json, via ``stapel_cdn._codegen`` (A1, the storefront spec
 §1.8/§3.10) — see tests/test_contract.py for that gate. It is
 ``docs/capabilities.json`` alone that stays hand-authored beyond
 module/version/surface.

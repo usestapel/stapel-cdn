@@ -8,7 +8,7 @@ prefix (see ``_codegen_settings.py`` / ``codegen_urls.py``):
   docs/flows.json    generate_flow_docs machine artifact
   docs/errors.json   generate_error_keys registry (the per-module etalon)
 
-stapel-cdn is mounted in stapel-example-monolith and darom-fleet, but there
+stapel-cdn is mounted in stapel-example-monolith and client fleets, but there
 is no aggregate slice diffed against this artifact for byte-identity —
 validation is standalone (determinism + closure + canonical prefix), see
 ``tests/test_contract.py``.

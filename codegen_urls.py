@@ -4,7 +4,7 @@ Unlike stapel-forms/-chat/-search (whose own ``urls.py`` bakes the full
 ``api/v1/`` segment in), stapel-cdn's ``urls.py`` contributes only the
 mandatory ``v1/`` sub-prefix and documents that the HOST mounts it under its
 own ``.../api/`` prefix — exactly what stapel-example-monolith and
-darom-fleet already do: ``path("cdn/api/", include("stapel_cdn.urls"))``.
+a client fleet already do: ``path("cdn/api/", include("stapel_cdn.urls"))``.
 Mirrored here: ``cdn/api/`` + the module's own ``v1/`` gives the canonical
 ``/cdn/api/v1/…`` prefix.
 

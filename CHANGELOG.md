@@ -45,7 +45,7 @@ endpoint silently accepted what the other, correctly, refused.
   another principal's media metadata resolves it server-side via
   `cdn.describe`/`cdn.media_exists` and denormalizes into its own response
   (the pattern `@stapel/cdn-react` already had to work around by treating
-  refs as opaque strings — darom-storefront-design.md §13.6 item 10). Raw
+  refs as opaque strings — the storefront spec §13.6 item 10). Raw
   bytes/variants stay reachable over the public media route by URL
   regardless, subject only to `PRIVATE_MEDIA_PREFIX`.
 
@@ -66,7 +66,7 @@ the Makefile said so out loud, and `tests/test_capabilities_contract.py`
 called stapel-cdn "the one module with no schema/flows/errors emitter" —
 which blocked the react codegen pipeline (`gen:api`/`gen:errors`/
 `gen:manifest`) for any `-react` pair generated against this module
-(darom-storefront-design.md §1.8, §3.10, A1).
+(the storefront spec §1.8, §3.10, A1).
 
 ### Added
 
