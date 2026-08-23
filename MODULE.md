@@ -79,8 +79,10 @@ See `CONFIG.MD` for the complete registry (source/required/default per key). Hig
 |---|---|---|
 | `ASSET_TYPES` | `("avatar",)` | `Image.type` choices — **same `STAPEL_CDN` key the client-side `stapel_core.django.cdn.CdnImageField` reads** (cdn-modularity.md §2.1/§5, replacing the pre-0.8.0 `IMAGE_TYPES` key). Read through the callable `models.get_image_type_choices`, so adding types never produces a model/migration change. Accepts `(value, label)` pairs or plain strings. `TypedImageUploadView` and `RandomImageView` validate against it. Values must fit `max_length=10`. |
 | `ENABLED_SUBMODULES` | `("images",)` | Which of `images`/`video`/`recordings` this deployment turns on. `images` needs no opt-in (its system check always runs); adding `"video"`/`"recordings"` is what activates `checks.check_submodule_binaries`'s ffmpeg probe for that submodule. |
-| `THUMBNAIL_SIZES` | `(16, 32, 64, 120)` | Thumbnail tiers: min-side resize, no branches, no watermark, high-priority queue. 16 is the micro tier inlined as `preview_b64` by `cdn.describe`. |
-| `PREVIEW_SIZES` | `(160, 240, 480, 560, 720, 1080)` | Preview tiers: two branches per tier (`{T}w.webp` / `{T}h.webp`), watermark-capable, normal-priority queue. |
+| `THUMBNAIL_SIZES` | `(16, 32, 64, 120)` | Thumbnail tiers: min-side resize, no branches, no watermark. 16 is the micro tier inlined as `preview_b64` by `cdn.describe`. |
+| `PREVIEW_SIZES` | `(160, 240, 480, 560, 720, 1080)` | Preview tiers: two branches per tier (`{T}w.webp` / `{T}h.webp`), watermark-capable. |
+| `THUMBNAILS_QUEUE` / `PREVIEWS_QUEUE` | `None` | Celery queue each variant-generation task is sent on. `None` sends **no** `queue` option, so the task lands on the app's own default queue and a vanilla single-queue worker drains it. Set them only in a fleet that shards queues per service. See *Background work* below. |
+| `RETRY_UNPROCESSED_SCHEDULE` | `{"minute": "*/5"}` | Crontab kwargs for the `retry_unprocessed` safety net, consumed by `tasks.get_cdn_beat_schedule()`. |
 | `MAX_IMAGE_SIZE` | `20 * 1024 * 1024` (20 MiB) | Upload size cap, checked before hashing. |
 | `ALLOWED_IMAGE_EXTENSIONS` | `.jpg .jpeg .png .gif .webp .bmp .heic .heif` | Image extension allowlist in views, serializers and `validate_image_file`. |
 | `ALLOWED_VIDEO_EXTENSIONS` | `.mp4 .webm .mov .avi .mkv` | Video extension allowlist (`FileUploadSerializer`, `VideoUploadView`). |
@@ -201,6 +203,24 @@ Rules the subscriber keeps:
 - **Co-location.** The probe is answered from this same module, which is what
   makes gdpr's `W006` evidence that the erasure path is *consumed* rather
   than that a container is deployed.
+
+### Background work — queues, the beat entry, and `variants_status`
+
+`tasks.py` sends two messages per upload (`generate_thumbnails`,
+`generate_previews`). Through 0.14 both were pinned to literal queue names
+(`thumbnails`, `previews`) inside the task decorator. That is the whole story of
+a live incident: a deployment that shards work per service by setting
+`CELERY_TASK_DEFAULT_QUEUE` ran **zero** consumers on those two names, and
+because every `variant_<size>_url` is derived from `<type>/<hash>` rather than
+from a file on disk, the upload still answered `201` with the full ladder — a
+201 whose URLs 404 forever.
+
+| Seam | What a host does |
+|---|---|
+| `STAPEL_CDN["THUMBNAILS_QUEUE"]` / `["PREVIEWS_QUEUE"]` | Leave unset for a single-queue worker (the tasks then carry no `queue` option at all). Set them to the names your workers consume (`-Q`) in a sharded fleet. Resolved per send, so `override_settings` works in tests. |
+| `tasks.get_cdn_beat_schedule()` | `CELERY_BEAT_SCHEDULE = {**get_cdn_beat_schedule(), ...}` — schedules `retry_unprocessed`, which re-queues images stuck at `is_processed=False`. Cadence from `RETRY_UNPROCESSED_SCHEDULE`. Nothing schedules itself. |
+| `checks.W008` (`stapel_cdn.tasks.W008`) | Warns when those settings name a queue that no Django-visible setting (`CELERY_TASK_QUEUES`, `CELERY_TASK_DEFAULT_QUEUE`, `CELERY_TASK_ROUTES`) mentions. It cannot read your compose file — proving a worker exists in the deploy is ADO-class and lives in stapel-tools (`stapel-adoption-lint`). |
+| `Image.variants_status` / `variants_ready_at` | Read-only on `ImageSerializer`: `"pending"` until `generate_previews` succeeds, `"ready"` after. A consumer must gate on this before rendering a `variant_*_url`. `variants_status` is derived from `is_processed` (one fact, one owner); `variants_ready_at` is the stamped moment, null while pending. |
 
 ### Signals
 

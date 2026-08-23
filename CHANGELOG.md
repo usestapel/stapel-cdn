@@ -6,6 +6,78 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+## 0.15.0 — 2026-08-24
+
+**A 201 whose URLs 404 forever.** Two defects, one live incident: a fleet's
+image pipeline was dead and nothing — not a log line, not a status field, not
+a boot check — said so. The upload endpoint answered `201 Created` with the
+complete ladder of `variant_*_url`s, because those URLs are computed from
+`<type>/<hash>` and exist as strings the instant the row does. The worker that
+was supposed to write the files behind them was never listening.
+
+### Fixed — the variant queues were literals nobody could see
+
+`tasks.py` decorated its two generation tasks `@shared_task(queue="thumbnails")`
+and `@shared_task(queue="previews")`. Those strings were the entire routing
+policy of this library, unreachable from any setting. A deployment that shards
+work per service by setting `CELERY_TASK_DEFAULT_QUEUE` — the ordinary way to
+shard, one worker per queue — had **zero consumers** on either name. Messages
+were published and never delivered; the images stayed unprocessed forever.
+
+- **`STAPEL_CDN["THUMBNAILS_QUEUE"]` / `["PREVIEWS_QUEUE"]`** (default `None`).
+  `None` is not "queue named None": the send carries **no** `queue` option at
+  all, so the task lands on the app's own default queue and a vanilla
+  `celery -A app worker` drains it with zero configuration. A fleet that shards
+  sets the names its workers consume. Resolved per send, not at import — a
+  value frozen at decoration time could neither see a host's final settings nor
+  be overridden in a test.
+- Sends now go through `apply_async` (`.delay` cannot carry a queue option).
+  The registered task names are unchanged and pinned explicitly
+  (`THUMBNAILS_TASK_NAME`, `PREVIEWS_TASK_NAME`, `RETRY_TASK_NAME`), so a
+  deployment's existing `task_routes` keeps matching.
+- **`checks.W008`** (`stapel_cdn.tasks.W008`) warns when those settings name a
+  queue that nothing Django-visible corroborates — `CELERY_TASK_QUEUES`,
+  `CELERY_TASK_DEFAULT_QUEUE`, `CELERY_TASK_ROUTES`. It is deliberately narrow
+  and says so: a library cannot read a compose file, a systemd unit or a
+  worker's `-Q`, so it reports what it can see and names where the other half
+  lives — ADO-class verification over the deployment, in stapel-tools
+  (`stapel-adoption-lint`), the same family as ADO005. Silent in the default
+  single-queue posture.
+- **`tasks.get_cdn_beat_schedule()`** — the beat entry for `retry_unprocessed`,
+  the safety net that re-queues images stuck at `is_processed=False`. It existed
+  as a periodic task with nothing to schedule it; the cadence is now
+  configuration (`STAPEL_CDN["RETRY_UNPROCESSED_SCHEDULE"]`, default every 5
+  minutes) and a host wires one dict into `CELERY_BEAT_SCHEDULE`.
+
+### Added — `variants_status`, so a response stops claiming what it cannot know
+
+The other half of the same incident: nothing in the 201 distinguished "these
+variants are being generated" from "these variants will never exist". Both
+states serialized identically, down to the byte.
+
+- **`variants_status`** (`"pending"` | `"ready"`) and **`variants_ready_at`**
+  (nullable) on `ImageSerializer` — so they appear on the upload response, on
+  the `already exists` 200, and on every later read of the media ref
+  (`/file-exists/` serializes through the same DTO). `variants_status` is
+  derived from `is_processed` rather than stored beside it: two columns for one
+  fact drift, and the fact already had an owner.
+- `tasks.generate_previews` stamps `variants_ready_at` in the same save that
+  flips `is_processed`. A failed generation leaves both alone — the row stays
+  `pending` rather than advertising a ladder that is not there.
+- New migration `0006_image_variants_ready_at` (additive, nullable, indexed).
+- The endpoint description now tells a consumer to gate on it before rendering
+  a variant URL, and the schema carries the enum. Frontend pairs read it from
+  the contract; nothing in stapel-react changed in this release.
+
+**Widening a shipped DTO is a minor bump under pre-1.0 semver**, hence 0.15.0
+rather than 0.14.1.
+
+**Hosts must:** nothing, if they run a single default-queue worker — that case
+now works where it silently did not. A fleet that shards queues sets
+`STAPEL_CDN["THUMBNAILS_QUEUE"]` / `["PREVIEWS_QUEUE"]` to the names its workers
+consume, and every fleet should wire
+`**stapel_cdn.tasks.get_cdn_beat_schedule()` into `CELERY_BEAT_SCHEDULE`.
+
 ## 0.14.0 — 2026-08-23
 
 **Erasure stops being account-only.** This module was the one data owner in

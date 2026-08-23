@@ -233,6 +233,17 @@ class ImageUploadView(SerializerSeamMixin, APIView):
 - 16px, 32px, 64px, 120px - min-side thumbnails
 - 160px, 240px, 480px, 560px, 720px, 1080px - w/h preview branches
 
+**`variants_status` — read it before you render a variant URL.** Every
+`variant_<size>_url` in this response is derived from `<type>/<hash>`, so
+all of them are present and well-formed in the 201 that creates the row,
+*before* the background task has written a single file. `variants_status`
+is `"pending"` until generation succeeds and `"ready"` afterwards
+(`variants_ready_at` carries the moment, null while pending). A `pending`
+payload's variant URLs are a prediction, not a resource; poll the media ref
+(`/file-exists/`) or fall back to `original_url` until it reads `ready`.
+A row that stays `pending` is a broken pipeline, not a slow one — see
+`checks.W008`.
+
 **Request format:** `multipart/form-data` with `file` field
 
 **Maximum file size:** `STAPEL_CDN["MAX_IMAGE_SIZE"]`, 20MB by default.
@@ -270,6 +281,8 @@ never added `"product"` gets a 400 here, exactly as
                         "original_size": 2048576,
                         "original_url": "/media/cdn/images/original/a1b2c3d4.jpg",
                         "variant_720_url": "/media/cdn/images/720/a1b2c3d4.webp",
+                        "variants_status": "pending",
+                        "variants_ready_at": None,
                         "is_processed": False,
                     },
                 },

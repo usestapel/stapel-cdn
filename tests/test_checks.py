@@ -16,7 +16,9 @@ from stapel_cdn.checks import (
     E002_VIDEO_BINARY_MISSING,
     E003_RECORDINGS_BINARY_MISSING,
     E004_IMAGE_FORMAT_UNDECODABLE,
+    W008_VARIANT_QUEUE_UNPROVEN,
     check_submodule_binaries,
+    check_variant_queues,
 )
 
 
@@ -165,3 +167,73 @@ class TestRecordingsProbeOptIn:
         with override_settings(STAPEL_CDN={"ENABLED_SUBMODULES": ("images", "recordings")}):
             errors = check_submodule_binaries()
         assert not any(e.id == E003_RECORDINGS_BINARY_MISSING for e in errors)
+
+
+class TestVariantQueues:
+    """W008 — the queue names are settings now, and the check is honest.
+
+    The class this closes was live: ``@shared_task(queue="thumbnails")`` and
+    ``queue="previews"`` were literals in ``tasks.py``, a fleet that shards
+    per service ran no worker on either, and every upload answered 201 with a
+    full ladder of variant URLs that 404'd forever.
+    """
+
+    def test_silent_on_the_default_posture(self):
+        # Nothing set: both sends carry no `queue` option, so they land on
+        # the app's own default queue and there is nothing to corroborate.
+        assert check_variant_queues() == []
+
+    @override_settings(STAPEL_CDN={"THUMBNAILS_QUEUE": "thumbnails"})
+    def test_warns_on_a_queue_nothing_corroborates(self):
+        findings = [w for w in check_variant_queues()
+                    if w.id == W008_VARIANT_QUEUE_UNPROVEN]
+        assert len(findings) == 1
+        assert "THUMBNAILS_QUEUE" in findings[0].msg
+        assert "'thumbnails'" in findings[0].msg
+        # Honest about the half it cannot see, and where that half lives.
+        assert "stapel-adoption-lint" in findings[0].hint
+
+    @override_settings(
+        STAPEL_CDN={"THUMBNAILS_QUEUE": "thumbs", "PREVIEWS_QUEUE": "prev"},
+    )
+    def test_reports_both_settings_in_one_finding(self):
+        findings = [w for w in check_variant_queues()
+                    if w.id == W008_VARIANT_QUEUE_UNPROVEN]
+        assert len(findings) == 1
+        assert "'thumbs'" in findings[0].msg and "'prev'" in findings[0].msg
+
+    @override_settings(
+        STAPEL_CDN={"THUMBNAILS_QUEUE": "media"},
+        CELERY_TASK_DEFAULT_QUEUE="media",
+    )
+    def test_silent_when_the_name_is_the_default_queue(self):
+        assert not [w for w in check_variant_queues()
+                    if w.id == W008_VARIANT_QUEUE_UNPROVEN]
+
+    @override_settings(
+        STAPEL_CDN={"PREVIEWS_QUEUE": "prev"},
+        CELERY_TASK_QUEUES=["prev", "other"],
+    )
+    def test_silent_when_declared_in_task_queues(self):
+        assert not [w for w in check_variant_queues()
+                    if w.id == W008_VARIANT_QUEUE_UNPROVEN]
+
+    @override_settings(
+        STAPEL_CDN={"PREVIEWS_QUEUE": "prev"},
+        CELERY_TASK_ROUTES={"stapel_cdn.tasks.generate_previews": {"queue": "prev"}},
+    )
+    def test_silent_when_pinned_in_task_routes(self):
+        assert not [w for w in check_variant_queues()
+                    if w.id == W008_VARIANT_QUEUE_UNPROVEN]
+
+    @override_settings(STAPEL_CDN={"THUMBNAILS_QUEUE": "   "})
+    def test_blank_is_not_a_queue_name(self):
+        assert not [w for w in check_variant_queues()
+                    if w.id == W008_VARIANT_QUEUE_UNPROVEN]
+
+    def test_registered_under_the_module_tag(self):
+        from django.core.checks import registry
+
+        assert check_variant_queues in registry.registry.get_checks(
+            include_deployment_checks=False
+        )

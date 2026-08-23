@@ -159,6 +159,33 @@ DEFAULTS = {
     # the default below and is reported by checks.W007.
     "MAX_OBJECTS_PER_OWNER": 1000,
     "MAX_BYTES_PER_OWNER": 2 * 1024 * 1024 * 1024,
+    # --- celery routing for the variant pipeline -------------------------
+    # Which queue the two variant-generation tasks are sent to.
+    #
+    # None (the default) sends nothing: the task carries no `queue` option and
+    # lands on the app's own default queue, so a vanilla single-queue worker
+    # (`celery -A app worker`) consumes it with no configuration at all.
+    #
+    # These were literals — `@shared_task(queue="thumbnails")` and
+    # `queue="previews")` — baked into tasks.py. Any deployment that shards
+    # work per service by setting CELERY_TASK_DEFAULT_QUEUE (and running one
+    # worker per queue, which is the ordinary way to shard) had zero consumers
+    # on "thumbnails" and "previews". Nothing failed: the upload returned 201
+    # with the full ladder of variant URLs, the messages sat in queues no
+    # process was listening on, and every one of those URLs 404'd forever.
+    # A fleet's image pipeline was dead for as long as it took somebody to
+    # open an avatar.
+    #
+    # A fleet that does shard sets these explicitly to the queue names its
+    # workers consume; `checks.W008` reports the case where they name a queue
+    # this process has no in-process evidence anybody consumes.
+    "THUMBNAILS_QUEUE": None,
+    "PREVIEWS_QUEUE": None,
+    # Cadence of the `retry_unprocessed` safety net, as crontab kwargs, for
+    # hosts that wire `tasks.get_cdn_beat_schedule()` into CELERY_BEAT_SCHEDULE.
+    # The task is what picks up an image whose variant messages were lost;
+    # nothing here schedules itself.
+    "RETRY_UNPROCESSED_SCHEDULE": {"minute": "*/5"},
     # --- generic (non-image, non-video) intake ---------------------------
     # Upload size cap for GenericFileUploadView (bytes).
     "MAX_FILE_SIZE": 50 * 1024 * 1024,

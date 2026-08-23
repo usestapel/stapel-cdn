@@ -613,7 +613,7 @@
     "/cdn/api/v1/upload/image/": {
       "post": {
         "operationId": "upload_image",
-        "description": "Upload an image file for processing.\n\n**Supported formats:** JPEG, PNG, GIF, WebP, BMP, HEIC, HEIF\n\n**What happens on upload:**\n1. File hash (SHA-256) is calculated for deduplication\n2. If file already exists, returns existing image data (200 OK)\n3. If new file, creates image record and generates variants via background task\n4. Variants are generated in WebP format at multiple resolutions\n\n**Generated variants (all WebP):**\n- 16px, 32px, 64px, 120px - min-side thumbnails\n- 160px, 240px, 480px, 560px, 720px, 1080px - w/h preview branches\n\n**Request format:** `multipart/form-data` with `file` field\n\n**Maximum file size:** `STAPEL_CDN[\"MAX_IMAGE_SIZE\"]`, 20MB by default.\nEnforced before the body is hashed; over it the answer is 413.\n\n**Stored type:** `\"product\"` — one value from `STAPEL_CDN[\"ASSET_TYPES\"]`,\nsame as any type `TypedImageUploadView` accepts. The zero-infra default is\n`(\"avatar\",)` only (see `ASSET_TYPES` in CONFIG.MD), so a deployment that\nnever added `\"product\"` gets a 400 here, exactly as\n`/images/product/upload/` already does for that string.\n\n\n**Permissions:** `IsNotAnonymousUser`",
+        "description": "Upload an image file for processing.\n\n**Supported formats:** JPEG, PNG, GIF, WebP, BMP, HEIC, HEIF\n\n**What happens on upload:**\n1. File hash (SHA-256) is calculated for deduplication\n2. If file already exists, returns existing image data (200 OK)\n3. If new file, creates image record and generates variants via background task\n4. Variants are generated in WebP format at multiple resolutions\n\n**Generated variants (all WebP):**\n- 16px, 32px, 64px, 120px - min-side thumbnails\n- 160px, 240px, 480px, 560px, 720px, 1080px - w/h preview branches\n\n**`variants_status` — read it before you render a variant URL.** Every\n`variant_<size>_url` in this response is derived from `<type>/<hash>`, so\nall of them are present and well-formed in the 201 that creates the row,\n*before* the background task has written a single file. `variants_status`\nis `\"pending\"` until generation succeeds and `\"ready\"` afterwards\n(`variants_ready_at` carries the moment, null while pending). A `pending`\npayload's variant URLs are a prediction, not a resource; poll the media ref\n(`/file-exists/`) or fall back to `original_url` until it reads `ready`.\nA row that stays `pending` is a broken pipeline, not a slow one — see\n`checks.W008`.\n\n**Request format:** `multipart/form-data` with `file` field\n\n**Maximum file size:** `STAPEL_CDN[\"MAX_IMAGE_SIZE\"]`, 20MB by default.\nEnforced before the body is hashed; over it the answer is 413.\n\n**Stored type:** `\"product\"` — one value from `STAPEL_CDN[\"ASSET_TYPES\"]`,\nsame as any type `TypedImageUploadView` accepts. The zero-infra default is\n`(\"avatar\",)` only (see `ASSET_TYPES` in CONFIG.MD), so a deployment that\nnever added `\"product\"` gets a 400 here, exactly as\n`/images/product/upload/` already does for that string.\n\n\n**Permissions:** `IsNotAnonymousUser`",
         "summary": "Upload an image",
         "tags": [
           "Images"
@@ -659,6 +659,8 @@
                         "original_size": 2048576,
                         "original_url": "/media/cdn/images/original/a1b2c3d4.jpg",
                         "variant_720_url": "/media/cdn/images/720/a1b2c3d4.webp",
+                        "variants_status": "pending",
+                        "variants_ready_at": null,
                         "is_processed": false
                       }
                     },
@@ -1182,6 +1184,22 @@
             "readOnly": true,
             "description": "Generated variants with geometry: [{tier, branch, url, width, height}]"
           },
+          "variants_status": {
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/VariantsStatusEnum"
+              }
+            ],
+            "readOnly": true,
+            "description": "'pending' — variant generation has not completed, every variant_<size>_url in this payload is a prediction; 'ready' — the ladder exists and the URLs resolve.\n\n* `pending` - pending\n* `ready` - ready"
+          },
+          "variants_ready_at": {
+            "type": "string",
+            "format": "date-time",
+            "readOnly": true,
+            "nullable": true,
+            "description": "When variant generation completed; null while pending."
+          },
           "is_processed": {
             "type": "boolean",
             "readOnly": true,
@@ -1236,7 +1254,9 @@
           "variant_560_url",
           "variant_64_url",
           "variant_720_url",
-          "variants_meta"
+          "variants_meta",
+          "variants_ready_at",
+          "variants_status"
         ]
       },
       "ImageUploadResponse": {
@@ -1380,6 +1400,14 @@
         ],
         "type": "string",
         "description": "* `avatar` - Avatar"
+      },
+      "VariantsStatusEnum": {
+        "enum": [
+          "pending",
+          "ready"
+        ],
+        "type": "string",
+        "description": "* `pending` - pending\n* `ready` - ready"
       },
       "Video": {
         "type": "object",

@@ -20,6 +20,12 @@ from .storage import cdn_storage
 logger = logging.getLogger(__name__)
 
 
+#: ``Image.variants_status`` values — the two answers the API gives to "do
+#: the ``variant_*_url``s in this payload point at anything yet?".
+VARIANTS_PENDING = "pending"
+VARIANTS_READY = "ready"
+VARIANTS_STATUSES = (VARIANTS_PENDING, VARIANTS_READY)
+
 #: Names the preview/thumbnail pipeline writes into ``<type>/<hash>/``:
 #: ``120.webp`` (thumbnail tiers) and ``720w.webp`` / ``720h.webp`` (preview
 #: branches). See ``services.ImageProcessingService``.
@@ -129,6 +135,18 @@ class Image(models.Model):
     is_processed = models.BooleanField(
         default=False, help_text="Whether variants have been generated"
     )
+    #: When the variant ladder finished generating — stamped by
+    #: ``tasks.generate_previews`` in the same save that flips
+    #: ``is_processed``. NULL while the row is still pending (or if the
+    #: generation task failed), which is what makes ``variants_status``
+    #: answerable at all: a row created a millisecond ago and a row whose
+    #: worker died are otherwise identical from the API.
+    variants_ready_at = models.DateTimeField(
+        null=True,
+        blank=True,
+        db_index=True,
+        help_text="When variant generation completed; null while pending",
+    )
     processing_log = models.TextField(
         blank=True, default="", help_text="Log of processing operations"
     )
@@ -198,6 +216,20 @@ class Image(models.Model):
 
     def __str__(self):
         return f"Image: {self.file_hash[:8]}... ({self.original_filename})"
+
+    @property
+    def variants_status(self):
+        """``"pending"`` until the variant ladder exists, then ``"ready"``.
+
+        Derived from ``is_processed`` rather than stored beside it: two
+        columns for one fact drift, and the fact already has an owner. This
+        is the *name* the API answers under — ``variant_*_url`` is computed
+        from the hash and is therefore returned in full at row creation,
+        long before any of those files exist. Without this field a 201 and a
+        finished image are byte-identical to a caller, which is how a fleet
+        served 404s from a successful upload for weeks.
+        """
+        return VARIANTS_READY if self.is_processed else VARIANTS_PENDING
 
     def get_variant_url(self, size, branch=None):
         """URL for a variant tier (int or str). All WebP.

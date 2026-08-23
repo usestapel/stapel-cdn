@@ -4,6 +4,7 @@ Tests for Celery tasks (called synchronously; pyvips/processing mocked).
 import pytest
 from datetime import timedelta
 from unittest.mock import MagicMock, patch
+from django.test import override_settings
 from django.utils import timezone
 from stapel_cdn import tasks
 from stapel_cdn.models import Image, Video
@@ -111,11 +112,11 @@ class TestGeneratePreviews:
 class TestProcessImageAsync:
     def test_schedules_both_tasks(self):
         image = _make_image(width=100, height=100)
-        with patch.object(tasks.generate_thumbnails, 'delay') as mock_thumb, \
-                patch.object(tasks.generate_previews, 'delay') as mock_prev:
+        with patch.object(tasks.generate_thumbnails, 'apply_async') as mock_thumb, \
+                patch.object(tasks.generate_previews, 'apply_async') as mock_prev:
             tasks.process_image_async(image.id)
-        mock_thumb.assert_called_once_with(image.id)
-        mock_prev.assert_called_once_with(image.id, watermark=False)
+        mock_thumb.assert_called_once_with(args=[image.id], kwargs={})
+        mock_prev.assert_called_once_with(args=[image.id], kwargs={'watermark': False})
         image.refresh_from_db()
         assert 'Processing started' in image.processing_log
 
@@ -124,8 +125,8 @@ class TestProcessImageAsync:
         fake_img = MagicMock(width=640, height=480)
         with patch('pyvips.Image.new_from_file', return_value=fake_img), \
                 patch.object(type(image.original), 'path', '/tmp/fake.jpg'), \
-                patch.object(tasks.generate_thumbnails, 'delay'), \
-                patch.object(tasks.generate_previews, 'delay'):
+                patch.object(tasks.generate_thumbnails, 'apply_async'), \
+                patch.object(tasks.generate_previews, 'apply_async'):
             tasks.process_image_async(image.id)
         image.refresh_from_db()
         assert image.original_width == 640
@@ -136,14 +137,14 @@ class TestProcessImageAsync:
         image = _make_image(width=0, height=0)
         with patch('pyvips.Image.new_from_file', side_effect=RuntimeError('no file')), \
                 patch.object(type(image.original), 'path', '/tmp/fake.jpg'), \
-                patch.object(tasks.generate_thumbnails, 'delay') as mock_thumb, \
-                patch.object(tasks.generate_previews, 'delay') as mock_prev:
+                patch.object(tasks.generate_thumbnails, 'apply_async') as mock_thumb, \
+                patch.object(tasks.generate_previews, 'apply_async') as mock_prev:
             tasks.process_image_async(image.id)
         mock_thumb.assert_called_once()
         mock_prev.assert_called_once()
 
     def test_missing_image_returns_early(self):
-        with patch.object(tasks.generate_thumbnails, 'delay') as mock_thumb:
+        with patch.object(tasks.generate_thumbnails, 'apply_async') as mock_thumb:
             tasks.process_image_async(999999)
         mock_thumb.assert_not_called()
 
@@ -186,12 +187,12 @@ class TestRetryUnprocessed:
         Image.objects.filter(pk=image.pk).update(
             created_at=timezone.now() - timedelta(minutes=10)
         )
-        with patch.object(tasks.generate_thumbnails, 'delay') as mock_thumb, \
-                patch.object(tasks.generate_previews, 'delay') as mock_prev:
+        with patch.object(tasks.generate_thumbnails, 'apply_async') as mock_thumb, \
+                patch.object(tasks.generate_previews, 'apply_async') as mock_prev:
             retried = tasks.retry_unprocessed()
         assert retried == 1
-        mock_thumb.assert_called_once_with(image.id)
-        mock_prev.assert_called_once_with(image.id, watermark=False)
+        mock_thumb.assert_called_once_with(args=[image.id], kwargs={})
+        mock_prev.assert_called_once_with(args=[image.id], kwargs={'watermark': False})
         image.refresh_from_db()
         assert 'RETRY: re-queued by periodic task' in image.processing_log
 
@@ -201,7 +202,168 @@ class TestRetryUnprocessed:
         Image.objects.filter(pk=done.pk).update(
             created_at=timezone.now() - timedelta(minutes=10)
         )
-        with patch.object(tasks.generate_thumbnails, 'delay') as mock_thumb:
+        with patch.object(tasks.generate_thumbnails, 'apply_async') as mock_thumb:
             retried = tasks.retry_unprocessed()
         assert retried == 0
         mock_thumb.assert_not_called()
+
+
+@pytest.mark.django_db
+class TestQueueRouting:
+    """The queue names are configuration, and the default is "say nothing".
+
+    Through 0.14 these two tasks were decorated ``@shared_task(queue=
+    "thumbnails")`` / ``queue="previews"``. A fleet that shards work by
+    setting ``CELERY_TASK_DEFAULT_QUEUE`` per service had no worker on either
+    name, so the messages were never consumed and every ``variant_*_url`` in
+    the 201 pointed at a file that would never be written.
+    """
+
+    def test_tasks_carry_no_hardcoded_queue(self):
+        # The literal is gone from the task itself: routing is a send-time
+        # decision, so a host's setting can still reach it.
+        assert getattr(tasks.generate_thumbnails, 'queue', None) is None
+        assert getattr(tasks.generate_previews, 'queue', None) is None
+
+    def test_default_sends_without_a_queue_option(self):
+        # No `queue` kwarg at all — NOT `queue=None`, which is a different
+        # instruction to celery. This is what lets a vanilla single-queue
+        # worker consume the work with zero configuration.
+        assert tasks.queue_options('THUMBNAILS_QUEUE') == {}
+        assert tasks.queue_options('PREVIEWS_QUEUE') == {}
+
+    @override_settings(
+        STAPEL_CDN={"THUMBNAILS_QUEUE": "thumbs", "PREVIEWS_QUEUE": "prev"}
+    )
+    def test_settings_name_the_queue(self):
+        assert tasks.queue_options('THUMBNAILS_QUEUE') == {"queue": "thumbs"}
+        assert tasks.queue_options('PREVIEWS_QUEUE') == {"queue": "prev"}
+
+    @override_settings(STAPEL_CDN={"THUMBNAILS_QUEUE": "  "})
+    def test_blank_setting_falls_back_to_the_default_queue(self):
+        assert tasks.queue_options('THUMBNAILS_QUEUE') == {}
+
+    def test_process_image_async_sends_on_the_default_queue(self):
+        image = _make_image()
+        with patch.object(tasks.generate_thumbnails, 'apply_async') as thumb, \
+                patch.object(tasks.generate_previews, 'apply_async') as prev:
+            tasks.process_image_async(image.id)
+        assert thumb.call_args.kwargs == {"args": [image.id], "kwargs": {}}
+        assert prev.call_args.kwargs == {
+            "args": [image.id], "kwargs": {"watermark": False}
+        }
+
+    @override_settings(
+        STAPEL_CDN={"THUMBNAILS_QUEUE": "thumbs", "PREVIEWS_QUEUE": "prev"}
+    )
+    def test_process_image_async_honours_the_settings(self):
+        image = _make_image()
+        with patch.object(tasks.generate_thumbnails, 'apply_async') as thumb, \
+                patch.object(tasks.generate_previews, 'apply_async') as prev:
+            tasks.process_image_async(image.id)
+        assert thumb.call_args.kwargs["queue"] == "thumbs"
+        assert prev.call_args.kwargs["queue"] == "prev"
+
+    @override_settings(
+        STAPEL_CDN={"THUMBNAILS_QUEUE": "thumbs", "PREVIEWS_QUEUE": "prev"}
+    )
+    def test_retry_unprocessed_honours_the_settings(self):
+        image = _make_image()
+        Image.objects.filter(pk=image.pk).update(
+            created_at=timezone.now() - timedelta(minutes=10)
+        )
+        with patch.object(tasks.generate_thumbnails, 'apply_async') as thumb, \
+                patch.object(tasks.generate_previews, 'apply_async') as prev:
+            tasks.retry_unprocessed()
+        assert thumb.call_args.kwargs["queue"] == "thumbs"
+        assert prev.call_args.kwargs["queue"] == "prev"
+
+    def test_retry_unprocessed_sends_on_the_default_queue(self):
+        image = _make_image()
+        Image.objects.filter(pk=image.pk).update(
+            created_at=timezone.now() - timedelta(minutes=10)
+        )
+        with patch.object(tasks.generate_thumbnails, 'apply_async') as thumb, \
+                patch.object(tasks.generate_previews, 'apply_async') as prev:
+            tasks.retry_unprocessed()
+        assert "queue" not in thumb.call_args.kwargs
+        assert "queue" not in prev.call_args.kwargs
+
+
+class TestBeatSchedule:
+    """``retry_unprocessed`` is the safety net, and it schedules nothing."""
+
+    def test_names_the_stable_task_path(self):
+        entry = tasks.get_cdn_beat_schedule()["cdn-retry-unprocessed-images"]
+        assert entry["task"] == tasks.RETRY_TASK_NAME
+        assert tasks.retry_unprocessed.name == tasks.RETRY_TASK_NAME
+
+    @override_settings(STAPEL_CDN={"RETRY_UNPROCESSED_SCHEDULE": {"minute": "*/30"}})
+    def test_cadence_is_configuration(self):
+        entry = tasks.get_cdn_beat_schedule()["cdn-retry-unprocessed-images"]
+        assert entry["schedule"].minute == {0, 30}
+
+
+@pytest.mark.django_db
+class TestVariantsStatus:
+    """A 201 must not claim a variant ladder that does not exist yet."""
+
+    def test_pending_at_creation(self):
+        image = _make_image()
+        assert image.variants_status == "pending"
+        assert image.variants_ready_at is None
+
+    def test_flips_to_ready_on_task_success(self):
+        image = _make_image()
+        with patch(
+            'stapel_cdn.services.ImageProcessingService.generate_previews_only',
+            return_value='PREVIEW LOG',
+        ):
+            tasks.generate_previews(image.id, watermark=False)
+        image.refresh_from_db()
+        assert image.variants_status == "ready"
+        assert image.variants_ready_at is not None
+
+    def test_stays_pending_on_task_failure(self):
+        image = _make_image()
+        with patch(
+            'stapel_cdn.services.ImageProcessingService.generate_previews_only',
+            side_effect=RuntimeError('vips exploded'),
+        ):
+            with pytest.raises(RuntimeError):
+                tasks.generate_previews(image.id, watermark=False)
+        image.refresh_from_db()
+        assert image.variants_status == "pending"
+        assert image.variants_ready_at is None
+
+    def test_thumbnails_alone_do_not_make_the_ladder_ready(self):
+        # The ladder is ready when the *preview* branches exist; a deployment
+        # whose preview worker is dead must not read as "ready".
+        image = _make_image()
+        with patch(
+            'stapel_cdn.services.ImageProcessingService.generate_thumbnails_only',
+            return_value='THUMB LOG',
+        ):
+            tasks.generate_thumbnails(image.id)
+        image.refresh_from_db()
+        assert image.variants_status == "pending"
+
+    def test_serializer_reports_it(self):
+        from stapel_cdn.serializers import ImageSerializer
+
+        image = _make_image()
+        data = ImageSerializer(image).data
+        assert data["variants_status"] == "pending"
+        assert data["variants_ready_at"] is None
+        # ...and the URLs it is qualifying are already all there.
+        assert data["variant_720_url"]
+
+        with patch(
+            'stapel_cdn.services.ImageProcessingService.generate_previews_only',
+            return_value='PREVIEW LOG',
+        ):
+            tasks.generate_previews(image.id, watermark=False)
+        image.refresh_from_db()
+        data = ImageSerializer(image).data
+        assert data["variants_status"] == "ready"
+        assert data["variants_ready_at"] is not None

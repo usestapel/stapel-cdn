@@ -18,7 +18,7 @@ from .dto import (
     VideoUploadResponse,
 )
 from .errors import ERR_400_FILE_TYPE_NOT_ALLOWED
-from .models import File, Image, Video
+from .models import VARIANTS_STATUSES, File, Image, Video
 
 
 class VariantsMetaField(serializers.JSONField):
@@ -116,6 +116,25 @@ class ImageSerializer(serializers.ModelSerializer):
         read_only=True,
         help_text="Generated variants with geometry: [{tier, branch, url, width, height}]",
     )
+    # The one field that distinguishes "these URLs will exist shortly" from
+    # "these URLs will never exist". Every variant_<size>_url above is derived
+    # from <type>/<hash>, so all of them are present and well-formed in the
+    # 201 that creates the row — before a worker has touched the file. A
+    # consumer that renders them immediately renders 404s.
+    variants_status = serializers.ChoiceField(
+        choices=VARIANTS_STATUSES,
+        read_only=True,
+        help_text=(
+            "'pending' — variant generation has not completed, every "
+            "variant_<size>_url in this payload is a prediction; 'ready' — "
+            "the ladder exists and the URLs resolve."
+        ),
+    )
+    variants_ready_at = serializers.DateTimeField(
+        read_only=True,
+        allow_null=True,
+        help_text="When variant generation completed; null while pending.",
+    )
     # 1440/2160 have no ``variant_<size>_url`` model property (not in
     # DEFAULT_VARIANT_SIZES), so a ReadOnlyField silently dropped them and
     # drf-spectacular errored resolving them against the model. Compute the
@@ -152,6 +171,8 @@ class ImageSerializer(serializers.ModelSerializer):
             "variant_1440_url",
             "variant_2160_url",
             "variants_meta",
+            "variants_status",
+            "variants_ready_at",
             "is_processed",
             "uploaded_by",
             "uploaded_by_username",
@@ -164,6 +185,8 @@ class ImageSerializer(serializers.ModelSerializer):
             "original_height",
             "original_size",
             "type",
+            "variants_status",
+            "variants_ready_at",
             "is_processed",
             "uploaded_by",
             "created_at",
