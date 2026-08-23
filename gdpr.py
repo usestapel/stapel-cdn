@@ -99,13 +99,18 @@ class CDNGDPRProvider(GDPRProvider):
         record of where the file is, so deleting it turns a failed erasure
         into personal data nobody can ever find again. A blob that survives
         now keeps its row, and the failure is raised rather than counted.
+
+        Runs over every media model (``erasure.media_models``) — ``Audio``
+        included, which this loop used to skip: a user's recordings survived
+        their own account erasure because the model was added after the loop
+        was written and nothing named the set in one place.
         """
-        from .models import File, Image, Video
+        from .erasure import media_models
         from .ownership import shared_binary_exists
 
         removed = 0
         stranded: list[str] = []
-        for model in (Image, Video, File):
+        for model in media_models():
             # Only delete files that have no refs from other content
             for obj in model.objects.filter(uploaded_by_id=user_id):
                 refs = obj.refs if isinstance(obj.refs, list) else []
@@ -140,8 +145,8 @@ class CDNGDPRProvider(GDPRProvider):
             )
         return removed
 
-    def delete(self, user_id: int) -> None:
-        """Erase this user's media, or raise.
+    def delete(self, user_id: int) -> dict:
+        """Erase this user's media, or raise. Returns what was removed.
 
         Returning normally is the receipt stapel-gdpr's orchestrator acts on,
         so it must mean the bytes are gone. If :meth:`purge_unreferenced`
@@ -149,15 +154,23 @@ class CDNGDPRProvider(GDPRProvider):
         anonymisation pass below — which would otherwise strip
         ``uploaded_by`` off objects whose bytes are still on disk, destroying
         the last link between the file and the person it belongs to.
-        """
-        from .models import File, Image, Video
 
-        self.purge_unreferenced(user_id)
-        for model in (Image, Video, File):
+        The counts are what the ``gdpr.section.erased`` receipt carries for an
+        ``account`` subject (``erasure.erase_account``) — "it says what it
+        did", not "it says it ran". The base :class:`GDPRProvider` ignores a
+        return value, so the orchestrator's in-process path is unaffected.
+        """
+        from .erasure import media_models
+
+        removed = self.purge_unreferenced(user_id)
+        anonymized = 0
+        for model in media_models():
             # Files still referenced by other content — anonymise ownership only
             for obj in model.objects.filter(uploaded_by_id=user_id):
                 obj.uploaded_by = None
                 obj.save(update_fields=['uploaded_by'])
+                anonymized += 1
+        return {'objects_removed': removed, 'objects_anonymized': anonymized}
 
     def anonymize(self, user_id: int) -> None:
         # Handled in delete() — files still referenced lose uploaded_by link.

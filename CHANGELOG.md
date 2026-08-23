@@ -6,6 +6,76 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+## 0.14.0 — 2026-08-23
+
+**Erasure stops being account-only.** This module was the one data owner in
+the fleet that already receipted an account erasure — and that was all it
+could answer. A deleted recording, a deleted workspace or a single deleted
+file left their objects in the bucket, because `user.deleted` is the only
+subject that event can name. stapel-gdpr 0.5.0 keys erasure by a subject
+(`{subject_type, subject_key}`) and names owners that stop answering
+(`gdpr.W006`), so this release answers for all four subjects the spec
+assigns to `media` and proves it is listening.
+
+### Added — subject-scoped erasure (`account`, `workspace`, `file`, `recording`)
+
+- New `erasure.py`: `erase(subject_type, subject_key) -> counts`.
+  - **`file`** — `subject_key` is a media ref `<prefix>/<hash>` (what
+    `cdn.import_from_url` returns and `cdn.media_exists` takes). A ref names
+    *content*, so every row over those bytes is deleted and the blob with
+    them; references still attached are counted (`refs_stranded`) and logged
+    rather than treated as a reason to keep the bytes.
+  - **`recording`** / **`workspace`** — `subject_key` is the entity id, and
+    **no refs have to be passed in the request**: the row's own `refs` list
+    (`<service>/<entity_type>/<entity_id>`, the format `cdn.refs_sync`
+    writes) is the reverse index. The entity's reference is dropped wherever
+    it appears, whichever service wrote it; an object left with no reference
+    at all is destroyed with its blob, an object another entity still uses
+    keeps serving — the refcount discipline account erasure already had.
+  - **`account`** — the existing `CDNGDPRProvider.delete()` policy, now
+    reached through the same entry point.
+- New consumers in `actions.py`, both in one module — that co-location is
+  what makes an `alive` answer evidence the erasure path is *consumed*
+  rather than that a container is deployed: `gdpr.erasure.requested` → the
+  erase above plus a `gdpr.section.erased` receipt `{owner: "media",
+  subject_type, subject_key, receipt_id, counts}` emitted in the same
+  transaction; `gdpr.owner.probe` → `gdpr.owner.alive {owner,
+  subject_types}`.
+- Contracts committed: `schemas/emits/{gdpr.section.erased,
+  gdpr.owner.alive}.json` (this module had no `schemas/emits/` at all) and
+  `schemas/consumes/{gdpr.erasure.requested,gdpr.owner.probe}.json`.
+- `CDNGDPRProvider.delete()` returns `{objects_removed, objects_anonymized}`
+  (it returned `None`) — the counts an `account` receipt carries. The base
+  `GDPRProvider` ignores a return value, so the orchestrator's in-process
+  path is unaffected.
+
+Host wiring (one line, no new setting here):
+
+```python
+STAPEL_GDPR = {"DATA_OWNERS": {"media": ["account", "workspace", "file", "recording"]}}
+```
+
+**Minor, not patch**: new public module (`stapel_cdn.erasure`), two new
+consumed actions, two new emitted ones, and a provider method that now
+returns a value.
+
+### Fixed — account erasure skipped `Audio` entirely
+
+`purge_unreferenced()` and `delete()` looped over a hardcoded `(Image,
+Video, File)`. `Audio` was added to this module after that loop was written,
+so a user's audio recordings — rows *and* bytes — survived their own account
+erasure, and the closure was certified anyway. Both now iterate
+`erasure.media_models()`, the one place the media model set is named.
+
+### Deprecated — `user.deleted`
+
+Still consumed and still receipted in its 0.4.x shape (`{user_id,
+correlation_id, service}`), so a host on the older orchestrator keeps
+completing; the erasure itself is now routed through `erase("account", …)`.
+stapel-gdpr emits it alongside `gdpr.erasure.requested` for one minor and
+removes it in its 0.6.0; this handler goes with it. Two receipts for one
+correlation_id are idempotent on the gdpr side — they land on the same part.
+
 ## 0.13.0 — 2026-08-22
 
 **`POST /upload/image/` and `POST /images/product/upload/` now agree on

@@ -147,12 +147,60 @@ class MyImageUpload(ImageUploadView):
 |---|---|---|
 | `cdn.media_exists` | provides (function) | `call("cdn.media_exists", {"ref": "<type>/<hash>"})` → `{"exists": bool}`. Ref prefixes: any configured `STAPEL_CDN["ASSET_TYPES"]` value (default `avatar`), `video`, `file`, `audio`. |
 | `cdn.refs_sync` | provides (function) | `call("cdn.refs_sync", {"service", "entity_type", "entity_id", "old_hashes", "new_hashes"})` → `{"added", "removed", "errors"}`. Same logic as `RefSyncView` / `services.apply_ref_sync`. |
-| `user.deleted` | subscribes (action) | Erases this module's PII via `CDNGDPRProvider.delete()` and, when the payload carries a `correlation_id`, confirms with `gdpr.section.erased` (`service: "media"`) so the gdpr orchestrator can complete the closure. Schema: `schemas/consumes/user.deleted.json`. Handler is idempotent (at-least-once delivery). |
+| `gdpr.erasure.requested` | subscribes (action) | Subject-scoped erasure — `account` \| `workspace` \| `file` \| `recording` (see **Erasure** below), confirmed with `gdpr.section.erased` carrying `{owner: "media", subject_type, subject_key, receipt_id, counts}` in the same transaction. Schema: `schemas/consumes/gdpr.erasure.requested.json`. Idempotent. |
+| `gdpr.owner.probe` | subscribes (action) | Answered with `gdpr.owner.alive {owner: "media", subject_types}` from the *same* subscriber that erases. Schema: `schemas/consumes/gdpr.owner.probe.json`. |
+| `gdpr.section.erased` / `gdpr.owner.alive` | emits (action) | The receipt and the probe answer above. Schemas: `schemas/emits/`. |
+| `user.deleted` | subscribes (action) | The pre-0.5.0 account path, now routed through `erasure.erase("account", …)`; when the payload carries a `correlation_id` it confirms with `gdpr.section.erased` in its 0.4.x shape (`service: "media"`) so a host on the older orchestrator still completes. Deprecated in stapel-gdpr 0.5.0, removed there in 0.6.0. Schema: `schemas/consumes/user.deleted.json`. Idempotent. |
 | `user.deletion_initiated` | subscribes (action) | Grace period started: purges the user's *unreferenced* media (`refs == []`) via `CDNGDPRProvider.purge_unreferenced()`; referenced media keeps serving (and its ownership link) until `user.deleted` — grace is cancellable. Schema: `schemas/consumes/user.deletion_initiated.json`. Idempotent. |
 | `cdn.ref.sync` | consumes (bus) | `manage.py consume_cdn_events` (Kafka topic `stapel.cdn.ref-sync`); the producer-side helper `sync_cdn_refs()` lives in `stapel_core.django.cdn.ref_sync`, so other modules publish without importing this package. |
 
 Registration happens in `CdnConfig.ready()`; transport (in-process vs bus) is chosen by
 `STAPEL_COMM` in stapel-core — the same handlers serve monolith and microservices.
+
+### Erasure
+
+This module is the **`media`** data owner in stapel-gdpr's erasure protocol
+(deletion-lifecycle §1.3/§2). One subscriber (`actions.py`) handles both
+`gdpr.erasure.requested` and `gdpr.owner.probe`; the erasing itself lives in
+`erasure.py` (`erase(subject_type, subject_key) -> counts`), callable
+in-process too. Declare it exactly as it claims itself
+(`stapel_cdn.erasure.OWNER` / `SUBJECT_TYPES`):
+
+```python
+STAPEL_GDPR = {"DATA_OWNERS": {"media": ["account", "workspace", "file", "recording"]}}
+```
+
+**How a subject is located.** This module holds no foreign keys to anything:
+an object is named by its media ref `<prefix>/<hash>` (the string
+`cdn.import_from_url` returns and `cdn.media_exists` takes), and the entities
+using it are recorded on the row's `refs` list as
+`<service>/<entity_type>/<entity_id>` — the format `cdn.refs_sync` /
+`services.apply_ref_sync` write. **That list is the reverse index**, so an
+entity subject needs nothing extra in the request: `subject_key` is the
+entity id, `subject_type` is the entity type, and every service's reference
+to it matches.
+
+| Subject | `subject_key` | What is erased | Counts |
+|---|---|---|---|
+| `file` | a media ref, `<prefix>/<hash>` | **the bytes**: every row over that content (identical bytes held by two principals are two rows over one blob) and the blob itself. References still attached are counted as `refs_stranded` and logged — the host is expected to have released its own first; leaving the bytes because a stale reference exists would be the wrong failure | `objects_removed`, `blobs_unlinked`, `refs_stranded` |
+| `recording` | the recording id | **the entity's reference**: dropped from every object carrying `*/recording/<id>`; an object left with no references at all is destroyed with its blob, an object another entity still uses keeps serving | `refs_removed`, `objects_removed`, `blobs_unlinked`, `objects_kept_referenced` |
+| `workspace` | the workspace id | the same, for `*/workspace/<id>`. Media attached to *entities inside* the workspace is erased through those entities' own subjects — each owner library requests its own | same as `recording` |
+| `account` | the user id | the policy of record (`CDNGDPRProvider.delete`): the user's unreferenced media is destroyed (rows + bytes), media other content still references keeps serving with `uploaded_by` nulled | `objects_removed`, `objects_anonymized` |
+
+Rules the subscriber keeps:
+
+- **Idempotent.** Delivery is at-least-once; a redelivery finds nothing left
+  and receipts zeros. `receipt_id` is `media:<correlation_id>` — stable, so a
+  redelivery does not invent a second erasure in the audit trail.
+- **One transaction.** Erasure and receipt commit together (outbox canon).
+- **Never certify what did not happen.** A blob that cannot be unlinked keeps
+  its row and raises `MediaErasureIncomplete` (the row is the only record of
+  where the file is); an unparseable or unknown media ref raises; a subject
+  type this owner does not claim is ignored, because gdpr opens no part for
+  it.
+- **Co-location.** The probe is answered from this same module, which is what
+  makes gdpr's `W006` evidence that the erasure path is *consumed* rather
+  than that a container is deployed.
 
 ### Signals
 
