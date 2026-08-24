@@ -229,7 +229,9 @@ class TestDescribe:
         )
         result = call("cdn.describe", {"ref": f"product/{image.file_hash}"})
         assert result["width"] == 400
-        assert result["aspect"] == 400 / 300
+        # Rounded to 6dp so the same image always serializes to the same
+        # JSON number (1.333333, never 1.3333333333333333).
+        assert result["aspect"] == round(400 / 300, 6)
 
     def test_describe_unknown_ref_raises(self):
         with pytest.raises(Exception):

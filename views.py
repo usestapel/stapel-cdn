@@ -45,6 +45,7 @@ from stapel_core.django.api.errors import (
     StapelResponse,
     error_500_internal,
 )
+from stapel_core.django.api.views import SerializerSeamMixin
 from stapel_core.django.api.permissions import (
     ANONYMOUS_ALLOWED,
     IsNotAnonymousUser,
@@ -98,25 +99,10 @@ from .serializers import (
 logger = logging.getLogger(__name__)
 
 
-class SerializerSeamMixin:
-    """Overridable request/response serializer seams for CDN APIViews.
-
-    Subclasses (or host projects) can swap ``request_serializer_class`` /
-    ``response_serializer_class`` — or override the getters for per-request
-    logic — without copying view bodies. ``None`` means the direction has no
-    serializer (e.g. raw ``request.FILES`` access).
-    """
-
-    request_serializer_class = None
-    response_serializer_class = None
-
-    def get_request_serializer_class(self):
-        """Serializer class used to validate incoming request data."""
-        return self.request_serializer_class
-
-    def get_response_serializer_class(self):
-        """Serializer class used to render the response envelope."""
-        return self.response_serializer_class
+# ``SerializerSeamMixin`` is imported from ``stapel_core.django.api.views``
+# (core 0.41.0 hoisted it into the canon). This module carried a byte-identical
+# local copy until 0.16.0 — a seam every module reimplements is a seam that
+# drifts, which is the whole reason it moved upstream.
 
 
 def _over_size_cap(uploaded_file, cap) -> bool:

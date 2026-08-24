@@ -57,6 +57,86 @@ class VariantsMetaFieldExtension(OpenApiSerializerFieldExtension):
         }
 
 
+class RenderMetaField(serializers.JSONField):
+    """The ``cdn.describe`` snapshot, inline in an upload/read response.
+
+    Same object the comm Function returns (``stapel_cdn.metadata.
+    build_render_metadata``), so an HTTP caller and a service caller build
+    against ONE contract instead of two that drift. Fixed shape, hence a
+    typed object rather than the bare ``JSONField`` an "extra metadata" bag
+    would have been.
+    """
+
+
+class RenderMetaFieldExtension(OpenApiSerializerFieldExtension):
+    target_class = RenderMetaField
+
+    def map_serializer_field(self, auto_schema, direction):
+        return {
+            "type": "object",
+            "description": (
+                "Everything needed to render this attachment with no second "
+                "round trip: aspect box, byte size, inline placeholder, and "
+                "duration for time-based media. Identical to the cdn.describe "
+                "comm Function's return value."
+            ),
+            "properties": {
+                "ref": {"type": "string"},
+                "kind": {
+                    "type": "string",
+                    "nullable": True,
+                    "description": (
+                        "Open media-kind registry (STAPEL_CDN['MEDIA_KINDS']): "
+                        "image, gif, video, audio, file, or a host-defined kind."
+                    ),
+                },
+                "mime": {"type": "string"},
+                "ext": {"type": "string", "description": "Lowercase, dot-prefixed."},
+                "bytes": {"type": "integer"},
+                "width": {"type": "integer", "nullable": True},
+                "height": {"type": "integer", "nullable": True},
+                "aspect": {
+                    "type": "number",
+                    "format": "float",
+                    "nullable": True,
+                    "description": "width / height, 6dp.",
+                },
+                "square": {"type": "boolean"},
+                "animated": {"type": "boolean"},
+                "duration_ms": {"type": "integer", "nullable": True},
+                "preview_b64": {
+                    "type": "string",
+                    "nullable": True,
+                    "description": (
+                        "data:image/webp;base64,... bounded by "
+                        "STAPEL_CDN['MICRO_PREVIEW_MAX_BYTES']; null when "
+                        "refused or not generated, with meta_reason saying which."
+                    ),
+                },
+                "preview_kind": {
+                    "type": "string",
+                    "enum": ["blur", "poster", "waveform"],
+                    "nullable": True,
+                },
+                "poster_url": {"type": "string", "nullable": True},
+                "meta_status": {
+                    "type": "string",
+                    "enum": ["ok", "partial", "missing"],
+                },
+                "meta_reason": {
+                    "type": "string",
+                    "nullable": True,
+                    "description": "stapel_cdn.metadata.REASONS; null when ok.",
+                },
+                "variants": {
+                    "type": "array",
+                    "items": {"type": "object"},
+                },
+            },
+            "required": ["ref", "mime", "ext", "bytes", "meta_status"],
+        }
+
+
 class FileResultField(serializers.JSONField):
     """``ImageSerializer | VideoSerializer | FileModelSerializer`` result.
 
@@ -141,6 +221,11 @@ class ImageSerializer(serializers.ModelSerializer):
     # URL directly via ``Image.get_variant_url``.
     variant_1440_url = serializers.SerializerMethodField(help_text="1440px 2K (WebP)")
     variant_2160_url = serializers.SerializerMethodField(help_text="2160px 4K (WebP)")
+    # The whole render contract in one place, so a client never has to
+    # reassemble aspect/placeholder/byte size out of five sibling fields.
+    render_meta = serializers.SerializerMethodField(
+        help_text="cdn.describe snapshot for this image (see RenderMeta)."
+    )
     uploaded_by_username = serializers.CharField(
         source="uploaded_by.username", read_only=True
     )
@@ -173,6 +258,7 @@ class ImageSerializer(serializers.ModelSerializer):
             "variants_meta",
             "variants_status",
             "variants_ready_at",
+            "render_meta",
             "is_processed",
             "uploaded_by",
             "uploaded_by_username",
@@ -184,6 +270,7 @@ class ImageSerializer(serializers.ModelSerializer):
             "original_width",
             "original_height",
             "original_size",
+            "render_meta",
             "type",
             "variants_status",
             "variants_ready_at",
@@ -200,6 +287,12 @@ class ImageSerializer(serializers.ModelSerializer):
     @extend_schema_field(OpenApiTypes.URI)
     def get_original_url(self, obj):
         return obj.original.url if obj.original else None
+
+    @extend_schema_field(RenderMetaField)
+    def get_render_meta(self, obj):
+        from .metadata import build_render_metadata
+
+        return build_render_metadata(obj)
 
     @extend_schema_field(OpenApiTypes.URI)
     def get_variant_1440_url(self, obj):
@@ -221,6 +314,12 @@ class VideoSerializer(serializers.ModelSerializer):
     variant_720p_url = serializers.SerializerMethodField()
     variant_1080p_url = serializers.SerializerMethodField()
     variant_2160p_url = serializers.SerializerMethodField()
+    poster_url = serializers.SerializerMethodField(
+        help_text="Derived poster frame; null until one has been written."
+    )
+    render_meta = serializers.SerializerMethodField(
+        help_text="cdn.describe snapshot for this video (see RenderMeta)."
+    )
     uploaded_by_username = serializers.CharField(
         source="uploaded_by.username", read_only=True
     )
@@ -244,6 +343,8 @@ class VideoSerializer(serializers.ModelSerializer):
             "variant_720p_url",
             "variant_1080p_url",
             "variant_2160p_url",
+            "poster_url",
+            "render_meta",
             "is_processed",
             "uploaded_by",
             "uploaded_by_username",
@@ -256,6 +357,8 @@ class VideoSerializer(serializers.ModelSerializer):
             "original_height",
             "original_size",
             "duration",
+            "poster_url",
+            "render_meta",
             "is_processed",
             "uploaded_by",
             "created_at",
@@ -265,6 +368,16 @@ class VideoSerializer(serializers.ModelSerializer):
     @extend_schema_field(OpenApiTypes.URI)
     def get_original_url(self, obj):
         return obj.original.url if obj.original else None
+
+    @extend_schema_field(RenderMetaField)
+    def get_render_meta(self, obj):
+        from .metadata import build_render_metadata
+
+        return build_render_metadata(obj)
+
+    @extend_schema_field(OpenApiTypes.URI)
+    def get_poster_url(self, obj):
+        return obj.poster_url
 
     @extend_schema_field(OpenApiTypes.URI)
     def get_variant_16p_url(self, obj):
@@ -390,6 +503,13 @@ class FileModelSerializer(serializers.ModelSerializer):
         child=serializers.CharField(), required=False,
         help_text="List of references: service/entity_type/entity_id",
     )
+    # A document's render contract is mime + extension + byte size. It has
+    # no derived preview, and the snapshot says so explicitly
+    # (preview_kind: null) rather than leaving a client to guess whether one
+    # is still coming.
+    render_meta = serializers.SerializerMethodField(
+        help_text="cdn.describe snapshot for this file (see RenderMeta)."
+    )
 
     class Meta:
         model = File
@@ -402,6 +522,7 @@ class FileModelSerializer(serializers.ModelSerializer):
             "original_size",
             "prefix",
             "original_url",
+            "render_meta",
             "refs",
             "uploaded_by",
             "uploaded_by_username",
@@ -411,6 +532,7 @@ class FileModelSerializer(serializers.ModelSerializer):
         read_only_fields = [
             "file_hash",
             "original_size",
+            "render_meta",
             "uploaded_by",
             "created_at",
             "updated_at",
@@ -419,6 +541,12 @@ class FileModelSerializer(serializers.ModelSerializer):
     @extend_schema_field(OpenApiTypes.STR)
     def get_prefix(self, obj):
         return f"file/{obj.file_hash}"
+
+    @extend_schema_field(RenderMetaField)
+    def get_render_meta(self, obj):
+        from .metadata import build_render_metadata
+
+        return build_render_metadata(obj)
 
     @extend_schema_field(OpenApiTypes.URI)
     def get_original_url(self, obj):

@@ -5,10 +5,8 @@ Uses pyvips for fast image processing with ladder downscaling optimization.
 
 from __future__ import annotations
 
-import base64
 import logging
 import math
-import mimetypes
 import os
 import time
 from datetime import datetime
@@ -24,6 +22,8 @@ from django.db import transaction
 from stapel_core.signals import media_processed
 
 from .conf import cdn_settings
+from .metadata import build_render_metadata as build_render_metadata  # re-export
+from .metadata import encode_preview, preview_budget
 
 logger = logging.getLogger(__name__)
 
@@ -120,13 +120,21 @@ class ImageProcessingService:
         return img.resize(scale)
 
     @staticmethod
-    def _merge_variants_meta(image_model, entries: List[dict], branches: tuple) -> None:
+    def _merge_variants_meta(
+        image_model,
+        entries: List[dict],
+        branches: tuple,
+        extra_fields: dict | None = None,
+    ) -> None:
         """Replace this generation pass's slice of ``variants_meta``.
 
         Thumbnails own the ``branch is None`` entries, previews own the
         ``"w"``/``"h"`` ones — each pass replaces its own class wholesale
         (a re-run of previews on a now-square image also drops stale
-        h-branch entries).
+        h-branch entries). ``extra_fields`` is stamped in the SAME write —
+        the thumbnail pass uses it for ``preview_b64``/``meta_reason``, so
+        the geometry and the placeholder it was derived from can never be
+        half-committed.
         """
         kept = [
             e
@@ -134,7 +142,11 @@ class ImageProcessingService:
             if e.get("branch") not in branches
         ]
         image_model.variants_meta = kept + entries
-        image_model.save(update_fields=["variants_meta", "updated_at"])
+        update_fields = ["variants_meta", "updated_at"]
+        for name, value in (extra_fields or {}).items():
+            setattr(image_model, name, value)
+            update_fields.append(name)
+        image_model.save(update_fields=update_fields)
 
     @classmethod
     def _extract_embedded_thumbnail(cls, file_path: str) -> pyvips.Image | None:
@@ -232,14 +244,23 @@ class ImageProcessingService:
             )
 
         # Ladder by min side: e.g. 120 -> 64 -> 32 -> 16
+        micro_tier = thumbnail_sizes[-1][1]  # smallest configured tier
+        micro_buffer = None
         sizes_generated = []
         meta_entries = []
         for name, size in thumbnail_sizes:
             start = time.perf_counter()
             current = cls._resize(current, size, axis="min")
-            current.webpsave(
-                os.path.join(output_dir, f"{name}.webp"), Q=cls.WEBP_QUALITY
-            )
+            # Encode ONCE into memory, then write those same bytes to disk.
+            # The micro tier's buffer is what becomes ``preview_b64`` — the
+            # blur-up placeholder costs no second decode and no re-read of
+            # the file just written (SERVICE-BACKLOG §35 item 9а: the
+            # micro-preview is generated in the SAME libvips pass).
+            buffer = current.webpsave_buffer(Q=cls.WEBP_QUALITY)
+            with open(os.path.join(output_dir, f"{name}.webp"), "wb") as handle:
+                handle.write(buffer)
+            if size == micro_tier:
+                micro_buffer = buffer
             current = current.copy_memory()
             meta_entries.append(
                 {
@@ -253,7 +274,25 @@ class ImageProcessingService:
             elapsed = int((time.perf_counter() - start) * 1000)
             sizes_generated.append(f"{name}={elapsed}ms")
 
-        cls._merge_variants_meta(image_model, meta_entries, branches=(None,))
+        preview_b64, reason = encode_preview(
+            encoded_webp=micro_buffer, vips_image=current
+        )
+        if preview_b64:
+            log_lines.append(
+                f"  Inline preview: {len(preview_b64)}B data URI "
+                f"(budget {preview_budget()}B)"
+            )
+        else:
+            log_lines.append(f"  Inline preview REFUSED: {reason}")
+        cls._merge_variants_meta(
+            image_model,
+            meta_entries,
+            branches=(None,),
+            extra_fields={
+                "preview_b64": preview_b64 or "",
+                "meta_reason": reason or "",
+            },
+        )
 
         total_time = int((time.perf_counter() - total_start) * 1000)
         log_lines.append(f"  Thumbnails: {', '.join(sizes_generated)}")
@@ -406,50 +445,266 @@ class ImageProcessingService:
         return combined_log
 
 
+def _source_path(media_model):
+    """Filesystem path of a stored original, or ``None`` if it is not there.
+
+    A row whose blob is gone is a real state (storage swapped, file pruned
+    by hand) and it must degrade with ``source_missing`` rather than be
+    reported as a media tool failure — the two ask for completely different
+    operator actions.
+    """
+    try:
+        path = media_model.original.path if media_model.original else None
+    except Exception:  # storage backend with no local path
+        return None
+    if not path or not os.path.exists(path):
+        return None
+    return path
+
+
 class VideoProcessingService:
-    """Video variant/poster pipeline — a documented stub, not a promise.
+    """Video metadata + poster pass (ffmpeg), and nothing it cannot do.
 
-    Same posture as ``stapel_geo.search.elasticsearch.
-    ElasticsearchGeoSearchBackend`` (geo-v2-redesign.md §2.2): the real
-    interface — extract a representative poster frame (images-and-cdn.md
-    §5 render-metadata canon: same ``preview_b64``/``variants[]`` shape a
-    poster would need to fill) plus the resolution ladder — needs an
-    ffmpeg pipeline that does not exist yet (cdn-modularity.md §2.3 notes
-    this gap is carried forward, not opened, by that spec).
+    What this produces, in ONE ffprobe call plus ONE frame extraction:
+    ``original_width``/``original_height``/``duration`` (measured, not
+    guessed), a derived poster frame at
+    ``MEDIA_ROOT/video/<hash>/poster.webp`` for the player, and the inline
+    micro poster (``preview_b64``) a chat bubble draws before anything is
+    fetched.
 
-    ``video`` is a VPS/prod-only submodule (cdn-modularity.md §3): it is
-    never installed into the stapel-studio devcontainer, and turning it on
-    via ``STAPEL_CDN["ENABLED_SUBMODULES"]`` is what makes
-    ``checks.check_submodule_binaries``'s ffmpeg probe (tag ``stapel_cdn``)
-    active for this deployment — the ffmpeg-gate this class itself does not
-    yet act on, because there is no pipeline behind it to gate.
+    What it still does NOT produce: the transcoded resolution ladder
+    (``variant_240``…``variant_2160``). Those FileFields stay empty and this
+    class does not pretend otherwise — a rendition pipeline is a different
+    piece of work with different operational costs, and claiming it here
+    would repeat the exact defect ``variants_status`` exists for.
+
+    ``video`` is a VPS/prod-only submodule (cdn-modularity.md §3), never
+    installed into the stapel-studio devcontainer; ``"video"`` in
+    ``STAPEL_CDN["ENABLED_SUBMODULES"]`` turns on
+    ``checks.check_submodule_binaries``'s ffmpeg probe, which is now the
+    boot-time warning that this pass will degrade.
     """
 
     @classmethod
     def process_video(cls, video_model):
-        """Process a video file - extract metadata and generate variants."""
-        # TODO: Implement video processing with ffmpeg (poster frame +
-        # resolution ladder, images-and-cdn.md §5 canon). Until then this
-        # only marks bookkeeping — no variants, no poster are produced.
-        video_model.is_processed = True
-        video_model.save()
+        """Extract measured metadata and a poster frame. Idempotent.
+
+        Sets ``is_processed`` only when real facts were measured. Anything
+        missing leaves it False and records the named reason in
+        ``meta_reason`` so ``cdn_backfill_media_meta`` / ``retry_unprocessed``
+        can pick the row up once the deployment has the binary.
+        """
+        from .metadata import (
+            REASON_SOURCE_MISSING,
+        )
+        from .probes import MediaToolUnavailable, extract_poster_png, probe_media
+
+        update_fields = ["meta_reason", "updated_at"]
+        reason = ""
+
+        path = _source_path(video_model)
+        if path is None:
+            video_model.meta_reason = REASON_SOURCE_MISSING
+            video_model.save(update_fields=update_fields)
+            logger.warning(
+                "VideoProcessingService: no readable original for video %s — "
+                "metadata left unmeasured (%s)",
+                video_model.file_hash,
+                REASON_SOURCE_MISSING,
+            )
+            return video_model
+
+        measured = False
+        try:
+            facts = probe_media(path)
+        except MediaToolUnavailable as exc:
+            reason = exc.reason
+            logger.warning(
+                "VideoProcessingService: ffprobe unavailable for video %s (%s: %s)",
+                video_model.file_hash, exc.reason, exc.detail,
+            )
+        else:
+            video_model.original_width = facts["width"]
+            video_model.original_height = facts["height"]
+            if facts["duration_ms"] is not None:
+                video_model.duration = facts["duration_ms"] / 1000.0
+            update_fields += ["original_width", "original_height", "duration"]
+            measured = True
+
+        # Poster frame — the same extraction feeds the full-size poster file
+        # and the inline micro preview; the video is decoded once.
+        try:
+            poster_png = extract_poster_png(
+                path, at_seconds=float(cdn_settings.POSTER_FRAME_AT or 0)
+            )
+        except MediaToolUnavailable as exc:
+            reason = reason or exc.reason
+            logger.warning(
+                "VideoProcessingService: no poster for video %s (%s: %s)",
+                video_model.file_hash, exc.reason, exc.detail,
+            )
+        else:
+            poster_reason = cls._write_poster(video_model, poster_png)
+            update_fields += ["preview_b64", "has_poster"]
+            reason = reason or poster_reason
+
+        video_model.meta_reason = reason
+        if measured:
+            video_model.is_processed = True
+            update_fields.append("is_processed")
+        video_model.save(update_fields=sorted(set(update_fields)))
         return video_model
+
+    @classmethod
+    def _write_poster(cls, video_model, poster_png: bytes) -> str:
+        """Write ``poster.webp`` and stamp the inline micro poster.
+
+        Returns a named reason, or ``""``. The PNG that ffmpeg produced is
+        decoded once: the same in-memory image is downscaled for the poster
+        file and again for the inline preview.
+        """
+        from .metadata import REASON_DECODER_MISSING, derived_dir, encode_preview
+
+        # Imported here, not read off the module global, so "this deployment
+        # has no decoder" is evaluated at call time — the same way
+        # ``decoders``/``encode_preview`` evaluate it.
+        try:
+            import pyvips  # noqa: F811 - deliberate call-time probe
+        except ImportError:
+            pyvips = None
+
+        if pyvips is None:
+            # No libvips: the poster frame cannot be re-encoded to WebP at
+            # all. The inline path can still fall back to the raw PNG if it
+            # fits the budget — encode_preview names that downgrade.
+            preview_b64, reason = encode_preview(raw=poster_png)
+            video_model.preview_b64 = preview_b64 or ""
+            video_model.has_poster = False
+            return reason or REASON_DECODER_MISSING
+
+        try:
+            frame = pyvips.Image.new_from_buffer(poster_png, "")
+        except Exception as exc:
+            logger.warning(
+                "VideoProcessingService: undecodable poster frame for %s: %s",
+                video_model.file_hash, exc,
+            )
+            video_model.has_poster = False
+            video_model.preview_b64 = ""
+            from .metadata import REASON_ENCODE_FAILED
+
+            return REASON_ENCODE_FAILED
+
+        output_dir = derived_dir("video", video_model.file_hash)
+        os.makedirs(output_dir, exist_ok=True)
+        poster = ImageProcessingService._resize(
+            frame, int(cdn_settings.POSTER_MAX_WIDTH), axis="w"
+        )
+        poster.webpsave(
+            os.path.join(output_dir, video_model.POSTER_FILENAME),
+            Q=ImageProcessingService.WEBP_QUALITY,
+        )
+        video_model.has_poster = True
+
+        micro_tier = min(int(size) for size in cdn_settings.THUMBNAIL_SIZES)
+        micro = ImageProcessingService._resize(frame, micro_tier, axis="min")
+        preview_b64, reason = encode_preview(vips_image=micro)
+        video_model.preview_b64 = preview_b64 or ""
+        return reason
 
 
 class AudioProcessingService:
-    """Audio ("recordings" submodule) pipeline — storage now, compression later.
+    """Audio ("recordings" submodule): metadata + waveform now, compression later.
 
-    cdn-modularity.md §7.2 (coordinator decision): recordings storage is
-    unconditional passthrough — ``Audio.save()`` needs no processing to be
-    usable. Compression is the opt-in half: ffmpeg-audio, gated by
-    ``"recordings"`` in ``STAPEL_CDN["ENABLED_SUBMODULES"]`` (and, once
-    implemented, by the presence of the ``ffmpeg`` binary — see
-    ``checks.check_submodule_binaries``). Until a real compression pass
-    exists, this stays a documented stub (same pattern as
-    ``VideoProcessingService`` / ``stapel_geo.search.elasticsearch.
-    ElasticsearchGeoSearchBackend``) — it never silently claims a recording
-    was compressed when it wasn't.
+    cdn-modularity.md §7.2: recordings storage is unconditional passthrough
+    — ``Audio.save()`` needs no processing to be usable. Two separate
+    optional passes sit on top of it:
+
+    * :meth:`extract_metadata` — duration (ffprobe) plus the rendered
+      waveform strip a voice message shows in a chat bubble (ffmpeg's
+      ``showwavespic``). Degrades with a named reason when ffmpeg is absent;
+    * :meth:`compress_audio` — still a documented stub. It never claims a
+      recording was compressed when it wasn't.
     """
+
+    @classmethod
+    def extract_metadata(cls, audio_model):
+        """Measure duration and render the waveform strip. Idempotent.
+
+        Both halves are attempted independently: a file ffprobe can time but
+        ffmpeg cannot draw still gets its duration, and the missing half is
+        named in ``meta_reason`` rather than left as an unexplained null.
+        """
+        from .metadata import REASON_SOURCE_MISSING
+        from .probes import MediaToolUnavailable, probe_media
+
+        update_fields = ["meta_reason", "updated_at"]
+        reason = ""
+
+        path = _source_path(audio_model)
+        if path is None:
+            audio_model.meta_reason = REASON_SOURCE_MISSING
+            audio_model.save(update_fields=update_fields)
+            logger.warning(
+                "AudioProcessingService: no readable original for audio %s (%s)",
+                audio_model.file_hash, REASON_SOURCE_MISSING,
+            )
+            return audio_model
+
+        try:
+            facts = probe_media(path)
+        except MediaToolUnavailable as exc:
+            reason = exc.reason
+            logger.warning(
+                "AudioProcessingService: ffprobe unavailable for audio %s (%s: %s)",
+                audio_model.file_hash, exc.reason, exc.detail,
+            )
+        else:
+            if facts["duration_ms"] is not None:
+                audio_model.duration = facts["duration_ms"] / 1000.0
+                update_fields.append("duration")
+
+        preview_b64, waveform_reason = cls._render_waveform(path)
+        audio_model.preview_b64 = preview_b64 or ""
+        update_fields.append("preview_b64")
+        reason = reason or waveform_reason
+
+        audio_model.meta_reason = reason
+        audio_model.save(update_fields=sorted(set(update_fields)))
+        return audio_model
+
+    @classmethod
+    def _render_waveform(cls, path: str) -> tuple[str | None, str]:
+        """Render the strip at the first configured size that fits the budget.
+
+        The downgrade ladder is explicit: each ``WAVEFORM_SIZES`` entry is
+        rendered and encoded (which itself walks the WebP quality ladder);
+        the first result inside ``MICRO_PREVIEW_MAX_BYTES`` wins. Only when
+        every size is still too large does this refuse, with
+        ``preview_over_budget``.
+        """
+        from .metadata import REASON_PREVIEW_OVER_BUDGET, encode_preview
+        from .probes import MediaToolUnavailable, render_waveform_png
+
+        color = str(cdn_settings.WAVEFORM_COLOR)
+        last_reason = REASON_PREVIEW_OVER_BUDGET
+        for width, height in cdn_settings.WAVEFORM_SIZES:
+            try:
+                png = render_waveform_png(path, int(width), int(height), color)
+            except MediaToolUnavailable as exc:
+                logger.warning(
+                    "AudioProcessingService: waveform render failed (%s: %s)",
+                    exc.reason, exc.detail,
+                )
+                return None, exc.reason
+            preview_b64, reason = encode_preview(raw=png)
+            if preview_b64:
+                return preview_b64, reason
+            last_reason = reason
+            if reason != REASON_PREVIEW_OVER_BUDGET:
+                # A decoder/encoder problem is not fixed by drawing smaller.
+                return None, reason
+        return None, last_reason
 
     @classmethod
     def compress_audio(cls, audio_model):
@@ -465,143 +720,11 @@ class AudioProcessingService:
         return audio_model
 
 
-def build_render_metadata(obj) -> dict:
-    """Render-metadata snapshot (images-and-cdn.md §5) for Image/Video/File/Audio.
-
-    The immutable form consumers denormalize once when they resolve a ref:
-    ``{mime, bytes, width, height, aspect, duration_ms, preview_b64, square,
-    variants[]}``. ``preview_b64`` is the 16px micro tier inlined as a data
-    URI (blur-up placeholder, chat-design.md contract); ``variants`` is the
-    persisted ``variants_meta`` plus the original file.
-    """
-    from .models import Audio, File, Image, Video
-
-    if isinstance(obj, Image):
-        return _image_render_metadata(obj)
-    if isinstance(obj, Video):
-        return _video_render_metadata(obj)
-    if isinstance(obj, File):
-        return _file_render_metadata(obj)
-    if isinstance(obj, Audio):
-        return _audio_render_metadata(obj)
-    raise TypeError(f"build_render_metadata: unsupported object {type(obj)!r}")
-
-
-def _guess_mime(filename_or_ext: str, fallback: str = "application/octet-stream") -> str:
-    name = filename_or_ext
-    if name.startswith("."):
-        name = f"file{name}"
-    mime, _ = mimetypes.guess_type(name)
-    return mime or fallback
-
-
-def _original_variant_entry(obj, width, height):
-    try:
-        url = obj.original.url if obj.original else None
-    except Exception:  # storage without a URL — omit the entry
-        url = None
-    if url is None:
-        return None
-    return {
-        "tier": "original",
-        "branch": None,
-        "url": url,
-        "width": width,
-        "height": height,
-    }
-
-
-def _image_render_metadata(image) -> dict:
-    width = image.original_width or None
-    height = image.original_height or None
-    aspect = (width / height) if width and height else None
-    square = (
-        width is not None
-        and height is not None
-        and abs(width - height) <= ImageProcessingService.SQUARE_EPSILON
-    )
-
-    preview_b64 = None
-    micro_path = os.path.join(
-        settings.MEDIA_ROOT, image.type, image.file_hash, "16.webp"
-    )
-    if os.path.exists(micro_path):
-        with open(micro_path, "rb") as fh:
-            preview_b64 = "data:image/webp;base64," + base64.b64encode(
-                fh.read()
-            ).decode("ascii")
-
-    variants = list(image.variants_meta or [])
-    original_entry = _original_variant_entry(image, width, height)
-    if original_entry is not None:
-        variants.append(original_entry)
-
-    return {
-        "mime": _guess_mime(image.file_extension or image.original_filename),
-        "bytes": image.original_size,
-        "width": width,
-        "height": height,
-        "aspect": aspect,
-        "duration_ms": None,
-        "preview_b64": preview_b64,
-        "square": square,
-        "variants": variants,
-    }
-
-
-def _video_render_metadata(video) -> dict:
-    width = video.original_width or None
-    height = video.original_height or None
-    return {
-        "mime": _guess_mime(video.file_extension or video.original_filename),
-        "bytes": video.original_size,
-        "width": width,
-        "height": height,
-        "aspect": (width / height) if width and height else None,
-        "duration_ms": int(video.duration * 1000) if video.duration else None,
-        "preview_b64": None,
-        "square": False,
-        # Poster-frame variants follow the image rules once the ffmpeg
-        # pipeline exists (images-and-cdn.md §5); until then — original only.
-        "variants": [
-            e
-            for e in [_original_variant_entry(video, width, height)]
-            if e is not None
-        ],
-    }
-
-
-def _file_render_metadata(file_obj) -> dict:
-    return {
-        "mime": file_obj.mime_type
-        or _guess_mime(file_obj.file_extension or file_obj.original_filename),
-        "bytes": file_obj.original_size,
-        "width": None,
-        "height": None,
-        "aspect": None,
-        "duration_ms": None,
-        "preview_b64": None,
-        "square": False,
-        "variants": [
-            e for e in [_original_variant_entry(file_obj, None, None)] if e is not None
-        ],
-    }
-
-
-def _audio_render_metadata(audio) -> dict:
-    return {
-        "mime": _guess_mime(audio.file_extension or audio.original_filename),
-        "bytes": audio.original_size,
-        "width": None,
-        "height": None,
-        "aspect": None,
-        "duration_ms": int(audio.duration * 1000) if audio.duration else None,
-        "preview_b64": None,
-        "square": False,
-        "variants": [
-            e for e in [_original_variant_entry(audio, None, None)] if e is not None
-        ],
-    }
+# ``build_render_metadata`` moved to ``stapel_cdn.metadata`` in 0.16.0, where
+# it grew the kind registry, the byte budget and the named degradation
+# reasons. It is imported at the top of this module and re-exported here
+# because every existing caller (functions.py, host projects) already
+# reaches for ``services.build_render_metadata``.
 
 
 def _batch_resolve_media(ref_strings, for_update=False):

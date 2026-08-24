@@ -58,9 +58,55 @@ DEFAULT_PREVIEW_SIZES = (160, 240, 480, 560, 720, 1080)
 #: ``variant_<size>_url`` model property generation and admin display.
 DEFAULT_VARIANT_SIZES = DEFAULT_THUMBNAIL_SIZES + DEFAULT_PREVIEW_SIZES
 
+#: Media-kind overlay (``kinds.py``): merge-over-builtins, ``None`` removes
+#: a builtin kind. Empty by default — the shipped kinds (image, gif, video,
+#: audio, file) cover everything this library stores today, and stickers or
+#: any later kind are a dict literal in a host's settings, not a release.
+DEFAULT_MEDIA_KINDS: dict = {}
+
 DEFAULTS = {
     "ASSET_TYPES": DEFAULT_ASSET_TYPES,
     "ENABLED_SUBMODULES": DEFAULT_ENABLED_SUBMODULES,
+    # --- render metadata (the attachment a UI can draw with no round trip) ---
+    # Open registry of media kinds — what an attachment IS, and therefore
+    # what its inline preview holds (blur / poster / waveform / nothing).
+    # Merged over stapel_cdn.kinds.BUILTIN_MEDIA_KINDS; a malformed entry is
+    # reported by checks.W009 rather than raising inside a request.
+    "MEDIA_KINDS": DEFAULT_MEDIA_KINDS,
+    # Byte ceiling for ONE inline preview, measured on the finished `data:`
+    # URI — i.e. exactly what lands in a JSON payload, base64 expansion
+    # included. 4 KiB: a 16px WebP LQIP is ~300-800 B as a data URI and a
+    # 240x40 waveform strip ~1.5-3 KB, so the default is roughly 5x headroom
+    # over a real preview and still bounds a 40-attachment chat page at
+    # ~160 KB worst case.
+    #
+    # Enforced by downgrade-then-refuse, never truncation (metadata.
+    # encode_preview): re-encode down the WebP quality ladder, re-render a
+    # waveform smaller, and if it still does not fit — no preview at all,
+    # with meta_reason "preview_over_budget". A truncated base64 string is a
+    # broken image everywhere; a null with a named reason is a placeholder
+    # every consumer already draws. Also applied on READ, so lowering this
+    # takes effect for rows stamped before the change.
+    "MICRO_PREVIEW_MAX_BYTES": 4096,
+    # Waveform strip geometry (pixels) for voice messages, best first. Each
+    # entry is tried in order until one fits MICRO_PREVIEW_MAX_BYTES.
+    "WAVEFORM_SIZES": ((240, 40), (120, 32)),
+    # Waveform ink colour passed to ffmpeg's showwavespic filter. A neutral
+    # slate that reads on both light and dark bubbles; hosts that theme
+    # their chat set their own.
+    "WAVEFORM_COLOR": "#3f7fbf",
+    # Second (in seconds) the video poster frame is lifted from. 0 takes the
+    # first frame, which on a lot of real footage is a black fade-in.
+    "POSTER_FRAME_AT": 1.0,
+    # Max width of the derived poster file written to
+    # MEDIA_ROOT/video/<hash>/poster.webp. The inline micro poster is
+    # separate (and tiny) — this is the real image a player shows before
+    # playback starts.
+    "POSTER_MAX_WIDTH": 720,
+    # Wall-clock ceiling (seconds) on any single ffprobe/ffmpeg call
+    # (probes.py). A media tool that hangs must degrade with the named
+    # reason "tool_timeout", not pin a worker.
+    "MEDIA_TOOL_TIMEOUT": 30.0,
     "THUMBNAIL_SIZES": DEFAULT_THUMBNAIL_SIZES,
     "PREVIEW_SIZES": DEFAULT_PREVIEW_SIZES,
     # Upload size cap for images (bytes) — 20 MB.
@@ -232,6 +278,7 @@ __all__ = [
     "DEFAULTS",
     "DEFAULT_ASSET_TYPES",
     "DEFAULT_ENABLED_SUBMODULES",
+    "DEFAULT_MEDIA_KINDS",
     "DEFAULT_THUMBNAIL_SIZES",
     "DEFAULT_PREVIEW_SIZES",
     "DEFAULT_VARIANT_SIZES",

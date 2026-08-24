@@ -29,9 +29,11 @@ anybody consumes — and is explicit about what a library cannot see.
 
 Periodic task
 -------------
-``retry_unprocessed`` picks up images stuck with ``is_processed=False``. It
-is the safety net for exactly the class above, and it only runs if somebody
-schedules it: wire ``get_cdn_beat_schedule()`` into ``CELERY_BEAT_SCHEDULE``,
+``retry_unprocessed`` picks up media stuck without its derived metadata —
+images with ``is_processed=False``, videos whose ffprobe/poster pass never
+measured anything, recordings with no waveform and no reason recorded. It
+is the safety net for exactly the class above (and for "ffmpeg was installed
+a week after the upload"), and it only runs if somebody schedules it: wire ``get_cdn_beat_schedule()`` into ``CELERY_BEAT_SCHEDULE``,
 on the cadence in ``STAPEL_CDN["RETRY_UNPROCESSED_SCHEDULE"]``.
 """
 from celery import shared_task
@@ -228,12 +230,39 @@ def process_video_async(video_id: int):
 
 
 @shared_task
+def process_audio_async(audio_id: int):
+    """Measure duration and render the waveform strip for one recording.
+
+    Async for the same reason the image pipeline is (models.py): running
+    ffmpeg inside the upload request turns every voice message into a
+    request-thread transcode. A recording is *usable the moment it is
+    stored* — this pass only adds what a chat bubble needs to draw it.
+    """
+    from .models import Audio
+    from .services import AudioProcessingService
+
+    try:
+        audio = Audio.objects.get(id=audio_id)
+    except Audio.DoesNotExist:
+        logger.error("Audio %s not found", audio_id)
+        return
+    AudioProcessingService.extract_metadata(audio)
+    logger.info("Metadata extracted for audio %s", audio.file_hash)
+
+
+@shared_task
 def retry_unprocessed():
     """
-    Periodic task: find images that are stuck with is_processed=False
-    for more than 5 minutes and re-queue them for processing.
+    Periodic task: re-queue media stuck without its derived metadata for
+    more than 5 minutes — images with ``is_processed=False``, videos whose
+    ffprobe/poster pass never produced measured facts, and recordings with
+    neither a waveform nor a named reason for not having one.
+
+    A degraded row is picked up too, deliberately: the commonest reason a
+    video has no duration is that ffmpeg was not installed *yet*, and the
+    retry is what makes installing it enough.
     """
-    from .models import Image
+    from .models import Audio, Image, Video
     from django.utils import timezone
 
     cutoff = timezone.now() - timedelta(minutes=5)
@@ -251,8 +280,22 @@ def retry_unprocessed():
               kwargs={"watermark": False})
         retried += 1
 
+    stuck_videos = Video.objects.filter(is_processed=False, created_at__lt=cutoff)
+    for video in stuck_videos:
+        logger.info("Retrying unprocessed video %s (%s)", video.id, video.file_hash[:8])
+        process_video_async.delay(video.id)
+        retried += 1
+
+    stuck_audio = Audio.objects.filter(
+        preview_b64="", meta_reason="", created_at__lt=cutoff
+    )
+    for audio in stuck_audio:
+        logger.info("Retrying unprocessed audio %s (%s)", audio.id, audio.file_hash[:8])
+        process_audio_async.delay(audio.id)
+        retried += 1
+
     if retried:
-        logger.info(f"Retried {retried} unprocessed images")
+        logger.info(f"Retried {retried} unprocessed media objects")
     return retried
 
 
@@ -265,6 +308,7 @@ __all__ = [
     "get_cdn_beat_schedule",
     "generate_thumbnails",
     "generate_previews",
+    "process_audio_async",
     "process_image_async",
     "process_video_async",
     "retry_unprocessed",

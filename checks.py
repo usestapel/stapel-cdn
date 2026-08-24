@@ -34,9 +34,18 @@ of at ``manage.py check`` / boot-smoke time.
   library cannot see a compose file, so this reports what it *can* see and
   names stapel-tools for the deployment-level (ADO-class) half.
 * **recordings** (``E003``) — audio storage is always available
-  (passthrough, no extra needed); this check is about the *optional*
-  ffmpeg-audio compression pass, so it only fires once a host project opts
-  in via ``"recordings"`` in ``STAPEL_CDN["ENABLED_SUBMODULES"]``.
+  (passthrough, no extra needed); ffmpeg is what a voice message's duration
+  and waveform strip come from, so this fires once a host project opts in
+  via ``"recordings"`` in ``STAPEL_CDN["ENABLED_SUBMODULES"]``.
+* **kinds** (``W009``) — a ``STAPEL_CDN["MEDIA_KINDS"]`` overlay entry that
+  does not parse. The registry is read on every ``cdn.describe``, so a
+  malformed entry would otherwise surface as a 500 on an attachment.
+* **media** (``W010``) — ffmpeg without ffprobe, or ffprobe without ffmpeg.
+  E002/E003 probe for the pair; a split install passes them and then
+  produces attachments with a waveform and no duration.
+* **media** (``W011``) — an inline-preview byte budget that is not a
+  positive number, so the shipped default is what actually bounds the
+  payload.
 """
 from __future__ import annotations
 
@@ -52,6 +61,9 @@ W005_DEDUP_SCOPE_INVALID = "stapel_cdn.ownership.W005"
 W006_DEDUP_SCOPE_GLOBAL = "stapel_cdn.ownership.W006"
 W007_QUOTA_CEILING_INVALID = "stapel_cdn.ownership.W007"
 W008_VARIANT_QUEUE_UNPROVEN = "stapel_cdn.tasks.W008"
+W009_MEDIA_KINDS_INVALID = "stapel_cdn.kinds.W009"
+W010_MEDIA_TOOL_MISSING = "stapel_cdn.media.W010"
+W011_PREVIEW_BUDGET_INVALID = "stapel_cdn.media.W011"
 
 
 @checks.register("stapel_cdn")
@@ -114,11 +126,18 @@ def check_submodule_binaries(app_configs=None, **kwargs):
         findings.append(
             checks.Error(
                 "'video' is in STAPEL_CDN['ENABLED_SUBMODULES'] but the "
-                "'ffmpeg' binary is not on PATH — video variant/poster "
-                "generation (VideoProcessingService) cannot run.",
+                "'ffmpeg' binary is not on PATH — VideoProcessingService "
+                "cannot measure a video's dimensions or duration and cannot "
+                "extract a poster frame. Every video this deployment stores "
+                "answers cdn.describe with a null aspect, a null duration "
+                "and no preview, so a UI has nothing to reserve space with.",
                 hint="Install ffmpeg on this VPS/prod image (never the "
                      "stapel-studio devcontainer — cdn-modularity.md §3) "
-                     "or remove 'video' from ENABLED_SUBMODULES.",
+                     "or remove 'video' from ENABLED_SUBMODULES. Rows "
+                     "stored while it was missing carry meta_reason "
+                     "'ffmpeg_missing'/'ffprobe_missing' — run "
+                     "`manage.py cdn_backfill_media_meta --retry-degraded` "
+                     "once the binary is there.",
                 id=E002_VIDEO_BINARY_MISSING,
             )
         )
@@ -129,14 +148,19 @@ def check_submodule_binaries(app_configs=None, **kwargs):
         findings.append(
             checks.Error(
                 "'recordings' is in STAPEL_CDN['ENABLED_SUBMODULES'] but "
-                "the 'ffmpeg' binary is not on PATH — ffmpeg-audio "
-                "compression (AudioProcessingService) cannot run. Audio "
-                "storage itself is unaffected (passthrough, no binary "
-                "required) — this only blocks the optional compression "
-                "pass.",
+                "the 'ffmpeg' binary is not on PATH — a voice message gets "
+                "neither its duration (ffprobe) nor its waveform strip "
+                "(ffmpeg showwavespic), so a chat bubble has nothing to "
+                "render but a filename. Audio STORAGE is unaffected "
+                "(passthrough, no binary required), and so is the still-"
+                "unimplemented compression pass.",
                 hint="Install ffmpeg on this VPS/prod image or remove "
                      "'recordings' from ENABLED_SUBMODULES to keep "
-                     "passthrough-only storage.",
+                     "passthrough-only storage with no waveforms. Rows "
+                     "stored while it was missing carry meta_reason "
+                     "'ffmpeg_missing'/'ffprobe_missing' — run "
+                     "`manage.py cdn_backfill_media_meta --retry-degraded` "
+                     "once the binary is there.",
                 id=E003_RECORDINGS_BINARY_MISSING,
             )
         )
@@ -333,6 +357,116 @@ def check_variant_queues(app_configs=None, **kwargs):
     ]
 
 
+@checks.register("stapel_cdn")
+def check_media_kinds(app_configs=None, **kwargs):
+    """W009 — a ``MEDIA_KINDS`` overlay entry that does not parse.
+
+    The registry is read on every ``cdn.describe``, so a malformed entry
+    would otherwise surface as a 500 on somebody's attachment. A warning
+    rather than an error because the failure is contained: nothing renders
+    against a kind that could not be built, and the shipped kinds still
+    resolve — but the host wrote an entry that is doing nothing.
+    """
+    from .kinds import MediaKindConfigError, get_media_kinds
+
+    try:
+        get_media_kinds()
+    except MediaKindConfigError as exc:
+        return [
+            checks.Warning(
+                str(exc),
+                hint="An entry is {'model': 'image'|'video'|'audio'|'file', "
+                     "'extensions': (...), 'asset_types': (...), 'preview': "
+                     "'blur'|'poster'|'waveform'|None, 'animated': bool}, or "
+                     "None to remove a builtin kind.",
+                id=W009_MEDIA_KINDS_INVALID,
+            )
+        ]
+    return []
+
+
+@checks.register("stapel_cdn")
+def check_media_tools(app_configs=None, **kwargs):
+    """W010 — half of ffmpeg is installed, which is worse than neither.
+
+    ffmpeg and ffprobe normally ship together, and E002/E003 above probe
+    for ``ffmpeg``. A deployment that has one without the other (a slim
+    image that copied a single binary, a distro that splits the package)
+    passes those checks and then silently produces attachments with a
+    waveform and no duration, or a duration and no poster — a partial
+    result that looks like a partial *file* rather than a partial install.
+    Only reported once a submodule that uses them is enabled.
+    """
+    from . import probes
+    from .conf import cdn_settings
+
+    enabled = set(cdn_settings.ENABLED_SUBMODULES)
+    if not enabled & {"video", "recordings"}:
+        return []
+
+    missing = []
+    if not probes.ffmpeg_available():
+        missing.append("ffmpeg")
+    if not probes.ffprobe_available():
+        missing.append("ffprobe")
+    # Both missing is E002/E003's subject; this is about the split install.
+    if len(missing) != 1:
+        return []
+
+    absent = missing[0]
+    present = "ffprobe" if absent == "ffmpeg" else "ffmpeg"
+    lost = (
+        "poster frames and waveform strips"
+        if absent == "ffmpeg"
+        else "durations and video dimensions"
+    )
+    return [
+        checks.Warning(
+            f"'{present}' is on PATH but '{absent}' is not. The media "
+            f"metadata pass will produce {lost} for nothing it stores, and "
+            f"every affected row records meta_reason "
+            f"'{absent}_missing' — the attachment looks half-broken to a UI "
+            f"while the deployment looks correctly configured.",
+            hint=f"Install the full ffmpeg suite (it ships '{absent}' too) "
+                 f"on this image, then run `manage.py "
+                 f"cdn_backfill_media_meta --retry-degraded`.",
+            id=W010_MEDIA_TOOL_MISSING,
+        )
+    ]
+
+
+@checks.register("stapel_cdn")
+def check_preview_budget(app_configs=None, **kwargs):
+    """W011 — an inline-preview budget nobody can act on.
+
+    A warning, not an error, for the reason W007 is: the module stays
+    bounded either way (``metadata.preview_budget`` falls back to the
+    shipped default rather than treating an unusable value as "no limit").
+    It is reported because the operator who wrote
+    ``MICRO_PREVIEW_MAX_BYTES = "8kb"`` believes they raised the ceiling.
+    """
+    from .conf import cdn_settings
+    from .metadata import DEFAULT_PREVIEW_BUDGET
+
+    raw = cdn_settings.MICRO_PREVIEW_MAX_BYTES
+    if isinstance(raw, int) and not isinstance(raw, bool) and raw > 0:
+        return []
+    return [
+        checks.Warning(
+            f"STAPEL_CDN['MICRO_PREVIEW_MAX_BYTES'] is {raw!r}, which is not "
+            f"a positive number of bytes. The module falls back to "
+            f"{DEFAULT_PREVIEW_BUDGET} rather than inlining unbounded base64 "
+            f"into every attachment payload — but the setting is not doing "
+            f"what it was written to do.",
+            hint="Set a positive byte count measured on the finished data: "
+                 "URI (a 16px WebP LQIP is ~300-800 B, a waveform strip "
+                 "~1.5-3 KB). There is no 'unlimited': base64 in a JSON "
+                 "payload is page weight, and page weight has a ceiling.",
+            id=W011_PREVIEW_BUDGET_INVALID,
+        )
+    ]
+
+
 __all__ = [
     "E001_IMAGES_LIBRARY_MISSING",
     "E004_IMAGE_FORMAT_UNDECODABLE",
@@ -342,8 +476,14 @@ __all__ = [
     "W006_DEDUP_SCOPE_GLOBAL",
     "W007_QUOTA_CEILING_INVALID",
     "W008_VARIANT_QUEUE_UNPROVEN",
+    "W009_MEDIA_KINDS_INVALID",
+    "W010_MEDIA_TOOL_MISSING",
+    "W011_PREVIEW_BUDGET_INVALID",
     "check_dedup_scope",
+    "check_media_kinds",
+    "check_media_tools",
     "check_owner_quotas",
+    "check_preview_budget",
     "check_submodule_binaries",
     "check_variant_queues",
 ]

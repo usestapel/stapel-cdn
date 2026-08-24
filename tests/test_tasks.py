@@ -154,9 +154,25 @@ class TestProcessVideoAsync:
     def test_processes_unprocessed_video(self):
         video = _make_video()
         Video.objects.filter(pk=video.pk).update(is_processed=False)
+        with patch(
+            'stapel_cdn.services.VideoProcessingService.process_video'
+        ) as mock_proc:
+            tasks.process_video_async(video.id)
+        mock_proc.assert_called_once()
+
+    def test_unprocessed_video_records_a_named_reason(self):
+        """The task runs the real pass; with no readable blob it degrades.
+
+        ``is_processed`` stays False on purpose (0.16.0: the flag means
+        measured facts exist) and ``meta_reason`` says which of the named
+        reasons applied — never an empty snapshot with no explanation.
+        """
+        video = _make_video()
+        Video.objects.filter(pk=video.pk).update(is_processed=False)
         tasks.process_video_async(video.id)
         video.refresh_from_db()
-        assert video.is_processed is True
+        assert video.is_processed is False
+        assert video.meta_reason in ('source_missing', 'ffprobe_missing')
 
     def test_skips_processed_video(self):
         video = _make_video(processed=True)

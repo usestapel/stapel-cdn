@@ -22,8 +22,11 @@ extra needed — passthrough), `s3` (boto3, reserved). See the submodule table b
   `uploaded_by` FKs `settings.AUTH_USER_MODEL`. `Audio` (the "recordings" submodule,
   cdn-modularity.md §7.2) is passthrough storage always available — no extra required;
   `is_compressed` tracks the separate, still-unimplemented ffmpeg-audio compression pass
-  (`services.AudioProcessingService`, a documented stub — never silently marks a
-  recording compressed).
+  (`services.AudioProcessingService.compress_audio`, a documented stub — never silently
+  marks a recording compressed). `AudioProcessingService.extract_metadata` is real:
+  duration + the base64 waveform strip a voice message renders with.
+  `Image`/`Video`/`Audio` each carry `preview_b64` (the inline placeholder) and
+  `meta_reason` (the named reason one is missing); `Video` adds `has_poster`.
 - **HTTP API** (`stapel_cdn.urls` → v1 canon `/cdn/api/v1/...`, api-versioning.md §2;
   the URL set itself lives in `stapel_cdn.urls_v1`): `upload/image/`, `upload/avatar/`,
   `upload/video/`, `upload/file/`, `images/<type>/upload/`, `images/<type>/random/`,
@@ -39,18 +42,32 @@ extra needed — passthrough), `s3` (boto3, reserved). See the submodule table b
   `Image.variants_meta`. Embedded-thumbnail fast path (HEIC `heifload(thumbnail=True)`,
   JPEG `shrink=8`), optional watermark via a pluggable engine (off by default). Runs
   async on Celery queues `thumbnails` (high priority) and `previews`;
-  `retry_unprocessed` task re-queues stuck images. `manage.py regenerate_media` wipes
-  generated variants and re-runs the pipeline (the operational relaunch step —
-  no compatibility file layouts are kept).
+  `retry_unprocessed` task re-queues stuck images, videos and recordings.
+  `manage.py regenerate_media` wipes generated variants and re-runs the pipeline
+  (the operational relaunch step — no compatibility file layouts are kept);
+  `manage.py cdn_backfill_media_meta` stamps render metadata on objects stored
+  before the metadata pipeline existed (idempotent, resumable — see
+  **Backfilling render metadata** below).
 - **Upload safety** (`stapel_cdn.validators`, `stapel_cdn.upload_handlers`):
   `validate_image_file` (extension allowlist → libvips decode check → decompression-bomb
   cap); `SpeedLimitUploadHandler` (5-min absolute timeout, 2 KB/s sliding-window minimum
   speed) — opt-in via Django `FILE_UPLOAD_HANDLERS`.
-- **Comm surface**: provides functions `cdn.media_exists`, `cdn.describe`
-  (render-metadata snapshot `{mime, bytes, width, height, aspect, duration_ms,
-  preview_b64, square, variants[]}` — `preview_b64` is the 16px micro tier as a
-  `data:image/webp;base64,...` URI; consumers denormalize the snapshot once when
-  resolving a ref) and `cdn.refs_sync`
+- **Render metadata** (`stapel_cdn.metadata`, `stapel_cdn.kinds`,
+  `stapel_cdn.probes`): every attachment carries what a UI needs to draw it
+  with no second round trip and no layout jump — aspect box, byte size, an
+  inline placeholder, and duration for time-based media. Images get a 16px
+  WebP blur-up produced in the **same** libvips pass that writes `16.webp`
+  (the encoded buffer is reused, not re-read); video gets ffprobe
+  dimensions/duration plus one extracted frame that feeds both
+  `MEDIA_ROOT/video/<hash>/poster.webp` and the inline micro poster; voice
+  messages get ffprobe duration plus a waveform strip rendered by ffmpeg's
+  `showwavespic`; documents get mime + extension. Every inline preview is
+  bounded by `STAPEL_CDN["MICRO_PREVIEW_MAX_BYTES"]` and every gap is named
+  (`meta_status`/`meta_reason`). See **The render-metadata contract** below.
+- **Comm surface**: provides functions `cdn.media_exists`, `cdn.describe`,
+  `cdn.describe_many` (the render-metadata snapshot for one ref / a page of
+  refs — see the contract table below; consumers denormalize the snapshot once
+  when resolving a ref) and `cdn.refs_sync`
   (`stapel_cdn.functions`, called via `stapel_core.comm.call` — no import of this package
   needed); subscribes to actions `user.deleted` / `user.deletion_initiated` (`stapel_cdn.actions`); Kafka consumer
   `manage.py consume_cdn_events` for `cdn.ref.sync` events (topic
@@ -63,6 +80,101 @@ extra needed — passthrough), `s3` (boto3, reserved). See the submodule table b
   gone.
 - **Public API** (`stapel_cdn.__all__`, lazily exported, Django-free import):
   `cdn_settings`, `media_exists`, `refs_sync`, `validate_image_file`.
+
+## The render-metadata contract
+
+One snapshot, four ways to reach it: `cdn.describe` (one ref),
+`cdn.describe_many` (a page of refs), `render_meta` on the upload/read
+serializers, and `stapel_cdn.metadata.build_render_metadata(obj)` in-process.
+They return the **same object**, so an HTTP client and a service caller never
+build against two shapes that drift.
+
+| Field | Type | Meaning |
+|---|---|---|
+| `ref` | `str` | `<prefix>/<hash>` — what resolves back to this object. |
+| `kind` | `str \| null` | From the open registry (`STAPEL_CDN["MEDIA_KINDS"]`): `image`, `gif`, `video`, `audio`, `file`, or a host kind. `null` only if a host removed the builtin for that model. |
+| `mime` | `str` | Stored `mime_type` when there is one, else guessed from the extension. |
+| `ext` | `str` | Lowercase, dot-prefixed (`".pdf"`); `""` when unknown. |
+| `bytes` | `int` | Size of the original. |
+| `width` / `height` | `int \| null` | Pixels. `null` for audio and documents, and for video before ffprobe has run. |
+| `aspect` | `float \| null` | `width / height`, rounded to 6dp so the same image always serializes to the same number. |
+| `square` | `bool` | Within the 1px epsilon (images-and-cdn.md §3.3): the preview branches are equivalent. |
+| `animated` | `bool` | Property of the kind — `true` for `gif`, `video`, `audio` and any host kind that says so. |
+| `duration_ms` | `int \| null` | Measured. **Never 0 for "unknown"** — an unmeasured duration is `null` with a reason. |
+| `preview_b64` | `str \| null` | `data:image/webp;base64,...` (`image/png` only on the named no-libvips downgrade), at most `MICRO_PREVIEW_MAX_BYTES` bytes. `null` when refused or not yet generated. |
+| `preview_kind` | `"blur" \| "poster" \| "waveform" \| null` | What `preview_b64` depicts. `null` = this kind has no inline preview (documents). Declared by the kind, so it is known even while `preview_b64` is still `null`. |
+| `poster_url` | `str \| null` | Video only, and only once the poster file exists (`Video.has_poster`) — never a URL derived from the hash alone. |
+| `meta_status` | `"ok" \| "partial" \| "missing"` | Whether everything this kind promises is present. |
+| `meta_reason` | `str \| null` | Named reason when not `ok` — `stapel_cdn.metadata.REASONS`. |
+| `variants` | `list[{tier, branch, url, width, height}]` | Thumbnail tiers (`branch: null`, min-side), preview branches (`"w"`/`"h"`), plus the `"original"` entry. |
+
+**What each media type carries** (the owner's list, and where it comes from):
+
+| Kind | Guaranteed once `meta_status == "ok"` | Produced by |
+|---|---|---|
+| `image` | `width`, `height`, `aspect`, `bytes`, `preview_b64` (16px WebP blur-up) | one libvips pass — the micro tier's encoded buffer *is* the preview |
+| `gif` | the same, plus `animated: true` | same pass; the kind is decided by extension |
+| `video` | `width`, `height`, `aspect`, `bytes`, `duration_ms`, `preview_b64` (micro poster), `poster_url` | one `ffprobe` call + one `ffmpeg` frame extraction |
+| `audio` (voice) | `duration_ms`, `preview_b64` (waveform strip), `bytes` | `ffprobe` + `ffmpeg showwavespic` |
+| `file` | `mime`, `ext`, `bytes` (`preview_kind: null` — nothing is pending) | read off the row |
+
+**Named reasons** (`meta_reason`): `not_generated`, `decoder_missing`,
+`preview_over_budget`, `source_missing`, `encode_failed`, `ffprobe_missing`,
+`ffmpeg_missing`, `probe_failed`, `render_failed`, `tool_timeout`. There is no
+path that returns an unexplained null: if a consumer sees `duration_ms: null`,
+this field says whether it is "still coming", "this deployment has no ffmpeg"
+or "the blob is gone".
+
+**The byte budget.** `MICRO_PREVIEW_MAX_BYTES` (default **4096 bytes**,
+measured on the finished `data:` URI) is enforced by *downgrade-then-refuse* —
+WebP quality ladder (85 → 60 → 40), then a smaller waveform strip, then no
+preview at all with `preview_over_budget`. Never truncation: a truncated base64
+string is a broken image in every consumer, a `null` with a reason is a
+placeholder every consumer already draws. The ceiling is re-applied on **read**,
+so lowering it stops shipping older, larger payloads immediately.
+`cdn.describe_many` is capped at 50 refs per call, because batch size is
+response size.
+
+### Media kinds — an open registry, not an enum
+
+`STAPEL_CDN["MEDIA_KINDS"]`, merged over `stapel_cdn.kinds.BUILTIN_MEDIA_KINDS`
+with the same semantics as every other Stapel registry (an entry replaces a
+builtin, `None` removes it). A kind decides two things only: what
+`preview_b64` holds, and whether the object moves. Adding stickers is a dict
+literal, not a release:
+
+```python
+STAPEL_CDN = {
+    "ASSET_TYPES": ("avatar", "sticker"),
+    "MEDIA_KINDS": {
+        "sticker": {"model": "image", "asset_types": ("sticker",),
+                    "preview": "blur", "animated": True},
+    },
+}
+```
+
+Resolution is by model, narrowed by extension and (for images) `Image.type`;
+most specific wins (`asset_types` +2, `extensions` +1), ties broken by name so
+the answer never depends on dict ordering. A malformed entry is `checks.W009`,
+not a 500 on somebody's attachment.
+
+### Backfilling render metadata
+
+```
+manage.py cdn_backfill_media_meta [--kind image|video|audio] [--batch-size N]
+                                  [--limit N] [--dry-run] [--retry-degraded]
+```
+
+Idempotent and resumable **by construction**: the candidate query is the resume
+token — only rows still missing a preview are selected, paged by a primary-key
+cursor. A crash halfway is resumed by re-running the same command; a second run
+over a finished table writes nothing; `--limit` drains a large table in bounded
+slices. A row that cannot be completed records its named reason and is counted
+(with a per-reason tally in the output), never retried in a loop and never
+reported as success. `--retry-degraded` re-attempts those rows — the normal
+sequence after installing ffmpeg on a deployment that stored a month of voice
+messages without it. Documents are not a population: their metadata is read off
+the row.
 
 ## Extension points (fork-free)
 
@@ -79,6 +191,11 @@ See `CONFIG.MD` for the complete registry (source/required/default per key). Hig
 |---|---|---|
 | `ASSET_TYPES` | `("avatar",)` | `Image.type` choices — **same `STAPEL_CDN` key the client-side `stapel_core.django.cdn.CdnImageField` reads** (cdn-modularity.md §2.1/§5, replacing the pre-0.8.0 `IMAGE_TYPES` key). Read through the callable `models.get_image_type_choices`, so adding types never produces a model/migration change. Accepts `(value, label)` pairs or plain strings. `TypedImageUploadView` and `RandomImageView` validate against it. Values must fit `max_length=10`. |
 | `ENABLED_SUBMODULES` | `("images",)` | Which of `images`/`video`/`recordings` this deployment turns on. `images` needs no opt-in (its system check always runs); adding `"video"`/`"recordings"` is what activates `checks.check_submodule_binaries`'s ffmpeg probe for that submodule. |
+| `MEDIA_KINDS` | `{}` | Open media-kind registry, merged over the builtins (`image`/`gif`/`video`/`audio`/`file`). Adds stickers or any later kind without a release; `None` removes a builtin. See **Media kinds** above. |
+| `MICRO_PREVIEW_MAX_BYTES` | `4096` | Byte ceiling for ONE inline preview, measured on the finished `data:` URI. Downgrade-then-refuse, never truncation; applied on read as well as at ingest. |
+| `WAVEFORM_SIZES` / `WAVEFORM_COLOR` | `((240, 40), (120, 32))` / `"#3f7fbf"` | Waveform strip geometry ladder and ink colour for `ffmpeg showwavespic`. |
+| `POSTER_FRAME_AT` / `POSTER_MAX_WIDTH` | `1.0` / `720` | Which second the video poster is lifted from, and the width of the derived `poster.webp`. |
+| `MEDIA_TOOL_TIMEOUT` | `30.0` | Ceiling on any single ffprobe/ffmpeg call; a hung tool degrades with `tool_timeout` instead of pinning a worker. |
 | `THUMBNAIL_SIZES` | `(16, 32, 64, 120)` | Thumbnail tiers: min-side resize, no branches, no watermark. 16 is the micro tier inlined as `preview_b64` by `cdn.describe`. |
 | `PREVIEW_SIZES` | `(160, 240, 480, 560, 720, 1080)` | Preview tiers: two branches per tier (`{T}w.webp` / `{T}h.webp`), watermark-capable. |
 | `THUMBNAILS_QUEUE` / `PREVIEWS_QUEUE` | `None` | Celery queue each variant-generation task is sent on. `None` sends **no** `queue` option, so the task lands on the app's own default queue and a vanilla single-queue worker drains it. Set them only in a fleet that shards queues per service. See *Background work* below. |
@@ -100,8 +217,8 @@ boot-smoke time, not at first use:
 | Submodule | Model | Binary/library | Opt-in via `ENABLED_SUBMODULES`? | System check |
 |---|---|---|---|---|
 | `images` | `Image` | `libvips` (system, apt `libvips-dev`) + `pyvips` (pip, extra `images`) | Yes — on by default | `stapel_cdn.images.E001` if `"images"` is enabled and `pyvips` isn't importable: libvips is the **only** image decoder the library has (Pillow left in 0.10), so nothing on the image path works without it. `stapel_cdn.images.E004` if libvips is present but this build cannot read a format `ALLOWED_IMAGE_EXTENSIONS` declares allowed — the setting advertising what the deployment cannot honour. |
-| `recordings` | `Audio` | none for storage (always on); `ffmpeg` (system) once a real compression pipeline exists | Yes — gates the *compression* check only, storage is unconditional | `stapel_cdn.recordings.E003` if `"recordings"` is enabled and `ffmpeg` is missing |
-| `video` | `Video` | `ffmpeg` (system) — VPS/prod-only, never the stapel-studio devcontainer | Yes | `stapel_cdn.video.E002` if `"video"` is enabled and `ffmpeg` is missing |
+| `recordings` | `Audio` | none for storage (always on); `ffmpeg`/`ffprobe` (system) for duration + waveform, and later for compression | Yes — gates the metadata/compression checks only, storage is unconditional | `stapel_cdn.recordings.E003` if `"recordings"` is enabled and `ffmpeg` is missing (a voice message then has neither duration nor waveform) |
+| `video` | `Video` | `ffmpeg`/`ffprobe` (system) — VPS/prod-only, never the stapel-studio devcontainer | Yes | `stapel_cdn.video.E002` if `"video"` is enabled and `ffmpeg` is missing (no dimensions, no duration, no poster) |
 | `files` | `File` | none — passthrough, no processing | N/A (no extra) | none |
 
 ### Storage / processing backends (dotted paths)
@@ -122,7 +239,10 @@ is an upstream contribution. `Image.type` values, however, are extendable via
 
 ### Serializer seams
 
-Every view in `stapel_cdn.views` mixes in `SerializerSeamMixin` with two class attributes
+Every view in `stapel_cdn.views` mixes in `SerializerSeamMixin` — imported from
+`stapel_core.django.api.views` since 0.16.0 (core 0.41.0 hoisted it into the
+canon; this module carried a byte-identical local copy until then) — with two
+class attributes
 and two getters — swap serializers (or add per-request logic) by subclassing the view and
 re-routing the URL in the host project, without copying view bodies:
 
@@ -148,6 +268,8 @@ class MyImageUpload(ImageUploadView):
 | Name | Direction | Contract |
 |---|---|---|
 | `cdn.media_exists` | provides (function) | `call("cdn.media_exists", {"ref": "<type>/<hash>"})` → `{"exists": bool}`. Ref prefixes: any configured `STAPEL_CDN["ASSET_TYPES"]` value (default `avatar`), `video`, `file`, `audio`. |
+| `cdn.describe` | provides (function) | `call("cdn.describe", {"ref": "<type>/<hash>"})` → the render-metadata snapshot (table above). `LookupError` (surfaced as `FunctionCallError`) for an unknown ref — a missing asset is the caller's placeholder case, not an empty snapshot. |
+| `cdn.describe_many` | provides (function) | `call("cdn.describe_many", {"refs": [...]})` → `{"items": {ref: snapshot}, "missing": [ref, ...]}`. One query per model for a whole page of attachments; an unknown ref is data, not an error. Max 50 refs per call. |
 | `cdn.refs_sync` | provides (function) | `call("cdn.refs_sync", {"service", "entity_type", "entity_id", "old_hashes", "new_hashes"})` → `{"added", "removed", "errors"}`. Same logic as `RefSyncView` / `services.apply_ref_sync`. |
 | `gdpr.erasure.requested` | subscribes (action) | Subject-scoped erasure — `account` \| `workspace` \| `file` \| `recording` (see **Erasure** below), confirmed with `gdpr.section.erased` carrying `{owner: "media", subject_type, subject_key, receipt_id, counts}` in the same transaction. Schema: `schemas/consumes/gdpr.erasure.requested.json`. Idempotent. |
 | `gdpr.owner.probe` | subscribes (action) | Answered with `gdpr.owner.alive {owner: "media", subject_types}` from the *same* subscriber that erases. Schema: `schemas/consumes/gdpr.owner.probe.json`. |
@@ -279,6 +401,21 @@ zero decorators added.
   with per-variant geometry in `Image.variants_meta`. Don't write to those paths
   yourself and don't assume a DB row per variant (only `Video` has variant
   FileFields).
+- **Adding a media type by widening an enum.** `MEDIA_KINDS` is a
+  merge-over-builtins registry: stickers, and whatever comes after them, are a
+  dict literal in the host's settings. Do not add a `TextChoices` of kinds, and
+  do not branch on `Image.type` string literals in a consumer — read `kind` off
+  the snapshot.
+- **Inlining an unbounded preview.** `preview_b64` is page weight multiplied by
+  the number of attachments on a screen. Encode through
+  `metadata.encode_preview`, which enforces `MICRO_PREVIEW_MAX_BYTES` by
+  downgrading and then refusing. Never truncate a data URI, and never widen the
+  budget to fit a bigger image — a bigger image belongs behind a URL.
+- **Reporting an unmeasured fact as a measured one.** A duration nobody could
+  measure is `null` with a `meta_reason`, never `0`; a video the pass could not
+  probe is not `is_processed`; a poster URL is only emitted once
+  `Video.has_poster` says the file exists. Every one of those was, or would be,
+  the same defect as a 201 whose variant URLs 404 forever.
 - **Non-idempotent action handlers.** Anything subscribed via `on_action` must tolerate
   redelivery (outbox retries, at-least-once broker semantics).
 - **Reading flat `CDN_*` settings.** The legacy flat aliases are gone; code reads
@@ -311,11 +448,12 @@ your own app.
 **Upstream contribution** (this repo, via `contrib_open` → review origin → PyPI release)
 if it needs: a new settings key or a dotted-path `import_strings` seam (e.g. making the
 storage backend or processing service class configurable); S3/presigned
-uploads (`s3` extra is declared but unwired); video variant/poster generation (ffmpeg —
-currently `VideoProcessingService.process_video`, a documented stub that only marks
-`is_processed`, same pattern as `stapel_geo.search.elasticsearch`); ffmpeg-audio
-compression for `Audio` (`AudioProcessingService.compress_audio`, also a stub —
-`recordings` storage itself is already usable without it); emitting `media_processed` from
+uploads (`s3` extra is declared but unwired); the video **rendition ladder**
+(`Video.variant_240`…`variant_2160` are still empty FileFields — metadata and the
+poster frame ship, transcoding does not); ffmpeg-audio
+compression for `Audio` (`AudioProcessingService.compress_audio`, still a documented
+stub — `recordings` storage and the duration/waveform pass are already usable
+without it); emitting `media_processed` from
 the Celery task path; new endpoints, model fields, or migrations; changing WebP/JPEG
 quality or upload-handler thresholds (currently hardcoded constants).
 

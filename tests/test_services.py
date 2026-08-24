@@ -201,8 +201,14 @@ class TestVideoProcessingService:
     """Tests for VideoProcessingService."""
 
     @pytest.mark.django_db
-    def test_process_video_sets_processed(self, user):
-        """Test that process_video marks video as processed."""
+    def test_process_video_without_a_readable_original_stays_unprocessed(self, user):
+        """A row whose blob is not there is NOT "processed".
+
+        Through 0.15 this pass set ``is_processed = True`` unconditionally —
+        it did no work and said it had. Since 0.16.0 the flag means measured
+        facts exist, and anything else records a NAMED reason so the
+        backfill/retry can come back to it.
+        """
         video = Video.objects.create(
             file_hash='z' * 64,
             original_filename='test.mp4',
@@ -215,7 +221,8 @@ class TestVideoProcessingService:
         result = VideoProcessingService.process_video(video)
 
         video.refresh_from_db()
-        assert video.is_processed is True
+        assert video.is_processed is False
+        assert video.meta_reason == 'source_missing'
         assert result == video
 
     @pytest.mark.django_db

@@ -11,12 +11,31 @@ import stapel_cdn
 class TestLazyExports:
     def test_all_declares_public_api(self):
         assert stapel_cdn.__all__ == [
+            'build_render_metadata',
             'cdn_settings',
+            'classify',
+            'describe',
+            'describe_many',
+            'get_media_kinds',
             'media_exists',
             'refs_sync',
             'text_watermark',
             'validate_image_file',
         ]
+
+    def test_metadata_surface_resolves(self):
+        from stapel_cdn.kinds import classify, get_media_kinds
+        from stapel_cdn.metadata import build_render_metadata
+
+        assert stapel_cdn.build_render_metadata is build_render_metadata
+        assert stapel_cdn.classify is classify
+        assert stapel_cdn.get_media_kinds is get_media_kinds
+
+    def test_describe_functions_resolve(self):
+        from stapel_cdn.functions import describe, describe_many
+
+        assert stapel_cdn.describe is describe
+        assert stapel_cdn.describe_many is describe_many
 
     def test_cdn_settings_resolves(self):
         from stapel_cdn.conf import cdn_settings

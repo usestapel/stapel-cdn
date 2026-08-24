@@ -162,6 +162,27 @@ class Image(models.Model):
         help_text="Generated variants: [{tier, branch, url, width, height}]",
     )
 
+    # Inline blur-up placeholder — the micro thumbnail tier as a data URI,
+    # stamped by the SAME libvips pass that writes 16.webp (services.
+    # ImageProcessingService.generate_thumbnails_only keeps the encoded
+    # buffer rather than re-reading the file). Bounded by
+    # STAPEL_CDN["MICRO_PREVIEW_MAX_BYTES"]; empty means "not generated" or
+    # "refused", and meta_reason below says which.
+    preview_b64 = models.TextField(
+        blank=True,
+        default="",
+        help_text="Inline blur-up placeholder: data:image/webp;base64,...",
+    )
+    meta_reason = models.CharField(
+        max_length=32,
+        blank=True,
+        default="",
+        help_text=(
+            "Named reason the render metadata is incomplete "
+            "(stapel_cdn.metadata.REASONS); empty when nothing degraded."
+        ),
+    )
+
     # Reference tracking
     refs = models.JSONField(
         default=list,
@@ -458,9 +479,38 @@ class Video(models.Model):
         help_text="2160px height variant with watermark",
     )
 
-    # Processing status
+    # Processing status. Since 0.16.0 this means the metadata pass actually
+    # produced measured facts (ffprobe dimensions/duration, and a poster
+    # frame when ffmpeg could extract one) — NOT merely "the pass was
+    # called". A deployment with no ffmpeg leaves it False and names the
+    # reason in meta_reason, so the backfill command and retry_unprocessed
+    # can pick the row up once the binary exists.
     is_processed = models.BooleanField(
-        default=False, help_text="Whether variants have been generated"
+        default=False, help_text="Whether metadata/variants have been generated"
+    )
+
+    # Inline poster placeholder (micro frame) + the reason metadata is
+    # incomplete, same contract as Image above.
+    preview_b64 = models.TextField(
+        blank=True,
+        default="",
+        help_text="Inline poster placeholder: data:image/webp;base64,...",
+    )
+    meta_reason = models.CharField(
+        max_length=32,
+        blank=True,
+        default="",
+        help_text=(
+            "Named reason the render metadata is incomplete "
+            "(stapel_cdn.metadata.REASONS); empty when nothing degraded."
+        ),
+    )
+    # Whether a full-size poster frame exists on disk. The URL is derived
+    # from <hash>, so it is well-formed long before the file is — the same
+    # trap variants_status exists for on Image (a 201 whose URLs 404).
+    has_poster = models.BooleanField(
+        default=False,
+        help_text="Whether the poster frame file has been written",
     )
 
     # Reference tracking
@@ -509,6 +559,33 @@ class Video(models.Model):
 
     def __str__(self):
         return f"Video: {self.file_hash[:8]}... ({self.original_filename})"
+
+    #: Filename of the derived poster frame, under the video's hash dir.
+    POSTER_FILENAME = "poster.webp"
+
+    @property
+    def poster_path(self):
+        """Filesystem path of the derived poster frame (may not exist yet)."""
+        from .metadata import derived_dir
+
+        return os.path.join(
+            derived_dir("video", self.file_hash), self.POSTER_FILENAME
+        )
+
+    @property
+    def poster_url(self):
+        """URL of the poster frame, or ``None`` while none has been written.
+
+        Deliberately not a bare derived string: every URL in this package
+        that was computed from ``<hash>`` alone shipped well-formed in a 201
+        and 404'd until a worker caught up. ``has_poster`` is the fact; this
+        property refuses to name a file that fact says does not exist.
+        """
+        from .metadata import derived_url
+
+        if not self.has_poster:
+            return None
+        return derived_url("video", self.file_hash, self.POSTER_FILENAME)
 
     @staticmethod
     def calculate_file_hash(file):
@@ -679,6 +756,26 @@ class Audio(models.Model):
         help_text="Whether ffmpeg-audio compression has run (opt-in submodule)",
     )
 
+    # The rendered waveform strip as a data URI — what a voice message shows
+    # in a chat bubble, alongside `duration`. Produced by ffmpeg's
+    # showwavespic filter and re-encoded to WebP within
+    # STAPEL_CDN["MICRO_PREVIEW_MAX_BYTES"]; empty means "not generated" or
+    # "refused", with meta_reason naming which.
+    preview_b64 = models.TextField(
+        blank=True,
+        default="",
+        help_text="Inline waveform strip: data:image/webp;base64,...",
+    )
+    meta_reason = models.CharField(
+        max_length=32,
+        blank=True,
+        default="",
+        help_text=(
+            "Named reason the render metadata is incomplete "
+            "(stapel_cdn.metadata.REASONS); empty when nothing degraded."
+        ),
+    )
+
     # Reference tracking
     refs = models.JSONField(
         default=list,
@@ -786,4 +883,26 @@ def generate_video_variants_on_save(sender, instance, created, **kwargs):
             logger = logging.getLogger(__name__)
             logger.error(
                 f"Failed to generate variants for video {instance.file_hash}: {str(e)}"
+            )
+
+
+@receiver(post_save, sender=Audio)
+def extract_audio_metadata_on_save(sender, instance, created, **kwargs):
+    """Queue the duration + waveform pass for a new recording.
+
+    Async only, exactly like the image path: ffmpeg inside the upload
+    request would transcode on a request thread, and a recording is already
+    usable without this (passthrough storage, cdn-modularity.md §7.2). A row
+    the broker never accepted is picked up by ``retry_unprocessed``.
+    """
+    if created and instance.original and not instance.preview_b64:
+        try:
+            from .tasks import process_audio_async
+
+            process_audio_async.delay(instance.id)
+        except Exception as exc:
+            logger.error(
+                "Could not enqueue metadata extraction for audio %s (broker "
+                "down?): %s. `manage.py cdn_backfill_media_meta` picks it up.",
+                instance.id, exc,
             )

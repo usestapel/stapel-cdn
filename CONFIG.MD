@@ -28,6 +28,13 @@ as passthrough file storage drops `images` from the tuple and is not asked to in
 |-----|--------|---------|----------|---------|
 | ASSET_TYPES | env | axis: `Image.type` choices — open, host-extendable (shared with client-side `stapel_core.django.cdn`). | no | `("avatar",)` |
 | ENABLED_SUBMODULES | env | axis: which of `images`/`video`/`recordings` this deployment turns on — gates the ffmpeg system-check probes for `video`/`recordings`. | no | `("images",)` |
+| MEDIA_KINDS | env | axis: open media-kind registry, merged over `stapel_cdn.kinds.BUILTIN_MEDIA_KINDS` (`image`, `gif`, `video`, `audio`, `file`). An entry replaces a builtin, `None` removes one. Entry shape: `{"model": "image"\|"video"\|"audio"\|"file", "extensions": (...), "asset_types": (...), "preview": "blur"\|"poster"\|"waveform"\|None, "animated": bool}`. Stickers or any later kind are a dict literal here, not a release. Malformed entries → `checks.W009`. | no | `{}` |
+| MICRO_PREVIEW_MAX_BYTES | env | Byte ceiling for ONE inline preview, measured on the finished `data:` URI (base64 expansion included — exactly what lands in a JSON payload). A 16px WebP LQIP is ~300-800 B, a 240x40 waveform strip ~1.5-3 KB, so 4 KiB is ~5x headroom and bounds a 40-attachment chat page at ~160 KB. Enforced by **downgrade-then-refuse**, never truncation: WebP quality ladder → smaller waveform strip → no preview at all with `meta_reason: "preview_over_budget"`. Applied on **read** too, so lowering it takes effect for rows stamped earlier. An unusable value falls back to this default (`checks.W011`). | no | `4096` |
+| WAVEFORM_SIZES | env | Waveform strip geometry (pixels), best first; each is rendered and encoded until one fits `MICRO_PREVIEW_MAX_BYTES`. | no | `((240, 40), (120, 32))` |
+| WAVEFORM_COLOR | env | Ink colour passed to ffmpeg's `showwavespic` filter. | no | `"#3f7fbf"` |
+| POSTER_FRAME_AT | env | Second the video poster frame is lifted from. 0 takes the first frame, which on real footage is often a black fade-in. | no | `1.0` |
+| POSTER_MAX_WIDTH | env | Max width of the derived poster written to `MEDIA_ROOT/video/<hash>/poster.webp`. The inline micro poster is separate. | no | `720` |
+| MEDIA_TOOL_TIMEOUT | env | Wall-clock ceiling (seconds) on any single ffprobe/ffmpeg call. A tool that hangs degrades with `meta_reason: "tool_timeout"` instead of pinning a worker. | no | `30.0` |
 | THUMBNAIL_SIZES | env | min-side thumbnail tiers (no w/h branches). | no | `(16, 32, 64, 120)` |
 | PREVIEW_SIZES | env | preview tiers (w/h branches each). | no | `(160, 240, 480, 560, 720, 1080)` |
 | MAX_IMAGE_SIZE | env | upload size cap for images, bytes. | no | `20 * 1024 * 1024` |

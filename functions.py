@@ -10,6 +10,7 @@ idempotent). Other modules call these by name via
 
     call("cdn.media_exists", {"ref": "product/<hash>"})
     call("cdn.describe", {"ref": "product/<hash>"})
+    call("cdn.describe_many", {"refs": ["product/<hash>", "audio/<hash>"]})
     call("cdn.refs_sync", {"service": "shop", "entity_type": "product",
                            "entity_id": "42", "new_hashes": [...]})
 """
@@ -71,20 +72,53 @@ DESCRIBE_SCHEMA = {
     "required": ["ref"],
 }
 
+DESCRIBE_MANY_SCHEMA = {
+    "type": "object",
+    "properties": {
+        "refs": {
+            "type": "array",
+            "items": {"type": "string"},
+            "description": "Media references in <type>/<id> form.",
+        },
+    },
+    "required": ["refs"],
+}
+
+#: Ceiling on one ``cdn.describe_many`` call. Each snapshot can carry an
+#: inline preview up to ``STAPEL_CDN["MICRO_PREVIEW_MAX_BYTES"]``, so an
+#: unbounded batch is an unbounded response — this keeps the worst case at
+#: (limit x budget), 200 KB with both defaults.
+DESCRIBE_MANY_LIMIT = 50
+
 
 @function("cdn.describe", schema=DESCRIBE_SCHEMA)
 def describe(payload: dict) -> dict:
     """Render-metadata snapshot for a media ref (images-and-cdn.md §5).
 
-    Payload: ``{"ref": "<type>/<id>"}``. Returns the immutable snapshot
-    ``{mime, bytes, width, height, aspect, duration_ms, preview_b64, square,
-    variants[]}`` — ``preview_b64`` is the 16px micro tier as a
-    ``data:image/webp;base64,...`` URI, ``variants`` carries per-tier
-    per-branch geometry (thumbnails: ``branch: null`` min-side; previews:
-    ``"w"``/``"h"``; square images only ``"w"`` with ``square: true``) plus
-    the original. Consumers denormalize this ONCE when resolving a ref
-    (chat attachment, catalog card) — it is not meant to be recomputed per
-    render.
+    Payload: ``{"ref": "<type>/<id>"}``. Returns the immutable snapshot::
+
+        {ref, kind, mime, ext, bytes, width, height, aspect, square,
+         animated, duration_ms, preview_b64, preview_kind, poster_url,
+         meta_status, meta_reason, variants[]}
+
+    ``preview_b64`` is an inline ``data:`` URI bounded by
+    ``STAPEL_CDN["MICRO_PREVIEW_MAX_BYTES"]``; ``preview_kind`` says what it
+    depicts — ``"blur"`` (16px LQIP of an image), ``"poster"`` (a frame of a
+    video) or ``"waveform"`` (an amplitude strip for a voice message).
+    ``kind`` comes from the open media-kind registry (``stapel_cdn.kinds``),
+    so ``"gif"`` — and any kind a host adds, stickers included — arrives
+    without a release here. ``variants`` carries per-tier per-branch geometry
+    (thumbnails: ``branch: null`` min-side; previews: ``"w"``/``"h"``; square
+    images only ``"w"`` with ``square: true``) plus the original.
+
+    Whenever something is missing, ``meta_status`` is ``"partial"``/
+    ``"missing"`` and ``meta_reason`` NAMES why (``ffmpeg_missing``,
+    ``not_generated``, ``preview_over_budget``, …
+    ``stapel_cdn.metadata.REASONS``) — there is no path that returns an
+    unexplained null.
+
+    Consumers denormalize this ONCE when resolving a ref (chat attachment,
+    catalog card) — it is not meant to be recomputed per render.
 
     Raises ``LookupError`` for an unknown ref (surfaced to the caller as a
     ``FunctionCallError``) — a missing asset is the caller's placeholder
@@ -97,6 +131,42 @@ def describe(payload: dict) -> dict:
     if ref not in resolved:
         raise LookupError(f"cdn.describe: unknown media ref {ref!r}")
     return build_render_metadata(resolved[ref])
+
+
+@function("cdn.describe_many", schema=DESCRIBE_MANY_SCHEMA)
+def describe_many(payload: dict) -> dict:
+    """:func:`describe` for a page of refs, in ONE query per model.
+
+    Payload: ``{"refs": ["avatar/<hash>", "audio/<hash>", ...]}``. Returns
+    ``{"items": {ref: snapshot}, "missing": [ref, ...]}``.
+
+    A chat page resolves every attachment it is about to render in one call
+    rather than N — the resolution itself is already batched
+    (``services._batch_resolve_media``), and a per-attachment comm round trip
+    was the only thing left making that N. Unlike :func:`describe`, an
+    unknown ref is **data, not an error**: a page with one deleted
+    attachment still renders the other thirty-nine, and ``missing`` tells the
+    caller exactly which to draw a placeholder for.
+
+    At most :data:`DESCRIBE_MANY_LIMIT` refs per call (duplicates collapse);
+    more raises ``ValueError``. Every snapshot may inline a preview, so the
+    batch size is the response size.
+    """
+    from .services import _batch_resolve_media, build_render_metadata
+
+    refs = list(dict.fromkeys(payload["refs"] or []))
+    if len(refs) > DESCRIBE_MANY_LIMIT:
+        raise ValueError(
+            f"cdn.describe_many: {len(refs)} refs exceeds the per-call limit "
+            f"of {DESCRIBE_MANY_LIMIT} — page the batch"
+        )
+    resolved = _batch_resolve_media(refs)
+    return {
+        "items": {
+            ref: build_render_metadata(obj) for ref, obj in resolved.items()
+        },
+        "missing": [ref for ref in refs if ref not in resolved],
+    }
 
 
 @function("cdn.media_exists", schema=MEDIA_EXISTS_SCHEMA)

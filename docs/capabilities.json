@@ -1,7 +1,7 @@
 {
   "module": "stapel-cdn",
-  "version": "0.15.0",
-  "provides": "Media management: image/video/file/audio upload, processing (thumbnail/preview generation via libvips) and CDN ref tracking, with a media-submodule opt-in (images core, video/recordings behind ENABLED_SUBMODULES + ffmpeg system checks), a watermark seam, upload speed-limiting, and cdn.media_exists / cdn.refs_sync comm Functions for other modules to check/sync media references without importing this package.",
+  "version": "0.16.0",
+  "provides": "Media management: image/video/file/audio upload, processing (thumbnail/preview generation via libvips, ffprobe/ffmpeg metadata and poster/waveform rendering) and CDN ref tracking, with a media-submodule opt-in (images core, video/recordings behind ENABLED_SUBMODULES + ffmpeg system checks), an open media-kind registry, a budgeted inline preview (blur-up / poster / waveform) every attachment carries, a watermark seam, upload speed-limiting, and cdn.describe / cdn.describe_many / cdn.media_exists / cdn.refs_sync comm Functions for other modules to render, check and sync media without importing this package.",
   "axes": [
     {
       "key": "ASSET_TYPES",
@@ -48,6 +48,34 @@
         "summary": "Dotted path to (or direct callable) a watermark engine applied to preview variants; empty disables watermarking (conf.py, MODULE.md 'Storage / processing backends').",
         "business_label": "Watermark preview images"
       }
+    },
+    {
+      "key": "MEDIA_KINDS",
+      "kind": "map",
+      "default": {},
+      "group": "cdn.render",
+      "gates": {
+        "operations": [],
+        "co_gates": []
+      },
+      "curated": {
+        "summary": "Open media-kind registry merged over stapel_cdn.kinds.BUILTIN_MEDIA_KINDS (image/gif/video/audio/file); an entry replaces a builtin, None removes it. A kind decides what the inline preview holds (blur/poster/waveform/none) and whether the object is animated — so stickers, or any later kind, are a dict literal in settings rather than a release here (kinds.py, MODULE.md 'Media kinds').",
+        "business_label": "Which kinds of attachment this deployment renders"
+      }
+    },
+    {
+      "key": "MICRO_PREVIEW_MAX_BYTES",
+      "kind": "int",
+      "default": 4096,
+      "group": "cdn.render",
+      "gates": {
+        "operations": [],
+        "co_gates": []
+      },
+      "curated": {
+        "summary": "Byte ceiling for ONE inline preview, measured on the finished data: URI. Enforced by downgrade-then-refuse (WebP quality ladder, smaller waveform strip, then no preview with meta_reason 'preview_over_budget') and applied on read as well as at ingest — never by truncation (metadata.py, CONFIG.MD).",
+        "business_label": "How much inline placeholder weight a page may carry"
+      }
     }
   ],
   "extension_points": [
@@ -70,6 +98,11 @@
       "name": "media_processed signal",
       "kind": "django_signal",
       "summary": "stapel_core.signals.media_processed sent after ImageProcessingService.process_image() generates all variants — in-process hook for cache warm-up/denormalization (MODULE.md 'Signals')."
+    },
+    {
+      "name": "MEDIA_KINDS",
+      "kind": "registry_merge",
+      "summary": "Merge-over-builtins registry of media kinds; an entry is {model, extensions, asset_types, preview, animated} and None removes a builtin. Malformed entries are reported by checks.W009 rather than raising inside a request (kinds.py, MODULE.md 'Media kinds')."
     }
   ],
   "surface": [
@@ -137,7 +170,7 @@
     {
       "module": "stapel-core",
       "optional": false,
-      "reason": "comm bus (cdn.media_exists/cdn.refs_sync Functions, user.deleted/user.deletion_initiated consume for GDPR), AppSettings, error registry (pyproject.toml dependency)"
+      "reason": "comm bus (cdn.describe/cdn.describe_many/cdn.media_exists/cdn.refs_sync Functions, user.deleted/user.deletion_initiated consume for GDPR), AppSettings, error registry, SerializerSeamMixin/StapelAPIView canon in stapel_core.django.api.views (pyproject.toml dependency)"
     }
   ]
 }

@@ -6,6 +6,149 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+## 0.16.0 — 2026-08-24
+
+**An attachment a UI can draw without asking twice.** Reviewing a live
+product, the owner named the gap precisely: every media attachment must carry
+what a renderer needs *in the payload it already has* — the aspect box to
+reserve, the byte size, something to show while the real bytes load, and, for
+time-based media, how long it runs. Anything missing became either a request
+made mid-scroll or a box that resized under the reader's thumb. This release
+is that metadata, generated at ingest, stored, and served through one contract
+(SERVICE-BACKLOG §35 item 9а).
+
+### Added — the render-metadata contract
+
+`cdn.describe` grew from a five-field sketch into the full snapshot, and
+`cdn.describe_many` batches a whole page of attachments into one call:
+
+```
+{ref, kind, mime, ext, bytes, width, height, aspect, square, animated,
+ duration_ms, preview_b64, preview_kind, poster_url,
+ meta_status, meta_reason, variants[]}
+```
+
+The same object is returned by `cdn.describe`, `cdn.describe_many`, the new
+`render_meta` field on the image/video/file serializers, and
+`stapel_cdn.metadata.build_render_metadata()` in-process — one shape, so an
+HTTP client and a service caller cannot drift apart. Existing keys are
+unchanged; everything here is additive.
+
+Per media type:
+
+- **images** — `width`/`height`/`aspect`/`bytes` plus `preview_b64`: a 16px
+  WebP blur-up (LQIP), produced in the **same libvips pass** that writes
+  `16.webp`. The thumbnail ladder now encodes into memory once and writes
+  those same bytes to disk, so the placeholder costs no second decode and no
+  re-read of the file just written;
+- **GIFs** — the same, plus `animated: true`, decided by the kind registry;
+- **video** — `VideoProcessingService.process_video` is no longer a stub: one
+  `ffprobe` call for dimensions and duration, one `ffmpeg` frame extraction
+  that feeds both `MEDIA_ROOT/video/<hash>/poster.webp` and the inline micro
+  poster. (The rendition ladder — `variant_240`…`variant_2160` — is still not
+  implemented, and the module still says so rather than implying otherwise.);
+- **voice messages** — `AudioProcessingService.extract_metadata`: duration
+  from `ffprobe` and a waveform strip rendered by `ffmpeg`'s `showwavespic`,
+  inlined as base64. Queued from `post_save` like the image pipeline, never
+  run on a request thread;
+- **documents** — `mime` and `ext`, with `preview_kind: null` so a client
+  knows nothing is pending rather than guessing.
+
+### Added — media kinds are an open registry, not an enum
+
+`STAPEL_CDN["MEDIA_KINDS"]` (`stapel_cdn.kinds`), merged over the builtins
+`image`/`gif`/`video`/`audio`/`file` with the house semantics: an entry
+replaces a builtin, `None` removes one. A kind decides what `preview_b64`
+holds (`blur`/`poster`/`waveform`/none) and whether the object moves —
+stickers, and whatever comes after them, are a dict literal in a host's
+settings rather than a release here. Resolution is by model, narrowed by
+extension and (for images) `Image.type`, most specific first with ties broken
+by name so the answer never depends on dict ordering. A malformed entry is
+`checks.W009`, not a 500 on somebody's attachment.
+
+### Added — a byte budget that downgrades, then refuses
+
+`STAPEL_CDN["MICRO_PREVIEW_MAX_BYTES"]`, default **4096 bytes**, measured on
+the finished `data:` URI — base64 expansion included, i.e. exactly what lands
+in a JSON payload. A 16px WebP LQIP is ~300-800 B and a 240x40 waveform strip
+~1.5-3 KB, so the default is roughly 5x headroom and bounds a 40-attachment
+chat page at ~160 KB.
+
+Enforcement is **downgrade-then-refuse**, never truncation: re-encode down the
+WebP quality ladder (85 → 60 → 40), re-render the waveform at the smaller
+strip size, and if it still does not fit — no preview at all, with
+`meta_reason: "preview_over_budget"`. A truncated base64 string is a broken
+image in every consumer; a `null` with a named reason is a placeholder every
+consumer already draws. The ceiling is applied on **read** as well as at
+ingest, so lowering the setting stops shipping older, larger payloads
+immediately instead of after a backfill. `cdn.describe_many` is capped at 50
+refs per call, because batch size is response size.
+
+### Added — degradation always has a name
+
+Every gap in the snapshot is accompanied by `meta_status`
+(`ok`/`partial`/`missing`) and `meta_reason`, one of `not_generated`,
+`decoder_missing`, `preview_over_budget`, `source_missing`, `encode_failed`,
+`ffprobe_missing`, `ffmpeg_missing`, `probe_failed`, `render_failed`,
+`tool_timeout`. There is no path that returns an unexplained null, and no path
+that fabricates a measurement: an unmeasured duration is `null`, never `0`.
+All ffprobe/ffmpeg use goes through one seam (`stapel_cdn.probes`) with a
+timeout on every call (`MEDIA_TOOL_TIMEOUT`), fixed argv and never a shell.
+
+### Added — `manage.py cdn_backfill_media_meta`
+
+The pass over everything stored before this release. Idempotent and resumable
+by construction — the candidate query *is* the resume token (only rows still
+missing a preview, paged by a primary-key cursor), so a crash halfway is
+resumed by re-running the same command and a second run over a finished table
+writes nothing. `--limit` drains a large table in bounded slices; `--dry-run`
+counts; a row that cannot be completed records its named reason and is counted
+with a per-reason tally rather than retried in a loop or reported as success.
+`--retry-degraded` re-attempts those rows — the normal sequence after
+installing ffmpeg on a deployment that stored a month of voice messages
+without it. `retry_unprocessed` now covers videos and recordings too, for the
+same reason.
+
+### Added — boot checks for a missing media tool
+
+- **`checks.W009`** (`stapel_cdn.kinds.W009`) — a `MEDIA_KINDS` entry that
+  does not parse;
+- **`checks.W010`** (`stapel_cdn.media.W010`) — ffmpeg without ffprobe, or
+  ffprobe without ffmpeg. E002/E003 probe for the pair; a split install passes
+  them and then produces attachments with a waveform and no duration;
+- **`checks.W011`** (`stapel_cdn.media.W011`) — an inline-preview budget that
+  is not a positive number, so the shipped default is what actually bounds the
+  payload;
+- **E002/E003** now say what is actually lost when ffmpeg is absent (no
+  aspect, no duration, no poster; no waveform) and point at
+  `--retry-degraded`.
+
+### Changed
+
+- **`Video.is_processed` now means measured facts exist**, not "the pass was
+  called". Through 0.15 `process_video` set it unconditionally while doing no
+  work — the same class of untruth as a 201 whose URLs 404. A video the pass
+  could not probe stays `is_processed=False` with a named `meta_reason`, so
+  the backfill and `retry_unprocessed` can pick it up once the deployment has
+  the binary.
+- **`Video.poster_url` is `None` until the poster file exists**
+  (`Video.has_poster`) — never a URL derived from the hash alone.
+- **`aspect` is rounded to 6dp**, so the same image always serializes to the
+  same JSON number.
+- **`SerializerSeamMixin` is imported from `stapel_core.django.api.views`**
+  (core 0.41.0 hoisted it into the canon); the byte-identical local copy is
+  gone. Minimum `stapel-core` is now **0.41.0**.
+- **`build_render_metadata` moved to `stapel_cdn.metadata`** and is still
+  re-exported from `stapel_cdn.services` — every existing import keeps
+  working.
+
+### Migration
+
+`0007_media_render_metadata` — pure expand: `preview_b64` + `meta_reason` on
+`Image`/`Video`/`Audio`, `has_poster` on `Video`, all with defaults. Existing
+rows read as "never generated", which is exactly the candidate set the
+backfill walks, so no marker column and no data migration were needed.
+
 ## 0.15.0 — 2026-08-24
 
 **A 201 whose URLs 404 forever.** Two defects, one live incident: a fleet's

@@ -941,6 +941,99 @@
             "readOnly": true,
             "description": "URL to original uploaded file"
           },
+          "render_meta": {
+            "type": "object",
+            "description": "cdn.describe snapshot for this file (see RenderMeta).",
+            "properties": {
+              "ref": {
+                "type": "string"
+              },
+              "kind": {
+                "type": "string",
+                "nullable": true,
+                "description": "Open media-kind registry (STAPEL_CDN['MEDIA_KINDS']): image, gif, video, audio, file, or a host-defined kind."
+              },
+              "mime": {
+                "type": "string"
+              },
+              "ext": {
+                "type": "string",
+                "description": "Lowercase, dot-prefixed."
+              },
+              "bytes": {
+                "type": "integer"
+              },
+              "width": {
+                "type": "integer",
+                "nullable": true
+              },
+              "height": {
+                "type": "integer",
+                "nullable": true
+              },
+              "aspect": {
+                "type": "number",
+                "format": "float",
+                "nullable": true,
+                "description": "width / height, 6dp."
+              },
+              "square": {
+                "type": "boolean"
+              },
+              "animated": {
+                "type": "boolean"
+              },
+              "duration_ms": {
+                "type": "integer",
+                "nullable": true
+              },
+              "preview_b64": {
+                "type": "string",
+                "nullable": true,
+                "description": "data:image/webp;base64,... bounded by STAPEL_CDN['MICRO_PREVIEW_MAX_BYTES']; null when refused or not generated, with meta_reason saying which."
+              },
+              "preview_kind": {
+                "type": "string",
+                "enum": [
+                  "blur",
+                  "poster",
+                  "waveform"
+                ],
+                "nullable": true
+              },
+              "poster_url": {
+                "type": "string",
+                "nullable": true
+              },
+              "meta_status": {
+                "type": "string",
+                "enum": [
+                  "ok",
+                  "partial",
+                  "missing"
+                ]
+              },
+              "meta_reason": {
+                "type": "string",
+                "nullable": true,
+                "description": "stapel_cdn.metadata.REASONS; null when ok."
+              },
+              "variants": {
+                "type": "array",
+                "items": {
+                  "type": "object"
+                }
+              }
+            },
+            "required": [
+              "ref",
+              "mime",
+              "ext",
+              "bytes",
+              "meta_status"
+            ],
+            "readOnly": true
+          },
           "refs": {
             "type": "array",
             "items": {
@@ -978,6 +1071,7 @@
           "original_size",
           "original_url",
           "prefix",
+          "render_meta",
           "updated_at",
           "uploaded_by",
           "uploaded_by_username"
@@ -1200,6 +1294,99 @@
             "nullable": true,
             "description": "When variant generation completed; null while pending."
           },
+          "render_meta": {
+            "type": "object",
+            "description": "cdn.describe snapshot for this image (see RenderMeta).",
+            "properties": {
+              "ref": {
+                "type": "string"
+              },
+              "kind": {
+                "type": "string",
+                "nullable": true,
+                "description": "Open media-kind registry (STAPEL_CDN['MEDIA_KINDS']): image, gif, video, audio, file, or a host-defined kind."
+              },
+              "mime": {
+                "type": "string"
+              },
+              "ext": {
+                "type": "string",
+                "description": "Lowercase, dot-prefixed."
+              },
+              "bytes": {
+                "type": "integer"
+              },
+              "width": {
+                "type": "integer",
+                "nullable": true
+              },
+              "height": {
+                "type": "integer",
+                "nullable": true
+              },
+              "aspect": {
+                "type": "number",
+                "format": "float",
+                "nullable": true,
+                "description": "width / height, 6dp."
+              },
+              "square": {
+                "type": "boolean"
+              },
+              "animated": {
+                "type": "boolean"
+              },
+              "duration_ms": {
+                "type": "integer",
+                "nullable": true
+              },
+              "preview_b64": {
+                "type": "string",
+                "nullable": true,
+                "description": "data:image/webp;base64,... bounded by STAPEL_CDN['MICRO_PREVIEW_MAX_BYTES']; null when refused or not generated, with meta_reason saying which."
+              },
+              "preview_kind": {
+                "type": "string",
+                "enum": [
+                  "blur",
+                  "poster",
+                  "waveform"
+                ],
+                "nullable": true
+              },
+              "poster_url": {
+                "type": "string",
+                "nullable": true
+              },
+              "meta_status": {
+                "type": "string",
+                "enum": [
+                  "ok",
+                  "partial",
+                  "missing"
+                ]
+              },
+              "meta_reason": {
+                "type": "string",
+                "nullable": true,
+                "description": "stapel_cdn.metadata.REASONS; null when ok."
+              },
+              "variants": {
+                "type": "array",
+                "items": {
+                  "type": "object"
+                }
+              }
+            },
+            "required": [
+              "ref",
+              "mime",
+              "ext",
+              "bytes",
+              "meta_status"
+            ],
+            "readOnly": true
+          },
           "is_processed": {
             "type": "boolean",
             "readOnly": true,
@@ -1238,6 +1425,7 @@
           "original_url",
           "original_width",
           "prefix",
+          "render_meta",
           "type",
           "updated_at",
           "uploaded_by",
@@ -1492,10 +1680,109 @@
             "format": "uri",
             "readOnly": true
           },
+          "poster_url": {
+            "type": "string",
+            "format": "uri",
+            "readOnly": true,
+            "description": "Derived poster frame; null until one has been written."
+          },
+          "render_meta": {
+            "type": "object",
+            "description": "cdn.describe snapshot for this video (see RenderMeta).",
+            "properties": {
+              "ref": {
+                "type": "string"
+              },
+              "kind": {
+                "type": "string",
+                "nullable": true,
+                "description": "Open media-kind registry (STAPEL_CDN['MEDIA_KINDS']): image, gif, video, audio, file, or a host-defined kind."
+              },
+              "mime": {
+                "type": "string"
+              },
+              "ext": {
+                "type": "string",
+                "description": "Lowercase, dot-prefixed."
+              },
+              "bytes": {
+                "type": "integer"
+              },
+              "width": {
+                "type": "integer",
+                "nullable": true
+              },
+              "height": {
+                "type": "integer",
+                "nullable": true
+              },
+              "aspect": {
+                "type": "number",
+                "format": "float",
+                "nullable": true,
+                "description": "width / height, 6dp."
+              },
+              "square": {
+                "type": "boolean"
+              },
+              "animated": {
+                "type": "boolean"
+              },
+              "duration_ms": {
+                "type": "integer",
+                "nullable": true
+              },
+              "preview_b64": {
+                "type": "string",
+                "nullable": true,
+                "description": "data:image/webp;base64,... bounded by STAPEL_CDN['MICRO_PREVIEW_MAX_BYTES']; null when refused or not generated, with meta_reason saying which."
+              },
+              "preview_kind": {
+                "type": "string",
+                "enum": [
+                  "blur",
+                  "poster",
+                  "waveform"
+                ],
+                "nullable": true
+              },
+              "poster_url": {
+                "type": "string",
+                "nullable": true
+              },
+              "meta_status": {
+                "type": "string",
+                "enum": [
+                  "ok",
+                  "partial",
+                  "missing"
+                ]
+              },
+              "meta_reason": {
+                "type": "string",
+                "nullable": true,
+                "description": "stapel_cdn.metadata.REASONS; null when ok."
+              },
+              "variants": {
+                "type": "array",
+                "items": {
+                  "type": "object"
+                }
+              }
+            },
+            "required": [
+              "ref",
+              "mime",
+              "ext",
+              "bytes",
+              "meta_status"
+            ],
+            "readOnly": true
+          },
           "is_processed": {
             "type": "boolean",
             "readOnly": true,
-            "description": "Whether variants have been generated"
+            "description": "Whether metadata/variants have been generated"
           },
           "uploaded_by": {
             "type": "string",
@@ -1530,6 +1817,8 @@
           "original_size",
           "original_url",
           "original_width",
+          "poster_url",
+          "render_meta",
           "updated_at",
           "uploaded_by",
           "uploaded_by_username",

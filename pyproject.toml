@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "stapel-cdn"
-version = "0.15.0"
+version = "0.16.0"
 description = "Media/CDN management Django app for the Stapel framework"
 readme = "README.md"
 license = { text = "MIT" }
@@ -29,7 +29,7 @@ dependencies = [
     # field docs/errors.json (and its drift gate, tests/test_contract.py)
     # requires on 0.26.0+ — on 0.24.0 every entry is missing the key outright
     # rather than carrying `owner: null`.
-    "stapel-core>=0.26.0,<1.0",
+    "stapel-core>=0.41.0,<1.0",
     "celery>=5",
 ]
 

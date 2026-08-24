@@ -1,8 +1,8 @@
-# stapel-cdn 0.15.0
+# stapel-cdn 0.16.0
 
-Media management: image/video/file/audio upload, processing (thumbnail/preview generation via libvips) and CDN ref tracking, with a media-submodule opt-in (images core, video/recordings behind ENABLED_SUBMODULES + ffmpeg system checks), a watermark seam, upload speed-limiting, and cdn.media_exists / cdn.refs_sync comm Functions for other modules to check/sync media references without importing this package.
+Media management: image/video/file/audio upload, processing (thumbnail/preview generation via libvips, ffprobe/ffmpeg metadata and poster/waveform rendering) and CDN ref tracking, with a media-submodule opt-in (images core, video/recordings behind ENABLED_SUBMODULES + ffmpeg system checks), an open media-kind registry, a budgeted inline preview (blur-up / poster / waveform) every attachment carries, a watermark seam, upload speed-limiting, and cdn.describe / cdn.describe_many / cdn.media_exists / cdn.refs_sync comm Functions for other modules to render, check and sync media without importing this package.
 
-Contract: axes 3 · surface 6 · extension points 4 · operations 9 · error codes 53.
+Contract: axes 5 · surface 6 · extension points 5 · operations 9 · error codes 53.
 Generated from docs/capabilities.json by `stapel-llms-txt` — do not edit; drift-gated by `make contract-check`.
 
 ## Configuration axes — what a product switches on
@@ -11,6 +11,10 @@ Settings keys; `default` is what you get by saying nothing. Turning an axis off 
   Image.type choices — the same STAPEL_CDN key the client-side CdnImageField reads, so server validation and client typing agree on what's legal. Default is the zero-infrastructure 'avatar' only; marketplace-specific types (product/chat/review) are added explicitly by the host (conf.py, MODULE.md Extension points table).
 - ENABLED_SUBMODULES [list, default ["images"]] — Enabled media types (images / video / audio recordings)
   Which of images/video/recordings this deployment turns on. images needs no opt-in; adding video/recordings activates the ffmpeg system-check probe for that submodule (conf.py, MODULE.md 'Media submodules').
+- MEDIA_KINDS [map, default {}] — Which kinds of attachment this deployment renders
+  Open media-kind registry merged over stapel_cdn.kinds.BUILTIN_MEDIA_KINDS (image/gif/video/audio/file); an entry replaces a builtin, None removes it. A kind decides what the inline preview holds (blur/poster/waveform/none) and whether the object is animated — so stickers, or any later kind, are a dict literal in settings rather than a release here (kinds.py, MODULE.md 'Media kinds').
+- MICRO_PREVIEW_MAX_BYTES [int, default 4096] — How much inline placeholder weight a page may carry
+  Byte ceiling for ONE inline preview, measured on the finished data: URI. Enforced by downgrade-then-refuse (WebP quality ladder, smaller waveform strip, then no preview with meta_reason 'preview_over_budget') and applied on read as well as at ingest — never by truncation (metadata.py, CONFIG.MD).
 - WATERMARK [enum, default ""] — Watermark preview images
   Dotted path to (or direct callable) a watermark engine applied to preview variants; empty disables watermarking (conf.py, MODULE.md 'Storage / processing backends').
 
@@ -40,6 +44,8 @@ This is the answer to "does Stapel already have something for X?". `instead of` 
 ## Extension points — what a product replaces, fork-free
 - ASSET_TYPES [value_list_override]
   Read through the callable models.get_image_type_choices, so adding types never produces a model/migration change (MODULE.md Extension points table).
+- MEDIA_KINDS [registry_merge]
+  Merge-over-builtins registry of media kinds; an entry is {model, extensions, asset_types, preview, animated} and None removes a builtin. Malformed entries are reported by checks.W009 rather than raising inside a request (kinds.py, MODULE.md 'Media kinds').
 - WATERMARK [dotted_path]
   The only dotted-path key in the namespace: a callable (pyvips.Image) -> pyvips.Image; built-in reference stapel_cdn.watermarks.text_watermark renders WATERMARK_TEXT (MODULE.md 'Storage / processing backends').
 - media_processed signal [django_signal]
@@ -48,7 +54,7 @@ This is the answer to "does Stapel already have something for X?". `instead of` 
   Every view in stapel_cdn.views mixes in SerializerSeamMixin (request_serializer_class/response_serializer_class + get_* getters); subclass and re-route the URL to swap (views.py:62-79, MODULE.md 'Serializer seams').
 
 ## Fits with — fleet dependencies
-- stapel-core (required) — comm bus (cdn.media_exists/cdn.refs_sync Functions, user.deleted/user.deletion_initiated consume for GDPR), AppSettings, error registry (pyproject.toml dependency)
+- stapel-core (required) — comm bus (cdn.describe/cdn.describe_many/cdn.media_exists/cdn.refs_sync Functions, user.deleted/user.deletion_initiated consume for GDPR), AppSettings, error registry, SerializerSeamMixin/StapelAPIView canon in stapel_core.django.api.views (pyproject.toml dependency)
 
 ## HTTP operations (9) — call by operationId, never by a typed path
 Paths are relative to `/cdn/api/v1/`.
