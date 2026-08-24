@@ -30,7 +30,10 @@ extra needed — passthrough), `s3` (boto3, reserved). See the submodule table b
 - **HTTP API** (`stapel_cdn.urls` → v1 canon `/cdn/api/v1/...`, api-versioning.md §2;
   the URL set itself lives in `stapel_cdn.urls_v1`): `upload/image/`, `upload/avatar/`,
   `upload/video/`, `upload/file/`, `images/<type>/upload/`, `images/<type>/random/`,
-  `file/exists/` (GET and POST), `refs/sync/` (service-to-service, `IsServiceRequest`).
+  `file/exists/` (GET and POST), `describe/` (batch render metadata for refs the caller
+  holds but did not necessarily upload — the browser's half of `cdn.describe_many`;
+  settings-guarded and throttled, see **The render-metadata contract** below),
+  `refs/sync/` (service-to-service, `IsServiceRequest`).
 - **Image processing pipeline** (`stapel_cdn.services.ImageProcessingService`): libvips
   via `pyvips` — aspect-friendly tier semantics (images-and-cdn.md): thumbnail tiers
   (16/32/64/120) are **min-side** resized (`MEDIA_ROOT/<type>/<hash>/<size>.webp`),
@@ -67,7 +70,8 @@ extra needed — passthrough), `s3` (boto3, reserved). See the submodule table b
 - **Comm surface**: provides functions `cdn.media_exists`, `cdn.describe`,
   `cdn.describe_many` (the render-metadata snapshot for one ref / a page of
   refs — see the contract table below; consumers denormalize the snapshot once
-  when resolving a ref) and `cdn.refs_sync`
+  when resolving a ref; `describe_many` and `POST /describe/` are one function
+  behind two transports) and `cdn.refs_sync`
   (`stapel_cdn.functions`, called via `stapel_core.comm.call` — no import of this package
   needed); subscribes to actions `user.deleted` / `user.deletion_initiated` (`stapel_cdn.actions`); Kafka consumer
   `manage.py consume_cdn_events` for `cdn.ref.sync` events (topic
@@ -83,11 +87,14 @@ extra needed — passthrough), `s3` (boto3, reserved). See the submodule table b
 
 ## The render-metadata contract
 
-One snapshot, four ways to reach it: `cdn.describe` (one ref),
-`cdn.describe_many` (a page of refs), `render_meta` on the upload/read
-serializers, and `stapel_cdn.metadata.build_render_metadata(obj)` in-process.
-They return the **same object**, so an HTTP client and a service caller never
-build against two shapes that drift.
+One snapshot, five ways to reach it: `cdn.describe` (one ref),
+`cdn.describe_many` (a page of refs), **`POST /cdn/api/v1/describe/`** (a page
+of refs, over HTTP, for callers that have no comm bus — i.e. browsers),
+`render_meta` on the upload/read serializers, and
+`stapel_cdn.metadata.build_render_metadata(obj)` in-process. They return the
+**same object**, so an HTTP client and a service caller never build against two
+shapes that drift. The two batch forms are literally one function
+(`services.describe_refs`) behind two transports.
 
 | Field | Type | Meaning |
 |---|---|---|
@@ -134,6 +141,56 @@ placeholder every consumer already draws. The ceiling is re-applied on **read**,
 so lowering it stops shipping older, larger payloads immediately.
 `cdn.describe_many` is capped at 50 refs per call, because batch size is
 response size.
+
+### `POST /cdn/api/v1/describe/` — the browser's describe
+
+A comm Function is unreachable from a browser. Without this endpoint a client
+saw `render_meta` only for something it had **just uploaded itself** (inline in
+the upload response), or for whatever a consuming module chose to denormalize
+into its own serializer — so a chat bubble holding somebody else's
+`<prefix>/<hash>` had nothing to draw, and an attachment renderer was not
+expressible on the front end at all.
+
+```http
+POST /cdn/api/v1/describe/
+{"refs": ["avatar/<hash>", "video/<hash>", "product/<hash>"]}
+
+200
+{"items": {"avatar/<hash>": { …the table above… }, "video/<hash>": {…}},
+ "missing": ["product/<hash>"]}
+```
+
+| Rule | Behaviour |
+|---|---|
+| Ceiling | **50 refs**, `metadata.DESCRIBE_MANY_LIMIT` — the same constant `cdn.describe_many` enforces, applied by the same function. |
+| Duplicates | Collapse **before** the ceiling: fifty-one mentions of one attachment cost one slot. |
+| Unknown ref | **Data, not an error** — in `missing`, with 200. A page with one deleted attachment still renders the other thirty-nine. |
+| Malformed ref | Also `missing`, not a 400: one bad entry must not cost the caller the other forty-nine snapshots. |
+| Over the ceiling | `400 error.400.too_many_refs`, `params: {count, max}` — page the batch. |
+| Over the rate | `429 error.429.too_many_requests`, `params: {retry_after}`, plus a `Retry-After` header. Not DRF's bare English `detail`. |
+| Guard | `STAPEL_CDN["DESCRIBE_PERMISSIONS"]`, read at request time; default `stapel_cdn.permissions.IsAuthenticatedOrService` — the seam `FileExistsView` uses. Pinning `permission_classes` on a subclass still wins. |
+| Throttle | `STAPEL_CDN["DESCRIBE_THROTTLE"]` (60/min) and `DESCRIBE_ANON_THROTTLE` (10/min, dormant until the guard is opened). Batch size is response size, so the rate bounds bytes, not just queries. |
+
+**What it discloses, and why the guard can be that wide.** Describe answers
+for refs the caller did **not** upload — that is the case it exists for. A ref
+is `<prefix>/<sha256>`, so naming one is already evidence the caller was given
+it, and the snapshot is geometry, duration and a ≤4 KB inline preview: it
+carries **no uploader identity, no filename, no `refs[]`**. That is the whole
+difference from `FileExistsView`, which returns the entire row and therefore
+stays scoped to `uploaded_by=request.user`. A deployment that will not accept
+even that sets `DESCRIBE_PERMISSIONS` to `IsServiceRequest` and keeps describe
+service-side; one with public media opens it to `AllowAny`, and
+`DESCRIBE_ANON_THROTTLE` is then the only brake.
+
+Both settings are resolved **per request**, so both are checked at boot rather
+than discovered from an error rate: `checks.E005` for a permission path that
+does not import or a rate DRF cannot parse (either would 500 every describe
+call), `checks.W012` for an *empty* `DESCRIBE_PERMISSIONS` — DRF reads no
+permission classes as "everyone passes", so a blank publishes the endpoint.
+`AllowAny` says the same thing deliberately and is silent.
+
+**Denormalize the result once**, when the ref is resolved — it is an immutable
+snapshot, not something to recompute per render.
 
 ### Media kinds — an open registry, not an enum
 
@@ -193,6 +250,8 @@ See `CONFIG.MD` for the complete registry (source/required/default per key). Hig
 | `ENABLED_SUBMODULES` | `("images",)` | Which of `images`/`video`/`recordings` this deployment turns on. `images` needs no opt-in (its system check always runs); adding `"video"`/`"recordings"` is what activates `checks.check_submodule_binaries`'s ffmpeg probe for that submodule. |
 | `MEDIA_KINDS` | `{}` | Open media-kind registry, merged over the builtins (`image`/`gif`/`video`/`audio`/`file`). Adds stickers or any later kind without a release; `None` removes a builtin. See **Media kinds** above. |
 | `MICRO_PREVIEW_MAX_BYTES` | `4096` | Byte ceiling for ONE inline preview, measured on the finished `data:` URI. Downgrade-then-refuse, never truncation; applied on read as well as at ingest. |
+| `DESCRIBE_PERMISSIONS` | `["stapel_cdn.permissions.IsAuthenticatedOrService"]` | **REPLACE** — guard of `POST /describe/`, dotted paths, ALL must pass. Default is the read-endpoint seam (signed in, guest sessions included, or an internal service call). Tighten to `IsServiceRequest` to keep describe service-side; open to `AllowAny` for public media. Read at request time, so a subclass pinning `permission_classes` still wins. |
+| `DESCRIBE_THROTTLE` / `DESCRIBE_ANON_THROTTLE` | `"60/min"` / `"10/min"` | Rate of `POST /describe/` (DRF scope `cdn_describe`). Batch size is response size, so this bounds bytes, not just queries. The anon rate is dormant under the default guard and becomes the only brake once it is opened. |
 | `WAVEFORM_SIZES` / `WAVEFORM_COLOR` | `((240, 40), (120, 32))` / `"#3f7fbf"` | Waveform strip geometry ladder and ink colour for `ffmpeg showwavespic`. |
 | `POSTER_FRAME_AT` / `POSTER_MAX_WIDTH` | `1.0` / `720` | Which second the video poster is lifted from, and the width of the derived `poster.webp`. |
 | `MEDIA_TOOL_TIMEOUT` | `30.0` | Ceiling on any single ffprobe/ffmpeg call; a hung tool degrades with `tool_timeout` instead of pinning a worker. |

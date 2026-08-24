@@ -46,6 +46,19 @@ class FileExistsResponse:
 
 
 @dataclass
+class DescribeManyResponse:
+    """Batch render-metadata snapshots, plus the refs that resolved to nothing.
+
+    Attributes:
+        items: Snapshot per ref that resolved, keyed by ref. Example: {"avatar/<hash>": {"ref": "avatar/<hash>", "meta_status": "ok"}}
+        missing: Refs that resolved to nothing — deleted, never existed, or malformed. Data, not an error. Example: ["product/deadbeef"]
+    """
+
+    items: Any
+    missing: List[str]
+
+
+@dataclass
 class RefSyncRequest:
     """CDN reference sync request.
 

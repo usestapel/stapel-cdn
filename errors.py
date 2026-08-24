@@ -32,6 +32,15 @@ ERR_503_IMAGE_DECODER_UNAVAILABLE = 'error.503.image_decoder_unavailable'
 #: or be granted a larger ceiling. Details carry `limit`, `max` and `used` so
 #: the client can say which one and by how much.
 ERR_403_QUOTA_EXCEEDED = 'error.403.storage_quota_exceeded'
+#: More refs in one `POST /describe/` batch than the ceiling allows. Batch
+#: size IS response size here — every snapshot may inline a preview — so the
+#: refusal is about the RESPONSE the caller asked us to build, not about any
+#: individual ref being wrong. `count` and `max` ride in the params so the
+#: client can say which ceiling and by how much, and the fix is mechanical:
+#: page the batch. Distinct from ERR_400_MISSING_FIELDS on purpose — "you
+#: asked for too much at once" and "you left a field out" send a caller to
+#: two different fixes.
+ERR_400_TOO_MANY_REFS = 'error.400.too_many_refs'
 
 CDN_ERRORS = {
     ERR_400_NO_FILE: 'No file provided',
@@ -46,6 +55,8 @@ CDN_ERRORS = {
     ERR_503_IMAGE_DECODER_UNAVAILABLE:
         'This server cannot process {extension} images right now',
     ERR_403_QUOTA_EXCEEDED: 'Storage quota exceeded',
+    ERR_400_TOO_MANY_REFS:
+        'Too many references in one request ({count}; the maximum is {max})',
 }
 
 # Remediation (frontend-core-architecture §2.5). Only the key whose hint the

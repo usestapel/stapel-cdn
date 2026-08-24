@@ -36,10 +36,13 @@ import os
 
 from drf_spectacular.utils import OpenApiExample, OpenApiParameter, extend_schema
 from rest_framework import status
+from rest_framework.exceptions import Throttled
 from rest_framework.parsers import FormParser, MultiPartParser
 from rest_framework.permissions import IsAuthenticated
+from rest_framework.throttling import ScopedRateThrottle
 from rest_framework.views import APIView
 from stapel_core.django.api.errors import (
+    ERR_429_TOO_MANY_REQUESTS,
     StapelErrorResponse,
     StapelErrorSerializer,
     StapelResponse,
@@ -63,6 +66,7 @@ from stapel_cdn.errors import (
     ERR_400_INVALID_IMAGE_TYPE,
     ERR_400_MISSING_FIELDS,
     ERR_400_NO_FILE,
+    ERR_400_TOO_MANY_REFS,
     ERR_403_QUOTA_EXCEEDED,
     ERR_404_NO_IMAGES,
     ERR_413_FILE_TOO_LARGE,
@@ -72,6 +76,7 @@ from stapel_cdn.ownership import dedup_scope_q, quota_exceeded
 from stapel_cdn.validators import sniff_is_active_content, validate_image_file
 
 from .dto import (
+    DescribeManyResponse,
     FileExistsResponse,
     ImageUploadResponse,
     RefSyncResponse,
@@ -81,8 +86,11 @@ from .conf import DEFAULTS, cdn_settings
 from .dto import (
     FileUploadResponse as FileUploadResponseDTO,
 )
+from .metadata import DESCRIBE_MANY_LIMIT
 from .models import File, Image, Video, get_image_type_choices
 from .serializers import (
+    DescribeManyRequestSerializer,
+    DescribeManyResponseSerializer,
     FileExistsResponseSerializer,
     FileExistsSerializer,
     FileModelSerializer,
@@ -1135,4 +1143,199 @@ class GenericFileUploadView(SerializerSeamMixin, APIView):
                 )
             ),
             status=status.HTTP_201_CREATED,
+        )
+
+
+class DescribeThrottle(ScopedRateThrottle):
+    """``ScopedRateThrottle`` whose rate comes from ``STAPEL_CDN`` (lazily).
+
+    DRF resolves scoped rates from the global ``DEFAULT_THROTTLE_RATES``
+    setting, which a library module cannot own, so the rate is read from this
+    module's own namespace instead (``DESCRIBE_THROTTLE``).
+
+    A caller with no identity gets ``DESCRIBE_ANON_THROTTLE``. That rate is
+    dormant under the default permission — anonymous callers are refused
+    outright — and becomes the only brake the moment a deployment opens
+    ``DESCRIBE_PERMISSIONS`` for public media.
+    """
+
+    scope = "cdn_describe"
+
+    def allow_request(self, request, view):
+        self._request = request
+        return super().allow_request(request, view)
+
+    def get_rate(self):
+        user = getattr(getattr(self, "_request", None), "user", None)
+        if user is not None and not user.is_authenticated:
+            anon_rate = cdn_settings.DESCRIBE_ANON_THROTTLE
+            if anon_rate:
+                return anon_rate
+        return cdn_settings.DESCRIBE_THROTTLE
+
+
+@extend_schema(tags=["Media"])
+class DescribeMediaView(SerializerSeamMixin, APIView):
+    """Batch render-metadata for refs the caller holds — the browser's describe.
+
+    ``cdn.describe`` / ``cdn.describe_many`` are comm Functions, and a browser
+    cannot reach the comm bus. Without this endpoint a client could only ever
+    see ``render_meta`` for something it had just uploaded itself (inline in
+    the upload response) or for whatever a consuming module chose to
+    denormalize into its own serializer — which is why a chat bubble holding
+    somebody else's ``<prefix>/<hash>`` had nothing to draw. Same batch body
+    (:func:`stapel_cdn.services.describe_refs`), same ceiling, same
+    ``missing``-as-data posture as the comm Function; the transport is the
+    only difference.
+
+    **Guard.** ``STAPEL_CDN["DESCRIBE_PERMISSIONS"]`` at request time rather
+    than pinned at import, defaulting to the seam the read endpoints use
+    (signed in, guest sessions included, or an internal service call). Setting
+    ``permission_classes`` on a subclass still wins — the setting is the
+    default, not a ceiling. What the snapshot discloses and why that seam
+    fits it is written down beside the setting in ``conf.py``.
+
+    **Throttle.** Batch size is response size, so the rate bounds bytes, not
+    just queries. A refusal is ``error.429.too_many_requests`` with
+    ``retry_after`` — the same localizable envelope as every other refusal
+    here, rather than DRF's bare ``detail`` string.
+    """
+
+    #: ``None`` means "ask the settings"; a list pins the view.
+    permission_classes = None
+    throttle_classes = [DescribeThrottle]
+    throttle_scope = "cdn_describe"
+    request_serializer_class = DescribeManyRequestSerializer
+    response_serializer_class = DescribeManyResponseSerializer
+
+    def get_permissions(self):
+        if self.permission_classes is not None:
+            return super().get_permissions()
+        from django.utils.module_loading import import_string
+
+        return [
+            import_string(dotted_path)()
+            for dotted_path in (cdn_settings.DESCRIBE_PERMISSIONS or [])
+        ]
+
+    def handle_exception(self, exc):
+        """Answer a throttle refusal in the module's own error envelope.
+
+        DRF's own answer is a bare ``{"detail": "..."}`` in English, which is
+        the one refusal shape this module does not otherwise emit — every
+        other one carries a registered, localizable key. Converted here rather
+        than by raising through the exception handler so the answer does not
+        depend on a host having wired ``EXCEPTION_HANDLER``, and so
+        ``Retry-After`` (the header a client actually schedules its retry
+        from) survives the conversion.
+        """
+        if isinstance(exc, Throttled):
+            params = {}
+            if exc.wait is not None:
+                params["retry_after"] = int(exc.wait) + 1
+            response = StapelErrorResponse(429, ERR_429_TOO_MANY_REQUESTS, params)
+            if exc.wait is not None:
+                response["Retry-After"] = str(int(exc.wait) + 1)
+            return response
+        return super().handle_exception(exc)
+
+    @extend_schema(
+        operation_id="describe_media",
+        summary="Render metadata for a batch of media refs",
+        description=f"""Resolve up to {DESCRIBE_MANY_LIMIT} media refs to the
+render-metadata snapshot a UI needs to draw them with no second round trip and
+no layout jump: aspect box, byte size, an inline `preview_b64` placeholder,
+`preview_kind` (known even while `preview_b64` is still null, so the box can be
+reserved in the right shape), and `duration_ms` for time-based media.
+
+This is the HTTP form of the `cdn.describe_many` comm Function and returns the
+identical object — the same snapshot the upload endpoints inline as
+`render_meta`.
+
+**Unknown refs are data, not an error.** A ref that was deleted, never stored,
+or is malformed comes back in `missing`; the call still succeeds and the other
+snapshots still arrive, so one dead attachment does not cost a page its other
+thirty-nine.
+
+**Duplicates collapse** before the {DESCRIBE_MANY_LIMIT}-ref ceiling is
+applied. Over the ceiling the answer is `error.400.too_many_refs` with `count`
+and `max` in the params — page the batch. The ceiling exists because every
+snapshot may inline a preview, so batch size is response size.
+
+**Denormalize the result once**, when the ref is resolved. It is an immutable
+snapshot, not something to recompute per render.
+""",
+        request=DescribeManyRequestSerializer,
+        responses={
+            200: DescribeManyResponseSerializer,
+            400: StapelErrorSerializer,
+            401: StapelErrorSerializer,
+            403: StapelErrorSerializer,
+            429: StapelErrorSerializer,
+        },
+        examples=[
+            OpenApiExample(
+                name="Describe three attachments, one of them gone",
+                request_only=True,
+                value={
+                    "refs": [
+                        "avatar/" + "a1" * 32,
+                        "video/" + "b2" * 32,
+                        "product/" + "c3" * 32,
+                    ]
+                },
+            ),
+            OpenApiExample(
+                name="One resolved, one missing",
+                response_only=True,
+                status_codes=["200"],
+                value={
+                    "items": {
+                        "avatar/" + "a1" * 32: {
+                            "ref": "avatar/" + "a1" * 32,
+                            "kind": "image",
+                            "mime": "image/jpeg",
+                            "ext": ".jpg",
+                            "bytes": 51234,
+                            "width": 1600,
+                            "height": 900,
+                            "aspect": 1.777778,
+                            "square": False,
+                            "animated": False,
+                            "duration_ms": None,
+                            "preview_b64": "data:image/webp;base64,UklGRh...",
+                            "preview_kind": "blur",
+                            "poster_url": None,
+                            "meta_status": "ok",
+                            "meta_reason": None,
+                            "variants": [],
+                        }
+                    },
+                    "missing": ["product/" + "c3" * 32],
+                },
+            ),
+        ],
+    )
+    def post(self, request):
+        from .services import DescribeBatchTooLarge, describe_refs
+
+        serializer = self.get_request_serializer_class()(data=request.data)
+        serializer.is_valid(raise_exception=True)
+
+        try:
+            result = describe_refs(serializer.validated_data["refs"])
+        except DescribeBatchTooLarge as exc:
+            return StapelErrorResponse(
+                400,
+                ERR_400_TOO_MANY_REFS,
+                {"count": exc.count, "max": exc.limit},
+            )
+
+        return StapelResponse(
+            self.get_response_serializer_class()(
+                DescribeManyResponse(
+                    items=result["items"], missing=result["missing"]
+                )
+            ),
+            status=status.HTTP_200_OK,
         )

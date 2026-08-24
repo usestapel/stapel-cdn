@@ -428,6 +428,15 @@ def _file_snapshot(file_obj) -> dict:
     )
 
 
+#: Ceiling on one describe batch, shared by every caller of it: the
+#: ``cdn.describe_many`` comm Function and the ``POST /describe/`` HTTP
+#: endpoint. Each snapshot can carry an inline preview up to
+#: ``STAPEL_CDN["MICRO_PREVIEW_MAX_BYTES"]``, so an unbounded batch is an
+#: unbounded response — this keeps the worst case at (limit x budget),
+#: 200 KB with both defaults.
+DESCRIBE_MANY_LIMIT = 50
+
+
 def build_render_metadata(obj) -> dict:
     """The render-metadata snapshot for one stored object.
 
@@ -483,6 +492,7 @@ def derived_url(prefix: str, file_hash: str, filename: str) -> str:
 
 __all__ = [
     "DEFAULT_PREVIEW_BUDGET",
+    "DESCRIBE_MANY_LIMIT",
     "META_STATUSES",
     "REASONS",
     "REASON_DECODER_MISSING",

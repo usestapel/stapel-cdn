@@ -210,6 +210,17 @@
     "owner": "stapel_cdn"
   },
   {
+    "code": "error.400.too_many_refs",
+    "status": 400,
+    "params": [
+      "count",
+      "max"
+    ],
+    "remediation": "fix_input",
+    "en": "Too many references in one request ({count}; the maximum is {max})",
+    "owner": "stapel_cdn"
+  },
+  {
     "code": "error.400.validation_error",
     "status": 400,
     "params": [],

@@ -10,6 +10,7 @@ from stapel_core.django.api.errors import StapelValidationError
 from stapel_core.django.api.serializers import StapelDataclassSerializer
 
 from .dto import (
+    DescribeManyResponse,
     FileExistsResponse,
     FileUploadResponse,
     ImageUploadResponse,
@@ -18,6 +19,7 @@ from .dto import (
     VideoUploadResponse,
 )
 from .errors import ERR_400_FILE_TYPE_NOT_ALLOWED
+from .metadata import DESCRIBE_MANY_LIMIT
 from .models import VARIANTS_STATUSES, File, Image, Video
 
 
@@ -68,72 +70,110 @@ class RenderMetaField(serializers.JSONField):
     """
 
 
+def render_meta_schema() -> dict:
+    """OpenAPI schema of ONE render-metadata snapshot.
+
+    A function, not a module constant, so every consumer gets its own dict —
+    drf-spectacular post-processes the objects it is handed, and two fields
+    sharing one instance would let a mutation for one leak into the other.
+    Both the inline ``render_meta`` field and the ``POST /describe/`` map of
+    them are built from this, which is what keeps "the same object, however
+    you reach it" true in the schema and not only in the prose.
+    """
+    return {
+        "type": "object",
+        "description": (
+            "Everything needed to render this attachment with no second "
+            "round trip: aspect box, byte size, inline placeholder, and "
+            "duration for time-based media. Identical to the cdn.describe "
+            "comm Function's return value."
+        ),
+        "properties": {
+            "ref": {"type": "string"},
+            "kind": {
+                "type": "string",
+                "nullable": True,
+                "description": (
+                    "Open media-kind registry (STAPEL_CDN['MEDIA_KINDS']): "
+                    "image, gif, video, audio, file, or a host-defined kind."
+                ),
+            },
+            "mime": {"type": "string"},
+            "ext": {"type": "string", "description": "Lowercase, dot-prefixed."},
+            "bytes": {"type": "integer"},
+            "width": {"type": "integer", "nullable": True},
+            "height": {"type": "integer", "nullable": True},
+            "aspect": {
+                "type": "number",
+                "format": "float",
+                "nullable": True,
+                "description": "width / height, 6dp.",
+            },
+            "square": {"type": "boolean"},
+            "animated": {"type": "boolean"},
+            "duration_ms": {"type": "integer", "nullable": True},
+            "preview_b64": {
+                "type": "string",
+                "nullable": True,
+                "description": (
+                    "data:image/webp;base64,... bounded by "
+                    "STAPEL_CDN['MICRO_PREVIEW_MAX_BYTES']; null when "
+                    "refused or not generated, with meta_reason saying which."
+                ),
+            },
+            "preview_kind": {
+                "type": "string",
+                "enum": ["blur", "poster", "waveform"],
+                "nullable": True,
+            },
+            "poster_url": {"type": "string", "nullable": True},
+            "meta_status": {
+                "type": "string",
+                "enum": ["ok", "partial", "missing"],
+            },
+            "meta_reason": {
+                "type": "string",
+                "nullable": True,
+                "description": "stapel_cdn.metadata.REASONS; null when ok.",
+            },
+            "variants": {
+                "type": "array",
+                "items": {"type": "object"},
+            },
+        },
+        "required": ["ref", "mime", "ext", "bytes", "meta_status"],
+    }
+
+
 class RenderMetaFieldExtension(OpenApiSerializerFieldExtension):
     target_class = RenderMetaField
+
+    def map_serializer_field(self, auto_schema, direction):
+        return render_meta_schema()
+
+
+class RenderMetaMapField(serializers.JSONField):
+    """``{ref: RenderMeta}`` — the describe batch's body, keyed by ref.
+
+    A map rather than a list because the caller asked BY ref and renders by
+    ref: an array would make every consumer build this dict itself, and the
+    refs that resolved to nothing are already reported separately in
+    ``missing`` rather than as null entries here.
+    """
+
+
+class RenderMetaMapFieldExtension(OpenApiSerializerFieldExtension):
+    target_class = RenderMetaMapField
 
     def map_serializer_field(self, auto_schema, direction):
         return {
             "type": "object",
             "description": (
-                "Everything needed to render this attachment with no second "
-                "round trip: aspect box, byte size, inline placeholder, and "
-                "duration for time-based media. Identical to the cdn.describe "
-                "comm Function's return value."
+                "Render-metadata snapshot per ref that resolved, keyed by the "
+                "ref the caller asked for. Refs that resolved to nothing are "
+                "in `missing`, not here."
             ),
-            "properties": {
-                "ref": {"type": "string"},
-                "kind": {
-                    "type": "string",
-                    "nullable": True,
-                    "description": (
-                        "Open media-kind registry (STAPEL_CDN['MEDIA_KINDS']): "
-                        "image, gif, video, audio, file, or a host-defined kind."
-                    ),
-                },
-                "mime": {"type": "string"},
-                "ext": {"type": "string", "description": "Lowercase, dot-prefixed."},
-                "bytes": {"type": "integer"},
-                "width": {"type": "integer", "nullable": True},
-                "height": {"type": "integer", "nullable": True},
-                "aspect": {
-                    "type": "number",
-                    "format": "float",
-                    "nullable": True,
-                    "description": "width / height, 6dp.",
-                },
-                "square": {"type": "boolean"},
-                "animated": {"type": "boolean"},
-                "duration_ms": {"type": "integer", "nullable": True},
-                "preview_b64": {
-                    "type": "string",
-                    "nullable": True,
-                    "description": (
-                        "data:image/webp;base64,... bounded by "
-                        "STAPEL_CDN['MICRO_PREVIEW_MAX_BYTES']; null when "
-                        "refused or not generated, with meta_reason saying which."
-                    ),
-                },
-                "preview_kind": {
-                    "type": "string",
-                    "enum": ["blur", "poster", "waveform"],
-                    "nullable": True,
-                },
-                "poster_url": {"type": "string", "nullable": True},
-                "meta_status": {
-                    "type": "string",
-                    "enum": ["ok", "partial", "missing"],
-                },
-                "meta_reason": {
-                    "type": "string",
-                    "nullable": True,
-                    "description": "stapel_cdn.metadata.REASONS; null when ok.",
-                },
-                "variants": {
-                    "type": "array",
-                    "items": {"type": "object"},
-                },
-            },
-            "required": ["ref", "mime", "ext", "bytes", "meta_status"],
+            "additionalProperties": render_meta_schema(),
         }
 
 
@@ -445,6 +485,50 @@ class FileExistsSerializer(serializers.Serializer):
         required=True,
         help_text="SHA-256 hash of the file content (64 hex characters)",
     )
+
+
+class DescribeManyRequestSerializer(serializers.Serializer):
+    """The refs one ``POST /describe/`` call asks about.
+
+    Shape only. The ceiling is NOT checked here: it belongs to
+    ``services.describe_refs``, the body the comm Function shares, so that the
+    rule (dedup, then compare against ``DESCRIBE_MANY_LIMIT``) has exactly one
+    implementation and the two transports cannot drift apart on where the
+    fifty-first ref stops being acceptable.
+
+    A ref whose shape is wrong is not a 400 either: it resolves to nothing and
+    comes back in ``missing`` like any other unresolvable ref, so one
+    malformed entry never costs the caller the other forty-nine snapshots.
+    """
+
+    refs = serializers.ListField(
+        child=serializers.CharField(max_length=256, allow_blank=True),
+        allow_empty=True,
+        required=True,
+        help_text=(
+            "Media refs in <prefix>/<hash> form. Duplicates collapse before "
+            f"the {DESCRIBE_MANY_LIMIT}-ref ceiling is applied."
+        ),
+    )
+
+
+class DescribeManyResponseSerializer(StapelDataclassSerializer):
+    """``{items: {ref: RenderMeta}, missing: [ref]}``."""
+
+    items = RenderMetaMapField(
+        help_text="Snapshot per ref that resolved, keyed by ref."
+    )
+    missing = serializers.ListField(
+        child=serializers.CharField(),
+        help_text=(
+            "Refs that resolved to nothing — deleted, never stored, or "
+            "malformed. Draw a placeholder for these; they are data, not an "
+            "error, and they never fail the call."
+        ),
+    )
+
+    class Meta:
+        dataclass = DescribeManyResponse
 
 
 # =============================================================================

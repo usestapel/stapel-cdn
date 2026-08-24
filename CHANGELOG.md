@@ -6,6 +6,96 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+## 0.17.0 — 2026-08-24
+
+**Describe was unreachable from a browser.** 0.16.0 shipped the whole
+render-metadata contract as `cdn.describe` / `cdn.describe_many` — comm
+Functions, dispatched over the bus. A browser has no bus. So a client could
+see `render_meta` only for something it had *just uploaded itself* (inline in
+the upload response), or for whatever a consuming module chose to denormalize
+into its own serializer. A chat bubble holding somebody else's
+`<prefix>/<hash>` had nothing to draw, and an attachment renderer was not
+expressible on the front end at all — which the cdn-react audit named as the
+structural reason `chat-react` ships none. This release is the missing
+transport, and nothing else: the contract itself is unchanged.
+
+### Added — `POST /cdn/api/v1/describe/`
+
+```
+POST /cdn/api/v1/describe/   {"refs": ["avatar/<hash>", "video/<hash>", ...]}
+200                          {"items": {"<ref>": {…snapshot…}}, "missing": ["<ref>"]}
+```
+
+The same snapshot, the same ceiling, the same posture as the comm Function,
+because it is literally the same function: the batch body moved into
+`services.describe_refs`, and `cdn.describe_many` and this endpoint are two
+transports over it. The OpenAPI response schema is built from the same
+`render_meta` emitter the upload serializers use (`serializers.
+render_meta_schema`), so the two cannot describe different objects either.
+
+- **50 refs** per call (`metadata.DESCRIBE_MANY_LIMIT`, moved there from
+  `functions.py` so the endpoint and the serializer can read it without
+  importing the comm module). Duplicates collapse **before** the ceiling.
+- **Unknown refs are data**: deleted, never stored, or malformed — all of them
+  come back in `missing` with a `200`. A page with one dead attachment still
+  renders the other thirty-nine. A malformed ref is not a `400` either; one
+  bad entry must not cost the caller its other forty-nine snapshots.
+- Over the ceiling: **`error.400.too_many_refs`** (new key) with `count` and
+  `max` in the params — the fix is mechanical, page the batch.
+- Over the rate: `error.429.too_many_requests` with `retry_after` **and** a
+  `Retry-After` header. DRF's bare English `detail` was the one refusal shape
+  this module did not otherwise emit; every refusal here is a registered,
+  localizable key.
+
+### Added — the guard and the rate are settings, not literals
+
+- **`DESCRIBE_PERMISSIONS`** — dotted paths, resolved at request time,
+  defaulting to `stapel_cdn.permissions.IsAuthenticatedOrService`: the seam
+  `FileExistsView` already uses (signed in, guest sessions included, or an
+  internal service call), named as a single importable class because a DRF
+  permission *list* means "all must pass" and cannot spell an OR. Pinning
+  `permission_classes` on a subclass still wins — the setting is the default,
+  not a ceiling.
+- **`DESCRIBE_THROTTLE`** (`60/min`) and **`DESCRIBE_ANON_THROTTLE`**
+  (`10/min`, dormant under the default guard, the only brake once it is
+  opened). Batch size is response size here, so the rate bounds bytes.
+
+**Why that guard is wide enough to answer for refs the caller did not
+upload** — which is the whole case the endpoint exists for: a ref is
+`<prefix>/<sha256>`, so naming one is already evidence the caller was given
+it, and the snapshot is geometry, duration and a ≤4 KB inline preview. It
+carries **no uploader identity, no filename, no `refs[]`** — that is the
+difference from `FileExistsView`, which returns the entire row and therefore
+stays scoped to `uploaded_by`. A deployment that will not accept even that
+sets `DESCRIBE_PERMISSIONS` to `IsServiceRequest` and keeps describe
+service-side; one with public media opens it to `AllowAny`.
+
+### Added — boot checks for the new seam (`checks.E005`, `checks.W012`)
+
+Both settings are read per request, which is what lets a host swap them
+without subclassing a view and also what would turn an authoring mistake into
+a 500 on every attachment a page tries to draw. So, exactly as `W009` does for
+the media-kind registry, they are checked at boot:
+
+- **`E005`** — a `DESCRIBE_PERMISSIONS` entry that does not import, or a rate
+  DRF cannot parse. Either one means this deployment cannot serve `/describe/`
+  at all, which is an operator's problem and must be heard at boot.
+- **`W012`** — an **empty** `DESCRIBE_PERMISSIONS`. DRF reads no permission
+  classes as "everyone passes", so a blank list publishes the endpoint to
+  anonymous callers. `AllowAny` says the same thing on purpose and is silent;
+  a blank does not.
+
+### Contract
+
+`docs/schema.json` grows one operation (`describe_media`, 9 paths / 10
+operations) and `docs/errors.json` one key (54). Nothing existing changed:
+the `render_meta` schema is byte-identical after the emitter refactor.
+
+**For the react pair:** `@stapel/cdn-react` can now resolve `render_meta` for
+any ref it holds, which unblocks the attachment renderer in `chat-react` and
+retires the "stapel-cdn generates no inline blur placeholder" claim in
+`src/model/refs.ts`. Regenerate against 0.17 and bump the pinned contract.
+
 ## 0.16.0 — 2026-08-24
 
 **An attachment a UI can draw without asking twice.** Reviewing a live

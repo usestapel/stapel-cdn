@@ -46,6 +46,15 @@ of at ``manage.py check`` / boot-smoke time.
 * **media** (``W011``) — an inline-preview byte budget that is not a
   positive number, so the shipped default is what actually bounds the
   payload.
+* **describe** (``E005``) — a ``DESCRIBE_PERMISSIONS`` entry that does not
+  import, or a ``DESCRIBE_THROTTLE``/``DESCRIBE_ANON_THROTTLE`` rate DRF
+  cannot parse. Both are resolved per request, so either one turns every
+  ``POST /describe/`` into a 500 — an operator's problem that must be heard
+  at boot, not read off an error rate.
+* **describe** (``W012``) — an EMPTY ``DESCRIBE_PERMISSIONS``. DRF reads no
+  permission classes as "everyone passes", so the accident of an empty list
+  publishes the endpoint. ``AllowAny`` says the same thing on purpose and is
+  not reported; a blank does not.
 """
 from __future__ import annotations
 
@@ -64,6 +73,8 @@ W008_VARIANT_QUEUE_UNPROVEN = "stapel_cdn.tasks.W008"
 W009_MEDIA_KINDS_INVALID = "stapel_cdn.kinds.W009"
 W010_MEDIA_TOOL_MISSING = "stapel_cdn.media.W010"
 W011_PREVIEW_BUDGET_INVALID = "stapel_cdn.media.W011"
+E005_DESCRIBE_SEAM_UNUSABLE = "stapel_cdn.describe.E005"
+W012_DESCRIBE_GUARD_EMPTY = "stapel_cdn.describe.W012"
 
 
 @checks.register("stapel_cdn")
@@ -467,6 +478,88 @@ def check_preview_budget(app_configs=None, **kwargs):
     ]
 
 
+@checks.register("stapel_cdn")
+def check_describe_seam(app_configs=None, **kwargs):
+    """E005/W012 — the guard and the rate of ``POST /describe/``.
+
+    Both settings are resolved per request rather than pinned at import, which
+    is what lets a host swap them without subclassing a view — and also what
+    would otherwise turn an authoring mistake into a 500 on every attachment a
+    page tries to draw, discovered from an error rate. The same argument as
+    W009: a registry read inside a request is checked at boot.
+
+    E005 for a dotted path that will not import or a rate DRF cannot parse:
+    the endpoint cannot be served at all in this deployment. W012 for an
+    empty guard: DRF reads no permission classes as "everyone passes", so a
+    blank list publishes the endpoint to anonymous callers — which is a
+    legitimate deployment, but one that says so with ``AllowAny``.
+    """
+    from django.utils.module_loading import import_string
+    from rest_framework.throttling import SimpleRateThrottle
+
+    from .conf import cdn_settings
+
+    errors = []
+
+    guard = cdn_settings.DESCRIBE_PERMISSIONS
+    for dotted_path in guard or []:
+        try:
+            import_string(dotted_path)
+        except ImportError as exc:
+            errors.append(
+                checks.Error(
+                    f"STAPEL_CDN['DESCRIBE_PERMISSIONS'] names "
+                    f"{dotted_path!r}, which does not import ({exc}). The "
+                    f"guard is resolved per request, so every POST "
+                    f"/cdn/api/v1/describe/ would answer 500 — no attachment "
+                    f"on any page could be described.",
+                    hint="Name an importable DRF permission class. The "
+                         "default is stapel_cdn.permissions."
+                         "IsAuthenticatedOrService (the seam the read "
+                         "endpoints use); see CONFIG.MD.",
+                    id=E005_DESCRIBE_SEAM_UNUSABLE,
+                )
+            )
+
+    if not guard:
+        errors.append(
+            checks.Warning(
+                "STAPEL_CDN['DESCRIBE_PERMISSIONS'] is empty, so POST "
+                "/cdn/api/v1/describe/ has NO guard: DRF reads no permission "
+                "classes as 'everyone passes'. Any anonymous caller holding a "
+                "media ref can resolve its render metadata.",
+                hint="If that is intended, say it: "
+                     "['rest_framework.permissions.AllowAny'] — and set "
+                     "DESCRIBE_ANON_THROTTLE, which is then the only brake. "
+                     "Otherwise restore the default, "
+                     "['stapel_cdn.permissions.IsAuthenticatedOrService'].",
+                id=W012_DESCRIBE_GUARD_EMPTY,
+            )
+        )
+
+    for key in ("DESCRIBE_THROTTLE", "DESCRIBE_ANON_THROTTLE"):
+        rate = getattr(cdn_settings, key)
+        if not rate:
+            # Falsy is "no throttle for this class of caller", not a mistake.
+            continue
+        try:
+            SimpleRateThrottle.parse_rate(None, rate)
+        except (ValueError, TypeError, IndexError, AttributeError):
+            errors.append(
+                checks.Error(
+                    f"STAPEL_CDN[{key!r}] is {rate!r}, which DRF cannot parse "
+                    f"as a throttle rate. The rate is read per request, so "
+                    f"every POST /cdn/api/v1/describe/ would answer 500.",
+                    hint="Use '<number>/<second|minute|hour|day>', e.g. "
+                         "'60/min'. Leave it empty to run that class of "
+                         "caller unthrottled.",
+                    id=E005_DESCRIBE_SEAM_UNUSABLE,
+                )
+            )
+
+    return errors
+
+
 __all__ = [
     "E001_IMAGES_LIBRARY_MISSING",
     "E004_IMAGE_FORMAT_UNDECODABLE",
@@ -479,6 +572,9 @@ __all__ = [
     "W009_MEDIA_KINDS_INVALID",
     "W010_MEDIA_TOOL_MISSING",
     "W011_PREVIEW_BUDGET_INVALID",
+    "E005_DESCRIBE_SEAM_UNUSABLE",
+    "W012_DESCRIBE_GUARD_EMPTY",
+    "check_describe_seam",
     "check_dedup_scope",
     "check_media_kinds",
     "check_media_tools",

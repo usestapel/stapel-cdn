@@ -88,6 +88,34 @@ DEFAULTS = {
     # every consumer already draws. Also applied on READ, so lowering this
     # takes effect for rows stamped before the change.
     "MICRO_PREVIEW_MAX_BYTES": 4096,
+    # --- POST /describe/ (the batch snapshot a browser asks for) ----------
+    # Permission classes of the describe endpoint (dotted paths, ALL must
+    # pass — DRF semantics). The default is the same seam the read endpoints
+    # use: signed in (guest sessions included) or an internal service call.
+    #
+    # What the endpoint discloses, and why that seam is the right one: a
+    # ref is <prefix>/<sha256>, so naming one is already evidence the caller
+    # was given it — the snapshot is geometry, duration and a 16px preview,
+    # and it carries NO uploader identity, filename or refs[] (that is why
+    # FileExistsView, which returns the whole row, stays owner-scoped and
+    # this does not). Describe deliberately answers for refs the caller did
+    # not upload: a chat attachment someone else sent is the case it exists
+    # for. A deployment that will not accept that sets this to
+    # ["stapel_core.django.api.permissions.IsServiceRequest"] and keeps
+    # describe service-side; one with public media opens it to
+    # ["rest_framework.permissions.AllowAny"], and DESCRIBE_ANON_THROTTLE is
+    # then the only brake.
+    "DESCRIBE_PERMISSIONS": ["stapel_cdn.permissions.IsAuthenticatedOrService"],
+    # DRF throttle rate for the describe endpoint (ScopedRateThrottle scope
+    # "cdn_describe"). Batch size is response size: at the ceiling this is
+    # 50 snapshots x MICRO_PREVIEW_MAX_BYTES per call, so the rate bounds
+    # bytes, not just queries.
+    "DESCRIBE_THROTTLE": "60/min",
+    # Rate applied to ANONYMOUS callers of describe. Dormant under the
+    # default permission (which refuses them outright) and the only brake
+    # the moment a deployment opens DESCRIBE_PERMISSIONS — so it ships with
+    # the library rather than being remembered later.
+    "DESCRIBE_ANON_THROTTLE": "10/min",
     # Waveform strip geometry (pixels) for voice messages, best first. Each
     # entry is tried in order until one fits MICRO_PREVIEW_MAX_BYTES.
     "WAVEFORM_SIZES": ((240, 40), (120, 32)),

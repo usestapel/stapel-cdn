@@ -22,6 +22,7 @@ from django.db import transaction
 from stapel_core.signals import media_processed
 
 from .conf import cdn_settings
+from .metadata import DESCRIBE_MANY_LIMIT
 from .metadata import build_render_metadata as build_render_metadata  # re-export
 from .metadata import encode_preview, preview_budget
 
@@ -725,6 +726,52 @@ class AudioProcessingService:
 # reasons. It is imported at the top of this module and re-exported here
 # because every existing caller (functions.py, host projects) already
 # reaches for ``services.build_render_metadata``.
+
+
+class DescribeBatchTooLarge(ValueError):
+    """More refs in one describe batch than :data:`DESCRIBE_MANY_LIMIT`.
+
+    Carries the numbers so each caller can say which limit and by how much:
+    the comm Function lets it surface as a ``FunctionCallError``, the HTTP
+    endpoint turns it into ``error.400.too_many_refs`` with ``count``/``max``
+    in the params.
+    """
+
+    def __init__(self, count: int, limit: int):
+        self.count = count
+        self.limit = limit
+        super().__init__(
+            f"{count} refs exceeds the per-call limit of {limit} — page the batch"
+        )
+
+
+def describe_refs(refs) -> dict:
+    """``{"items": {ref: snapshot}, "missing": [ref, ...]}`` for a page of refs.
+
+    THE batch describe body — the comm Function ``cdn.describe_many`` and the
+    ``POST /cdn/api/v1/describe/`` endpoint are both thin wrappers over this,
+    so a browser and a service caller get the same snapshots, the same
+    deduplication and the same ceiling rather than two implementations that
+    drift.
+
+    Duplicates collapse before the ceiling is applied, so asking for the same
+    attachment twice costs one slot. A ref that does not resolve — deleted,
+    never existed, or malformed (no ``<prefix>/<hash>`` shape) — comes back in
+    ``missing``: a page with one dead attachment still renders the other
+    thirty-nine. Raises :class:`DescribeBatchTooLarge` above
+    :data:`~stapel_cdn.metadata.DESCRIBE_MANY_LIMIT`; every snapshot may
+    inline a preview, so batch size IS response size.
+    """
+    deduped = list(dict.fromkeys(refs or []))
+    if len(deduped) > DESCRIBE_MANY_LIMIT:
+        raise DescribeBatchTooLarge(len(deduped), DESCRIBE_MANY_LIMIT)
+    resolved = _batch_resolve_media(deduped)
+    return {
+        "items": {
+            ref: build_render_metadata(obj) for ref, obj in resolved.items()
+        },
+        "missing": [ref for ref in deduped if ref not in resolved],
+    }
 
 
 def _batch_resolve_media(ref_strings, for_update=False):

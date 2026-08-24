@@ -11,6 +11,7 @@ from .views import (
     ImageUploadView,
     AvatarUploadView,
     VideoUploadView,
+    DescribeMediaView,
     FileExistsView,
     RandomImageView,
     TypedImageUploadView,
@@ -26,6 +27,11 @@ urlpatterns = [
     path('images/<str:image_type>/random/', RandomImageView.as_view(), name='random-image'),
     path('images/<str:image_type>/upload/', TypedImageUploadView.as_view(), name='typed-image-upload'),
     path('file/exists/', FileExistsView.as_view(), name='file-exists'),
+
+    # The browser's half of cdn.describe_many — render metadata for refs the
+    # caller holds but did not necessarily upload (a chat attachment).
+    path('describe/', DescribeMediaView.as_view(), name='describe-media'),
+
     path('refs/sync/', RefSyncView.as_view(), name='refs-sync'),
 
     # Error-key registry for the stapel-translate collector (service/staff only).

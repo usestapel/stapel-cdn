@@ -84,11 +84,20 @@ DESCRIBE_MANY_SCHEMA = {
     "required": ["refs"],
 }
 
-#: Ceiling on one ``cdn.describe_many`` call. Each snapshot can carry an
-#: inline preview up to ``STAPEL_CDN["MICRO_PREVIEW_MAX_BYTES"]``, so an
-#: unbounded batch is an unbounded response — this keeps the worst case at
-#: (limit x budget), 200 KB with both defaults.
-DESCRIBE_MANY_LIMIT = 50
+def __getattr__(name):
+    """``DESCRIBE_MANY_LIMIT`` lives in :mod:`stapel_cdn.metadata` now.
+
+    It is shared with the HTTP endpoint and the serializer, neither of which
+    should import this module (importing it registers comm handlers), so the
+    constant moved next to the snapshot it bounds. Re-exported lazily rather
+    than at module level because this module is imported from
+    ``CdnConfig.ready()`` and must not pull in Django models to do it.
+    """
+    if name == "DESCRIBE_MANY_LIMIT":
+        from .metadata import DESCRIBE_MANY_LIMIT
+
+        return DESCRIBE_MANY_LIMIT
+    raise AttributeError(f"module {__name__!r} has no attribute {name!r}")
 
 
 @function("cdn.describe", schema=DESCRIBE_SCHEMA)
@@ -148,25 +157,17 @@ def describe_many(payload: dict) -> dict:
     attachment still renders the other thirty-nine, and ``missing`` tells the
     caller exactly which to draw a placeholder for.
 
-    At most :data:`DESCRIBE_MANY_LIMIT` refs per call (duplicates collapse);
-    more raises ``ValueError``. Every snapshot may inline a preview, so the
-    batch size is the response size.
-    """
-    from .services import _batch_resolve_media, build_render_metadata
+    At most ``metadata.DESCRIBE_MANY_LIMIT`` refs per call (duplicates
+    collapse); more raises ``ValueError``. Every snapshot may inline a
+    preview, so the batch size is the response size.
 
-    refs = list(dict.fromkeys(payload["refs"] or []))
-    if len(refs) > DESCRIBE_MANY_LIMIT:
-        raise ValueError(
-            f"cdn.describe_many: {len(refs)} refs exceeds the per-call limit "
-            f"of {DESCRIBE_MANY_LIMIT} — page the batch"
-        )
-    resolved = _batch_resolve_media(refs)
-    return {
-        "items": {
-            ref: build_render_metadata(obj) for ref, obj in resolved.items()
-        },
-        "missing": [ref for ref in refs if ref not in resolved],
-    }
+    The body is :func:`stapel_cdn.services.describe_refs`, shared with the
+    ``POST /cdn/api/v1/describe/`` endpoint a browser calls — a browser
+    cannot reach the comm bus, and both must answer identically.
+    """
+    from .services import describe_refs
+
+    return describe_refs(payload["refs"])
 
 
 @function("cdn.media_exists", schema=MEDIA_EXISTS_SCHEMA)
