@@ -39,6 +39,13 @@ jobs:
           pip install stapel-tools --quiet
           stapel-migration-lint . --strict
 
+      - name: sibling-lint (undeclared sibling imports in the suite)
+        # SIB001: a test importing a sibling stapel package that pyproject.toml
+        # does not declare collects fine here (editable siblings on the box) and
+        # errors at setup on a clean runner. --strict makes that a build failure
+        # rather than a note.
+        run: stapel-sibling-lint . --strict
+
       - name: Import check
         run: python -c "import stapel_cdn; print('import OK')"
 
@@ -58,6 +65,10 @@ jobs:
             --junitxml=junit.xml \
             -o junit_family=legacy \
             -v
+        env:
+          # Sibling imports must resolve from what pyproject.toml declares, not
+          # from whatever happens to be on the box (library-standard, SIB001).
+          STAPEL_TEST_STRICT_SIBLINGS: "1"
 
       - name: Upload coverage to Codecov
         uses: codecov/codecov-action@v5

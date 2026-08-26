@@ -51,6 +51,16 @@ class TestDefaults:
     def test_allowed_image_extensions(self):
         assert ".jpg" in cdn_settings.ALLOWED_IMAGE_EXTENSIONS
         assert ".heic" in cdn_settings.ALLOWED_IMAGE_EXTENSIONS
+        assert ".avif" in cdn_settings.ALLOWED_IMAGE_EXTENSIONS
+
+    def test_default_advertises_no_format_a_stock_wheel_cannot_read(self):
+        """0.17.1 — ``.bmp`` shipped in the default and libvips cannot read it
+        without the ImageMagick module, which pyvips[binary] does not carry, so
+        `manage.py check` failed E004 on a host that had configured nothing.
+        The decodability of the default is asserted for real (against the
+        loader table, on a simulated stock build) in tests/test_checks.py.
+        """
+        assert ".bmp" not in cdn_settings.ALLOWED_IMAGE_EXTENSIONS
 
     def test_pipeline_sizes_default_match_class_attributes(self):
         assert ImageProcessingService.get_thumbnail_sizes() == ImageProcessingService.THUMBNAIL_SIZES

@@ -22,7 +22,7 @@ class ImageAdminForm(forms.ModelForm):
         widgets = {
             "original": forms.FileInput(
                 attrs={
-                    "accept": "image/jpeg,image/png,image/gif,image/webp,image/bmp,image/heic,image/heif,.heic,.heif"
+                    "accept": "image/jpeg,image/png,image/gif,image/webp,image/avif,image/heic,image/heif,.avif,.heic,.heif"
                 }
             )
         }

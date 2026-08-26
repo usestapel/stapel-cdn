@@ -139,8 +139,21 @@ DEFAULTS = {
     "PREVIEW_SIZES": DEFAULT_PREVIEW_SIZES,
     # Upload size cap for images (bytes) — 20 MB.
     "MAX_IMAGE_SIZE": 20 * 1024 * 1024,
+    # The default is exactly what a stock `pip install stapel-cdn[images]`
+    # can decode: the pyvips[binary] wheel bundles libvips with jpeg, png,
+    # gif, webp and libheif (which covers .heic/.heif/.avif) — nothing else.
+    # It carried ".bmp" until 0.17.1, and libvips has NO native BMP reader:
+    # bmpload does not exist, magickload does, but the ImageMagick module is
+    # not in those wheels. So the shipped default advertised a format the
+    # shipped decoder could not read, and checks.E004 — correctly — failed
+    # `manage.py check` on a stock host that had configured nothing.
+    # A default must be decodable by the deployment it defaults into.
+    # E004 keeps its job for the other direction: a deployment that WIDENS
+    # this list (.bmp via ImageMagick, .tif, .svg, .jxl, .jp2) is told at
+    # boot whether its own libvips build can honour what it just declared,
+    # instead of telling an uploader their file is invalid.
     "ALLOWED_IMAGE_EXTENSIONS": (
-        ".jpg", ".jpeg", ".png", ".gif", ".webp", ".bmp", ".heic", ".heif",
+        ".jpg", ".jpeg", ".png", ".gif", ".webp", ".avif", ".heic", ".heif",
     ),
     "ALLOWED_VIDEO_EXTENSIONS": (
         ".mp4", ".webm", ".mov", ".avi", ".mkv",

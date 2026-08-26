@@ -456,7 +456,7 @@ class FileUploadSerializer(serializers.Serializer):
     """
 
     file = serializers.FileField(
-        help_text="The file to upload. Images: jpg, jpeg, png, gif, webp, bmp, heic, heif. Videos: mp4, webm, mov, avi, mkv."
+        help_text="The file to upload. Images: jpg, jpeg, png, gif, webp, avif, heic, heif. Videos: mp4, webm, mov, avi, mkv."
     )
 
     def validate_file(self, value):

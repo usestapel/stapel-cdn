@@ -126,6 +126,74 @@ class TestUndecodableFormatProbe:
         assert not any(e.id == E004_IMAGE_FORMAT_UNDECODABLE for e in errors)
 
 
+#: The libvips operation registry of a STOCK `pip install stapel-cdn[images]`
+#: host — measured on python:3.12-slim with pyvips[binary] (libvips 8.18.6),
+#: which is what a host that installs nothing beyond the extra actually gets.
+#: The wheel bundles jpeg/png/gif/webp/libheif/tiff/svg and NOT the modular
+#: bits: `bmpload` does not exist in libvips at all, and `magickload`,
+#: `jxlload`, `jp2kload` need modules the wheel does not carry.
+STOCK_PYVIPS_BINARY_OPERATIONS = frozenset(
+    {"jpegload", "pngload", "gifload", "webpload", "heifload", "tiffload", "svgload"}
+)
+
+
+class TestShippedDefaultIsDecodable:
+    """The defect this class exists for: the *shipped default* failed E004.
+
+    `ALLOWED_IMAGE_EXTENSIONS` carried ``.bmp`` through 0.17.0. libvips has no
+    native BMP reader — only `magickload`, from an ImageMagick module absent
+    from the pyvips[binary] wheels — so a stock `pip install stapel-cdn[images]`
+    host that had configured NOTHING failed `manage.py check` with E004 until
+    it overrode the setting. E004 was right; the default was wrong. A default
+    must be decodable by the deployment it defaults into, and that is a
+    property of this repo, testable here rather than in someone's deploy.
+    """
+
+    def test_default_passes_the_probe_on_a_stock_pyvips_binary_build(self, monkeypatch):
+        """Deterministic: the ambient CI libvips may be fatter than a wheel's.
+
+        Stubs the operation registry rather than `loadable_extensions`, so
+        `VIPS_LOADERS` — the extension -> loader table the default is judged
+        against — is exercised for real.
+        """
+        pytest.importorskip("pyvips")
+        monkeypatch.setattr(
+            "stapel_cdn.decoders._operation_exists",
+            lambda pyvips, name: name in STOCK_PYVIPS_BINARY_OPERATIONS,
+        )
+        # No override_settings: this is the DEFAULTS tuple as shipped.
+        errors = check_submodule_binaries()
+        undecodable = [e for e in errors if e.id == E004_IMAGE_FORMAT_UNDECODABLE]
+        assert not undecodable, [e.msg for e in undecodable]
+
+    def test_default_passes_the_probe_on_this_machines_build(self):
+        """Belt to the braces: whatever libvips is present here reads it too."""
+        pytest.importorskip("pyvips")
+        errors = check_submodule_binaries()
+        undecodable = [e for e in errors if e.id == E004_IMAGE_FORMAT_UNDECODABLE]
+        assert not undecodable, [e.msg for e in undecodable]
+
+    def test_bmp_is_still_probed_for_a_deployment_that_widens_the_list(
+        self, monkeypatch
+    ):
+        """Dropping .bmp from the default did not drop it from the table.
+
+        E004 keeps its job in the other direction: a host that adds .bmp back
+        on a build without the ImageMagick module hears about it at boot.
+        """
+        pytest.importorskip("pyvips")
+        monkeypatch.setattr(
+            "stapel_cdn.decoders._operation_exists",
+            lambda pyvips, name: name in STOCK_PYVIPS_BINARY_OPERATIONS,
+        )
+        with override_settings(
+            STAPEL_CDN={"ALLOWED_IMAGE_EXTENSIONS": (".jpg", ".bmp")}
+        ):
+            errors = check_submodule_binaries()
+        (error,) = [e for e in errors if e.id == E004_IMAGE_FORMAT_UNDECODABLE]
+        assert ".bmp" in error.msg
+
+
 class TestVideoProbeOptIn:
     def test_clean_when_video_not_enabled(self):
         with override_settings(STAPEL_CDN={"ENABLED_SUBMODULES": ("images",)}):

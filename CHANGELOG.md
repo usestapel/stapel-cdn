@@ -6,6 +6,50 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+## 0.17.1 — 2026-08-26
+
+**The shipped default failed our own boot check.** `ALLOWED_IMAGE_EXTENSIONS`
+had carried `.bmp` since the setting existed, and libvips has **no native BMP
+reader** — `bmpload` does not exist; BMP is read only through `magickload`,
+from an ImageMagick module that the `pyvips[binary]` wheels do not carry. So a
+stock `pip install stapel-cdn[images]` host that had configured *nothing* got
+`stapel_cdn.images.E004` from `manage.py check` and could not boot until it
+overrode the setting. E004 was right — a setting advertising a format the
+deployment cannot decode is exactly the defect it was added for in 0.10. The
+default was wrong: it advertised, on every host, a format the library's own
+install instructions do not produce a decoder for.
+
+- **`ALLOWED_IMAGE_EXTENSIONS` default is now what a stock install decodes**:
+  `.jpg .jpeg .png .gif .webp .avif .heic .heif`. `.bmp` is out; `.avif` is in,
+  because it comes through the same `heifload` that already backed the
+  `.heic`/`.heif` the default advertised. Measured on `python:3.12-slim` +
+  `pyvips[binary]` (libvips 8.18.6): `jpegload`, `pngload`, `gifload`,
+  `webpload`, `heifload`, `tiffload`, `svgload` registered — `bmpload`,
+  `magickload`, `jxlload`, `jp2kload` not.
+- **E004 is unchanged and still probes `.bmp`.** Nothing was loosened: `.bmp`
+  keeps its entry in `decoders.VIPS_LOADERS`, so a deployment that *widens*
+  the list (BMP via ImageMagick, or `.tif`/`.svg`/`.jxl`/`.jp2`) is still told
+  at boot whether its own libvips build can honour what it just declared,
+  instead of an uploader being told their file is invalid. The check was doing
+  its job; the value it was checking is what changed.
+- **A test pins the property, not the incident**: the *shipped default* is run
+  through the real `VIPS_LOADERS` table against a simulated stock
+  `pyvips[binary]` operation registry, so a future extension added to the
+  default without a decoder behind it fails here rather than on a user's first
+  boot. Skip-safe where libvips is absent.
+- Extension lists in the upload serializer's `help_text` and the admin form's
+  `accept` attribute follow the default (`bmp` -> `avif`).
+
+### Also
+
+- **`stapel-tools` is declared in the `test` extra**, and CI runs
+  `stapel-sibling-lint . --strict` with `STAPEL_TEST_STRICT_SIBLINGS=1`. The
+  suite imports `stapel_tools` (the llms.txt and capabilities emitters are
+  driven against this repo's own docs in `tests/test_contract.py` and
+  `tests/test_capabilities_surface.py`) while `pyproject.toml` declared it
+  nowhere — collection succeeded here only because a sibling checkout happened
+  to be installed on the box. SIB001, fixed and now gated.
+
 ## 0.17.0 — 2026-08-24
 
 **Describe was unreachable from a browser.** 0.16.0 shipped the whole

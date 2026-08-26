@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "stapel-cdn"
-version = "0.17.0"
+version = "0.17.1"
 description = "Media/CDN management Django app for the Stapel framework"
 readme = "README.md"
 license = { text = "MIT" }
@@ -81,7 +81,13 @@ all = ["stapel-cdn[s3,images,video,recordings]"]
 # TEST-ONLY encoder: the suite generates its fixture images with a codec
 # independent of the one under test, so "vips writes exactly what vips reads"
 # cannot hide a real decode bug.
-test = ["Pillow>=9.0"]
+# stapel-tools is declared here because the suite IMPORTS it (test_contract.py
+# and test_capabilities_surface.py drive the llms.txt / capabilities emitters
+# against this repo's own docs). A runner installs only what is declared, so an
+# undeclared sibling import is a collection error waiting for the first clean
+# environment — which is what stapel-sibling-lint SIB001 flags, and why CI now
+# runs it with --strict.
+test = ["Pillow>=9.0", "stapel-tools>=0.55.3"]
 
 [tool.setuptools]
 package-dir = {"stapel_cdn" = "."}
