@@ -47,6 +47,7 @@ the full submodule table and settings registry.
 ### Consumes
 | `user.deleted` | [schema](schemas/consumes/user.deleted.json) |
 | `user.deletion_initiated` | [schema](schemas/consumes/user.deletion_initiated.json) |
+| `user.merged` | [schema](schemas/consumes/user.merged.json) |
 
 ## License
 

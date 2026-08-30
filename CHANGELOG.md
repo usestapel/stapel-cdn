@@ -6,6 +6,59 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+## 0.18.0 — 2026-08-30
+
+**This module knew how to erase an account and not how to keep one.** A guest
+uploads an avatar, then signs in with an authenticator an existing account
+already holds; stapel-auth folds the guest into the survivor and emits
+`user.merged`. stapel-cdn subscribed to `user.deleted` and to nothing else, so
+the merge went unanswered — and `uploaded_by` is `SET_NULL`, which means the
+failure had no symptom at all. The rows survived auth's deletion as
+*service-owned* objects: still serving, belonging to nobody, absent from the
+survivor's listing and quota, and outside the reach of any future erasure
+because no erasure would ever be requested for an id that can no longer sign
+in. The first report of that is a person saying the photo they uploaded is
+gone.
+
+- **`user.merged` is subscribed in `stapel_cdn.actions`** and re-points
+  `uploaded_by` on every media model this module owns — `Image`, `Video`,
+  `File` and `Audio` — from the account that ceased to exist onto the one that
+  absorbed it. Nothing is erased: a merge is the opposite instruction to a
+  deletion.
+- **Duplicate bytes are folded, not dropped and not blindly moved.** Dedup
+  here is owner-scoped (`ownership`), so both accounts may hold the same
+  content — one row each over one blob — and a straight `UPDATE` would break
+  `cdn_image_hash_type_owner_unique` / `cdn_video_hash_owner_unique` /
+  `cdn_file_hash_owner_unique`. A guest row the survivor already matches has
+  its `refs` unioned onto the survivor's row and is then removed; the blob is
+  never unlinked, because the row that stays points at the same
+  content-addressed path. The columns that make a duplicate are read off each
+  model's own `UniqueConstraint` list rather than restated in the handler, so
+  a media model added later cannot have its constraint quietly ignored.
+  `Audio.file_hash` is globally `unique=True`, so it has no per-owner
+  duplicate to fold and its rows simply move.
+- **An ordering lag is retried; a bad id is not.** A guest who owns nothing
+  here is a quiet no-op (that is also the at-least-once idempotency path); a
+  guest who owns media while the survivor has no user row here *yet* raises
+  `MergeTargetNotReady`, so the outbox redelivers instead of marking the
+  uploads delivered-and-lost. A malformed or missing id is logged and ACKed —
+  including `ValidationError`, which Django raises for an uncoercible UUID and
+  which is not a `ValueError`, the guard a poison payload otherwise escapes
+  through and loops on forever.
+- **Quota is deliberately not consulted.** Refusing to carry media over
+  because the survivor would exceed `MAX_BYTES_PER_OWNER` would strand exactly
+  what this handler exists to save; the ceiling is enforced at their next
+  upload, which is where it belongs.
+- `schemas/consumes/user.merged.json`, the MODULE.md action table and the
+  README consume list carry the contract; `tests/test_user_merged.py` pins the
+  four bus-consumer properties (moves the rows, a redelivery moves nothing
+  more, every malformed shape ACKs, an event about users with no media here
+  does nothing) plus `stapel_core.lifecycle.E001` going green, so the pair
+  cannot be broken again without a red test.
+
+Requires no new stapel-core API; the E001 check that names the gap ships in
+stapel-core 0.52.1.
+
 ## 0.17.1 — 2026-08-26
 
 **The shipped default failed our own boot check.** `ALLOWED_IMAGE_EXTENSIONS`
