@@ -19,6 +19,7 @@ except ImportError:  # pragma: no cover
 
 from django.conf import settings
 from django.db import transaction
+from django.utils import timezone
 from stapel_core.signals import media_processed
 
 from .conf import cdn_settings
@@ -889,7 +890,14 @@ def apply_ref_sync(
                 continue
             if ref_key in obj.refs:
                 obj.refs = [r for r in obj.refs if r != ref_key]
-                obj.save(update_fields=["refs", "updated_at"])
+                update_fields = ["refs", "updated_at"]
+                if not obj.refs:
+                    # The LAST ref just went: the unclaimed clock restarts
+                    # NOW, not at created_at — a year-old object detached
+                    # this morning gets the full TTL again.
+                    obj.unreferenced_since = timezone.now()
+                    update_fields.append("unreferenced_since")
+                obj.save(update_fields=update_fields)
                 removed += 1
 
         for ref_str in to_add:
@@ -899,7 +907,12 @@ def apply_ref_sync(
                 continue
             if ref_key not in obj.refs:
                 obj.refs = obj.refs + [ref_key]
-                obj.save(update_fields=["refs", "updated_at"])
+                update_fields = ["refs", "updated_at"]
+                if obj.unreferenced_since is not None:
+                    # Claimed: the object is off the sweeper's clock.
+                    obj.unreferenced_since = None
+                    update_fields.append("unreferenced_since")
+                obj.save(update_fields=update_fields)
                 added += 1
 
     if errors:
@@ -912,3 +925,78 @@ def apply_ref_sync(
         )
 
     return {"added": added, "removed": removed, "errors": errors}
+
+
+def sweep_unclaimed(*, now=None, dry_run: bool = False) -> dict:
+    """Reap media that is zero-ref AND expired: bytes and row.
+
+    The reference counter's collector. An upload starts claimed by nobody
+    (``unreferenced_since`` stamped at creation); attaching it to an entity
+    via :func:`apply_ref_sync` clears the stamp, detaching the last entity
+    restamps it — so the TTL (``STAPEL_CDN["UNCLAIMED_TTL_HOURS"]``) always
+    counts from the moment the object *became* unreferenced, never from
+    ``created_at``. Anything with a live ref is untouchable here regardless
+    of age; anything zero-ref gets the full grace window before it goes.
+
+    Deletion is ``erasure._destroy`` — the same machinery account/subject
+    erasure and ``gdpr.purge_unreferenced`` run: the blob is unlinked only
+    when no other row serves those content-addressed bytes, and a blob that
+    cannot be unlinked keeps its row (counted as ``stranded``) so the file
+    stays findable, rather than aborting the sweep or leaking the bytes.
+
+    Scheduled via ``tasks.get_cdn_beat_schedule()`` (task
+    ``stapel_cdn.tasks.sweep_unclaimed``, cadence
+    ``STAPEL_CDN["SWEEP_UNCLAIMED_SCHEDULE"]``) or run by hand with
+    ``manage.py cdn_sweep_unclaimed``. Idempotent; ``dry_run`` counts the
+    candidates and deletes nothing.
+    """
+    from datetime import timedelta
+
+    from .erasure import _destroy, _zero_counts, media_models
+    from .gdpr import MediaErasureIncomplete
+
+    raw_ttl = cdn_settings.UNCLAIMED_TTL_HOURS
+    try:
+        ttl_hours = float(raw_ttl)
+        if ttl_hours <= 0:
+            raise ValueError
+    except (TypeError, ValueError):
+        from .conf import DEFAULTS
+
+        ttl_hours = float(DEFAULTS["UNCLAIMED_TTL_HOURS"])
+        logger.warning(
+            "STAPEL_CDN['UNCLAIMED_TTL_HOURS'] is %r, not a positive number "
+            "of hours — sweeping with the shipped default %s instead",
+            raw_ttl, ttl_hours,
+        )
+
+    cutoff = (now or timezone.now()) - timedelta(hours=ttl_hours)
+    counts = _zero_counts()
+    candidates = 0
+    stranded = 0
+    for model in media_models():
+        # `unreferenced_since__lt` excludes NULL (claimed) rows by itself;
+        # `refs=[]` is a belt-and-braces guard so a row whose stamp went
+        # stale through some path outside apply_ref_sync is still never
+        # reaped while anything references it.
+        rows = model.objects.filter(refs=[], unreferenced_since__lt=cutoff)
+        for row in rows.iterator():
+            candidates += 1
+            if dry_run:
+                continue
+            try:
+                _destroy(row, counts)
+            except MediaErasureIncomplete:
+                # _destroy logged the row; keep sweeping — a janitor that
+                # aborts on the first bad blob never reaps anything again.
+                stranded += 1
+
+    report = {
+        "candidates": candidates,
+        "objects_removed": counts["objects_removed"],
+        "blobs_unlinked": counts["blobs_unlinked"],
+        "stranded": stranded,
+    }
+    if candidates:
+        logger.info("cdn: sweep_unclaimed cutoff=%s %s", cutoff.isoformat(), report)
+    return report

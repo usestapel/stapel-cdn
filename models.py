@@ -12,6 +12,7 @@ from django.conf import settings
 from django.db import models
 from django.db.models.signals import post_save
 from django.dispatch import receiver
+from django.utils import timezone
 
 from . import decoders
 from .conf import DEFAULT_VARIANT_SIZES, cdn_settings
@@ -201,6 +202,23 @@ class Image(models.Model):
     # Timestamps
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
+
+    # The unclaimed-media clock. Stamped at upload (an upload starts claimed
+    # by nobody), cleared while ``refs`` is non-empty, restamped the moment
+    # the LAST ref is detached (``services.apply_ref_sync``) — so the TTL in
+    # ``STAPEL_CDN["UNCLAIMED_TTL_HOURS"]`` counts from when the object
+    # BECAME unreferenced, never from ``created_at``. ``services.
+    # sweep_unclaimed`` reaps rows past it: zero-ref AND expired, bytes+row.
+    unreferenced_since = models.DateTimeField(
+        null=True,
+        blank=True,
+        default=timezone.now,
+        db_index=True,
+        help_text=(
+            "When this object last became zero-ref; NULL while anything "
+            "references it. The sweep TTL counts from here."
+        ),
+    )
 
     class Meta:
         db_table = "cdn_image"
@@ -532,6 +550,23 @@ class Video(models.Model):
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
 
+    # The unclaimed-media clock. Stamped at upload (an upload starts claimed
+    # by nobody), cleared while ``refs`` is non-empty, restamped the moment
+    # the LAST ref is detached (``services.apply_ref_sync``) — so the TTL in
+    # ``STAPEL_CDN["UNCLAIMED_TTL_HOURS"]`` counts from when the object
+    # BECAME unreferenced, never from ``created_at``. ``services.
+    # sweep_unclaimed`` reaps rows past it: zero-ref AND expired, bytes+row.
+    unreferenced_since = models.DateTimeField(
+        null=True,
+        blank=True,
+        default=timezone.now,
+        db_index=True,
+        help_text=(
+            "When this object last became zero-ref; NULL while anything "
+            "references it. The sweep TTL counts from here."
+        ),
+    )
+
     class Meta:
         db_table = "cdn_video"
         verbose_name = "Video"
@@ -662,6 +697,23 @@ class File(models.Model):
     # Timestamps
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
+
+    # The unclaimed-media clock. Stamped at upload (an upload starts claimed
+    # by nobody), cleared while ``refs`` is non-empty, restamped the moment
+    # the LAST ref is detached (``services.apply_ref_sync``) — so the TTL in
+    # ``STAPEL_CDN["UNCLAIMED_TTL_HOURS"]`` counts from when the object
+    # BECAME unreferenced, never from ``created_at``. ``services.
+    # sweep_unclaimed`` reaps rows past it: zero-ref AND expired, bytes+row.
+    unreferenced_since = models.DateTimeField(
+        null=True,
+        blank=True,
+        default=timezone.now,
+        db_index=True,
+        help_text=(
+            "When this object last became zero-ref; NULL while anything "
+            "references it. The sweep TTL counts from here."
+        ),
+    )
 
     class Meta:
         db_table = "cdn_file"
@@ -794,6 +846,23 @@ class Audio(models.Model):
     # Timestamps
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
+
+    # The unclaimed-media clock. Stamped at upload (an upload starts claimed
+    # by nobody), cleared while ``refs`` is non-empty, restamped the moment
+    # the LAST ref is detached (``services.apply_ref_sync``) — so the TTL in
+    # ``STAPEL_CDN["UNCLAIMED_TTL_HOURS"]`` counts from when the object
+    # BECAME unreferenced, never from ``created_at``. ``services.
+    # sweep_unclaimed`` reaps rows past it: zero-ref AND expired, bytes+row.
+    unreferenced_since = models.DateTimeField(
+        null=True,
+        blank=True,
+        default=timezone.now,
+        db_index=True,
+        help_text=(
+            "When this object last became zero-ref; NULL while anything "
+            "references it. The sweep TTL counts from here."
+        ),
+    )
 
     class Meta:
         db_table = "cdn_audio"

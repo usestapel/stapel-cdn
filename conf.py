@@ -273,6 +273,25 @@ DEFAULTS = {
     # The task is what picks up an image whose variant messages were lost;
     # nothing here schedules itself.
     "RETRY_UNPROCESSED_SCHEDULE": {"minute": "*/5"},
+    # --- unclaimed-media TTL (the media reference counter's grace) -------
+    # Hours an upload may stay claimed by NOTHING before `services.
+    # sweep_unclaimed` reaps it — bytes and row. The clock is the
+    # `unreferenced_since` stamp: set at upload, cleared while `refs` is
+    # non-empty, restamped the moment the last ref is detached — so the TTL
+    # counts from when the object became unreferenced, never from
+    # created_at, and referenced media is never swept regardless of age.
+    # 48 h is a weekend-long draft: an upload attached to nothing survives
+    # a Friday-evening form abandoned until Monday morning. An unusable
+    # value falls back to this default rather than sweeping with a garbage
+    # window (same fail-closed rule as the owner quotas).
+    "UNCLAIMED_TTL_HOURS": 48,
+    # Cadence of the sweep, as crontab kwargs, consumed by
+    # `tasks.get_cdn_beat_schedule()` alongside RETRY_UNPROCESSED_SCHEDULE.
+    # Nothing schedules itself: a host wires the returned dict into
+    # CELERY_BEAT_SCHEDULE (or runs `manage.py cdn_sweep_unclaimed` from
+    # cron). checks.W013 warns when this process runs beat for other work
+    # and the sweep entry is absent. Hourly is plenty against a 48 h TTL.
+    "SWEEP_UNCLAIMED_SCHEDULE": {"minute": "0"},
     # --- generic (non-image, non-video) intake ---------------------------
     # Upload size cap for GenericFileUploadView (bytes).
     "MAX_FILE_SIZE": 50 * 1024 * 1024,

@@ -1,4 +1,4 @@
-# stapel-cdn 0.18.0
+# stapel-cdn 0.19.0
 
 Media management: image/video/file/audio upload, processing (thumbnail/preview generation via libvips, ffprobe/ffmpeg metadata and poster/waveform rendering) and CDN ref tracking, with a media-submodule opt-in (images core, video/recordings behind ENABLED_SUBMODULES + ffmpeg system checks), an open media-kind registry, a budgeted inline preview (blur-up / poster / waveform) every attachment carries, a watermark seam, upload speed-limiting, cdn.describe / cdn.describe_many / cdn.media_exists / cdn.refs_sync comm Functions for other modules to render, check and sync media without importing this package, and a batched POST /describe/ endpoint so a browser — which has no comm bus — can resolve that same snapshot for refs it holds but did not upload.
 

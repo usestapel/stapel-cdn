@@ -55,6 +55,13 @@ of at ``manage.py check`` / boot-smoke time.
   permission classes as "everyone passes", so the accident of an empty list
   publishes the endpoint. ``AllowAny`` says the same thing on purpose and is
   not reported; a blank does not.
+* **tasks** (``W013``) — this process runs a beat schedule for other work
+  and has no entry for ``sweep_unclaimed``, so unclaimed media (zero-ref,
+  past ``UNCLAIMED_TTL_HOURS``) accumulates forever behind a TTL setting
+  that says otherwise. Same shape as stapel-agent's W017: a beat schedule
+  that runs *something* looks exactly like one that runs *this*. Silent
+  when no schedule exists at all — a host may sweep from cron via
+  ``manage.py cdn_sweep_unclaimed`` and never touch beat.
 """
 from __future__ import annotations
 
@@ -74,6 +81,7 @@ W009_MEDIA_KINDS_INVALID = "stapel_cdn.kinds.W009"
 W010_MEDIA_TOOL_MISSING = "stapel_cdn.media.W010"
 W011_PREVIEW_BUDGET_INVALID = "stapel_cdn.media.W011"
 E005_DESCRIBE_SEAM_UNUSABLE = "stapel_cdn.describe.E005"
+W013_SWEEP_NOT_SCHEDULED = "stapel_cdn.tasks.W013"
 W012_DESCRIBE_GUARD_EMPTY = "stapel_cdn.describe.W012"
 
 
@@ -369,6 +377,50 @@ def check_variant_queues(app_configs=None, **kwargs):
 
 
 @checks.register("stapel_cdn")
+def check_sweep_beat_schedule(app_configs=None, **kwargs):
+    """W013 — this process runs beat and nothing sweeps unclaimed media.
+
+    Every upload starts zero-ref with a TTL; ``services.sweep_unclaimed``
+    is the only thing that ever reaps what stays unclaimed, and it only
+    runs if somebody schedules it. The dangerous deployment is not the one
+    with no beat schedule (it plausibly sweeps from cron — this check
+    cannot see a crontab and does not pretend to); it is the one whose
+    ``CELERY_BEAT_SCHEDULE`` proves beat IS this fleet's scheduler and
+    carries entries for other libraries but not this one. There, unclaimed
+    media accumulates without bound and nothing ever looks broken: the
+    upload succeeded, the draft was abandoned, and the bytes stay.
+
+    A warning, not an error — storage filling up is a degradation the
+    operator may be handling elsewhere, not a boot-stopper.
+    """
+    from django.conf import settings
+
+    from .tasks import SWEEP_TASK_NAME
+
+    schedule = getattr(settings, "CELERY_BEAT_SCHEDULE", None) or {}
+    if not schedule:
+        return []
+    for entry in schedule.values():
+        if isinstance(entry, dict) and entry.get("task") == SWEEP_TASK_NAME:
+            return []
+    return [
+        checks.Warning(
+            f"CELERY_BEAT_SCHEDULE has no entry for {SWEEP_TASK_NAME}: this "
+            "process runs beat for other work, but nothing reaps unclaimed "
+            "media, so every upload that is never attached to an entity (or "
+            "is detached from its last one) is kept forever regardless of "
+            "STAPEL_CDN['UNCLAIMED_TTL_HOURS'].",
+            hint=(
+                "CELERY_BEAT_SCHEDULE = {**get_cdn_beat_schedule(), ...} "
+                "(stapel_cdn.tasks) — or run `manage.py cdn_sweep_unclaimed` "
+                "from cron on a host that schedules outside beat."
+            ),
+            id=W013_SWEEP_NOT_SCHEDULED,
+        )
+    ]
+
+
+@checks.register("stapel_cdn")
 def check_media_kinds(app_configs=None, **kwargs):
     """W009 — a ``MEDIA_KINDS`` overlay entry that does not parse.
 
@@ -574,6 +626,7 @@ __all__ = [
     "W011_PREVIEW_BUDGET_INVALID",
     "E005_DESCRIBE_SEAM_UNUSABLE",
     "W012_DESCRIBE_GUARD_EMPTY",
+    "W013_SWEEP_NOT_SCHEDULED",
     "check_describe_seam",
     "check_dedup_scope",
     "check_media_kinds",
@@ -581,5 +634,6 @@ __all__ = [
     "check_owner_quotas",
     "check_preview_budget",
     "check_submodule_binaries",
+    "check_sweep_beat_schedule",
     "check_variant_queues",
 ]

@@ -6,6 +6,53 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+## 0.19.0 — 2026-09-02
+
+**An upload nothing ever claimed stayed forever.** The `refs` list has always
+answered "who uses this?" — `cdn.refs_sync` adds a reference when an entity
+attaches media and drops it on detach or entity delete, and GDPR erasure reaps
+a *user's* zero-ref media — but the module had no notion of *when* an object
+became unreferenced and no sweeper for the ordinary orphans: the draft
+abandoned before submit, the re-upload whose form was closed, the object whose
+last detach left `refs == []`. They accumulated without bound, and nothing
+ever looked broken, because storing bytes nobody uses fails no request. The
+reference counter is now a lifecycle: upload starts UNCLAIMED with a TTL, a
+claim stops the clock, losing the last claim restarts it, and a sweeper reaps
+what is zero-ref AND expired.
+
+- **`unreferenced_since` on all four media models** (`Image`/`Video`/`File`/
+  `Audio`, migration `0008`, indexed): stamped at upload, cleared by
+  `services.apply_ref_sync` while `refs` is non-empty, restamped the moment
+  the LAST ref is detached. The TTL therefore counts from when the object
+  *became* unreferenced, never from `created_at` — media that spent a year on
+  a product and was detached this morning gets the full grace window again,
+  and anything with a live ref is untouchable regardless of age.
+- **`services.sweep_unclaimed()`** deletes bytes + rows for media with
+  `refs == []` and a stamp older than `STAPEL_CDN["UNCLAIMED_TTL_HOURS"]`
+  (default **48** — a weekend-long draft survives). Deletion is
+  `erasure._destroy`, the same machinery subject erasure runs: the blob is
+  unlinked only when no other row serves those content-addressed bytes, and a
+  blob that cannot be unlinked keeps its row (counted `stranded`) so the file
+  stays findable. `gdpr.purge_unreferenced` is refactored onto the same
+  function, so account erasure, subject erasure and the sweeper share ONE
+  deletion loop instead of three copies of it.
+- **Scheduled like everything else here** — nothing schedules itself:
+  `tasks.get_cdn_beat_schedule()` now also returns a `cdn-sweep-unclaimed`
+  entry (task `stapel_cdn.tasks.sweep_unclaimed`, cadence
+  `STAPEL_CDN["SWEEP_UNCLAIMED_SCHEDULE"]`, default hourly), and
+  `manage.py cdn_sweep_unclaimed [--dry-run]` wraps the same service function
+  for cron-driven hosts and operators.
+- **`checks.W013`** (`stapel_cdn.tasks.W013`) — the stapel-agent W017 shape:
+  this process provably runs beat for *other* work and carries no sweep
+  entry, so unclaimed media accumulates behind a TTL setting that says
+  otherwise. Silent when no beat schedule exists at all (a cron host owes
+  this check nothing it can see).
+- `tests/test_sweep_unclaimed.py` pins the lifecycle red-first: kept inside
+  TTL / reaped past it (bytes and row, all four models), claimed media never
+  reaped at any age, two claims surviving one detach and reaped only after
+  TTL from the second, the draft add-then-remove restamp, the shared-blob
+  rule, dry-run, and the task/beat/command/W013 wiring.
+
 ## 0.18.0 — 2026-08-30
 
 **This module knew how to erase an account and not how to keep one.** A guest

@@ -45,7 +45,8 @@ extra needed — passthrough), `s3` (boto3, reserved). See the submodule table b
   `Image.variants_meta`. Embedded-thumbnail fast path (HEIC `heifload(thumbnail=True)`,
   JPEG `shrink=8`), optional watermark via a pluggable engine (off by default). Runs
   async on Celery queues `thumbnails` (high priority) and `previews`;
-  `retry_unprocessed` task re-queues stuck images, videos and recordings.
+  `retry_unprocessed` task re-queues stuck images, videos and recordings;
+  `sweep_unclaimed` reaps media left zero-ref past its TTL (see *Background work*).
   `manage.py regenerate_media` wipes generated variants and re-runs the pipeline
   (the operational relaunch step — no compatibility file layouts are kept);
   `manage.py cdn_backfill_media_meta` stamps render metadata on objects stored
@@ -259,6 +260,8 @@ See `CONFIG.MD` for the complete registry (source/required/default per key). Hig
 | `PREVIEW_SIZES` | `(160, 240, 480, 560, 720, 1080)` | Preview tiers: two branches per tier (`{T}w.webp` / `{T}h.webp`), watermark-capable. |
 | `THUMBNAILS_QUEUE` / `PREVIEWS_QUEUE` | `None` | Celery queue each variant-generation task is sent on. `None` sends **no** `queue` option, so the task lands on the app's own default queue and a vanilla single-queue worker drains it. Set them only in a fleet that shards queues per service. See *Background work* below. |
 | `RETRY_UNPROCESSED_SCHEDULE` | `{"minute": "*/5"}` | Crontab kwargs for the `retry_unprocessed` safety net, consumed by `tasks.get_cdn_beat_schedule()`. |
+| `UNCLAIMED_TTL_HOURS` | `48` | Hours an upload may stay claimed by nothing before `services.sweep_unclaimed` reaps it (bytes + row). The clock is `unreferenced_since` (stamped at upload, cleared by a claim, restamped when the last ref detaches) — never `created_at`; referenced media is never swept. |
+| `SWEEP_UNCLAIMED_SCHEDULE` | `{"minute": "0"}` | Crontab kwargs for the unclaimed-media sweep, consumed by `tasks.get_cdn_beat_schedule()`. See *Background work* below. |
 | `MAX_IMAGE_SIZE` | `20 * 1024 * 1024` (20 MiB) | Upload size cap, checked before hashing. |
 | `ALLOWED_IMAGE_EXTENSIONS` | `.jpg .jpeg .png .gif .webp .avif .heic .heif` | Image extension allowlist in views, serializers and `validate_image_file`. The default is exactly what a stock `pip install stapel-cdn[images]` decodes (the pyvips[binary] wheel carries jpeg/png/gif/webp/libheif), so it never trips `E004` out of the box — `.bmp` was in it until 0.17.1 and libvips has no native BMP reader at all. Widening it (`.bmp` via ImageMagick, `.tif`, `.svg`, `.jxl`, `.jp2`) is exactly what `E004` probes. |
 | `ALLOWED_VIDEO_EXTENSIONS` | `.mp4 .webm .mov .avi .mkv` | Video extension allowlist (`FileUploadSerializer`, `VideoUploadView`). |
@@ -400,8 +403,10 @@ from a file on disk, the upload still answered `201` with the full ladder — a
 | Seam | What a host does |
 |---|---|
 | `STAPEL_CDN["THUMBNAILS_QUEUE"]` / `["PREVIEWS_QUEUE"]` | Leave unset for a single-queue worker (the tasks then carry no `queue` option at all). Set them to the names your workers consume (`-Q`) in a sharded fleet. Resolved per send, so `override_settings` works in tests. |
-| `tasks.get_cdn_beat_schedule()` | `CELERY_BEAT_SCHEDULE = {**get_cdn_beat_schedule(), ...}` — schedules `retry_unprocessed`, which re-queues images stuck at `is_processed=False`. Cadence from `RETRY_UNPROCESSED_SCHEDULE`. Nothing schedules itself. |
+| `tasks.get_cdn_beat_schedule()` | `CELERY_BEAT_SCHEDULE = {**get_cdn_beat_schedule(), ...}` — schedules `retry_unprocessed` (re-queues images stuck at `is_processed=False`; cadence `RETRY_UNPROCESSED_SCHEDULE`) and `sweep_unclaimed` (reaps zero-ref media past `UNCLAIMED_TTL_HOURS`; cadence `SWEEP_UNCLAIMED_SCHEDULE`). Nothing schedules itself. |
 | `checks.W008` (`stapel_cdn.tasks.W008`) | Warns when those settings name a queue that no Django-visible setting (`CELERY_TASK_QUEUES`, `CELERY_TASK_DEFAULT_QUEUE`, `CELERY_TASK_ROUTES`) mentions. It cannot read your compose file — proving a worker exists in the deploy is ADO-class and lives in stapel-tools (`stapel-adoption-lint`). |
+| `checks.W013` (`stapel_cdn.tasks.W013`) | Warns when this process runs a `CELERY_BEAT_SCHEDULE` for other work and it carries no `stapel_cdn.tasks.sweep_unclaimed` entry — unclaimed media then accumulates forever behind a TTL setting that says otherwise. Silent when no beat schedule exists at all (a host may sweep from cron via `manage.py cdn_sweep_unclaimed`). |
+| `services.sweep_unclaimed()` / `manage.py cdn_sweep_unclaimed [--dry-run]` | The unclaimed-media reaper: deletes bytes + rows for media with `refs == []` whose `unreferenced_since` is older than `UNCLAIMED_TTL_HOURS`. Upload starts unclaimed (stamp set); `cdn.refs_sync` claiming it clears the stamp; detaching the last ref restamps it, so the TTL always counts from *becoming* unreferenced. Deletion is `erasure._destroy` — the same shared-blob-safe, fail-closed machinery erasure and the GDPR purge run. |
 | `Image.variants_status` / `variants_ready_at` | Read-only on `ImageSerializer`: `"pending"` until `generate_previews` succeeds, `"ready"` after. A consumer must gate on this before rendering a `variant_*_url`. `variants_status` is derived from `is_processed` (one fact, one owner); `variants_ready_at` is the stamped moment, null while pending. |
 
 ### Signals

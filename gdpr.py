@@ -105,37 +105,26 @@ class CDNGDPRProvider(GDPRProvider):
         their own account erasure because the model was added after the loop
         was written and nothing named the set in one place.
         """
-        from .erasure import media_models
-        from .ownership import shared_binary_exists
+        from .erasure import _destroy, _zero_counts, media_models
 
-        removed = 0
+        # Deletion is erasure._destroy — the one loop this module shares
+        # with subject erasure and services.sweep_unclaimed: the blob is
+        # unlinked only when no other row serves those content-addressed
+        # bytes, and a blob that cannot be unlinked keeps its row so the
+        # file stays findable (raised here as stranded, after the pass).
+        counts = _zero_counts()
         stranded: list[str] = []
         for model in media_models():
             # Only delete files that have no refs from other content
             for obj in model.objects.filter(uploaded_by_id=user_id):
                 refs = obj.refs if isinstance(obj.refs, list) else []
                 if not refs:
-                    # Storage is content-addressed: `<type>/<hash>/` is shared
-                    # by every principal holding the same bytes. The row is
-                    # this user's and always goes; the blob is only unlinked
-                    # once nothing else points at it, or erasing one holder
-                    # would blank an object another one is still serving.
-                    if not shared_binary_exists(obj):
-                        try:
-                            obj.original.delete(save=False)
-                        except Exception as exc:
-                            logger.error(
-                                "erasure incomplete: could not unlink %s %s "
-                                "(%s) for user %s — the row is kept so the "
-                                "file stays findable: %s",
-                                model.__name__, obj.pk, obj.original.name,
-                                user_id, exc,
-                            )
-                            stranded.append(f"{model.__name__}:{obj.pk}")
-                            continue
-                    obj.delete()
-                    removed += 1
+                    try:
+                        _destroy(obj, counts)
+                    except MediaErasureIncomplete:
+                        stranded.append(f"{model.__name__}:{obj.pk}")
 
+        removed = counts["objects_removed"]
         if stranded:
             raise MediaErasureIncomplete(
                 f"{len(stranded)} media object(s) for user {user_id} still "

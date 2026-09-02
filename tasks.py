@@ -48,6 +48,7 @@ logger = logging.getLogger(__name__)
 THUMBNAILS_TASK_NAME = "stapel_cdn.tasks.generate_thumbnails"
 PREVIEWS_TASK_NAME = "stapel_cdn.tasks.generate_previews"
 RETRY_TASK_NAME = "stapel_cdn.tasks.retry_unprocessed"
+SWEEP_TASK_NAME = "stapel_cdn.tasks.sweep_unclaimed"
 
 #: Setting key per variant-generation task (checks.W008 reads this map, so
 #: the check and the routing can never disagree about which keys exist).
@@ -79,7 +80,7 @@ def _send(task, setting_key: str, args=(), kwargs=None):
 
 
 def get_cdn_beat_schedule() -> dict:
-    """Beat entry for ``retry_unprocessed``, on the configured cadence.
+    """Beat entries for ``retry_unprocessed`` and ``sweep_unclaimed``.
 
     Wire it into a host's schedule::
 
@@ -91,11 +92,16 @@ def get_cdn_beat_schedule() -> dict:
 
     from .conf import cdn_settings
 
-    schedule = dict(cdn_settings.RETRY_UNPROCESSED_SCHEDULE or {})
+    retry_schedule = dict(cdn_settings.RETRY_UNPROCESSED_SCHEDULE or {})
+    sweep_schedule = dict(cdn_settings.SWEEP_UNCLAIMED_SCHEDULE or {})
     return {
         "cdn-retry-unprocessed-images": {
             "task": RETRY_TASK_NAME,
-            "schedule": crontab(**schedule),
+            "schedule": crontab(**retry_schedule),
+        },
+        "cdn-sweep-unclaimed": {
+            "task": SWEEP_TASK_NAME,
+            "schedule": crontab(**sweep_schedule),
         },
     }
 
@@ -299,10 +305,29 @@ def retry_unprocessed():
     return retried
 
 
+
+@shared_task(name=SWEEP_TASK_NAME)
+def sweep_unclaimed():
+    """Reap media that is zero-ref AND past ``UNCLAIMED_TTL_HOURS``.
+
+    A thin wrapper over ``services.sweep_unclaimed`` — the management
+    command ``cdn_sweep_unclaimed`` wraps the same function, so beat and an
+    operator's shell run THE mechanism, not two copies of the loop.
+    Scheduled by ``get_cdn_beat_schedule()`` on the cadence in
+    ``STAPEL_CDN["SWEEP_UNCLAIMED_SCHEDULE"]``; nothing schedules itself
+    (``checks.W013`` warns when this process runs beat and the entry is
+    missing).
+    """
+    from .services import sweep_unclaimed as run_sweep
+
+    return run_sweep()
+
+
 __all__ = [
     "THUMBNAILS_TASK_NAME",
     "PREVIEWS_TASK_NAME",
     "RETRY_TASK_NAME",
+    "SWEEP_TASK_NAME",
     "QUEUE_SETTINGS",
     "queue_options",
     "get_cdn_beat_schedule",
@@ -312,4 +337,5 @@ __all__ = [
     "process_image_async",
     "process_video_async",
     "retry_unprocessed",
+    "sweep_unclaimed",
 ]
