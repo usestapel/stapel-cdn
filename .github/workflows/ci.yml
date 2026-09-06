@@ -23,6 +23,84 @@ jobs:
       - name: Install libvips (pyvips runtime dependency)
         run: sudo apt-get update && sudo apt-get install -y libvips-dev
 
+      - name: Install
+        run: pip install -e ".[all]" || pip install -e .
+
+      - name: Lint
+        run: |
+          pip install ruff --quiet
+          ruff check . --select E,F,W --ignore E501
+
+      - name: migration-lint (expand/contract gate, release-management.md §3)
+        run: |
+          pip install stapel-tools --quiet
+          stapel-migration-lint . --strict
+
+      - name: sibling-lint (undeclared sibling imports in the suite)
+        # SIB001: a test importing a sibling stapel package that pyproject.toml
+        # does not declare collects fine here (editable siblings on the box) and
+        # errors at setup on a clean runner. --strict makes that a build failure
+        # rather than a note.
+        run: stapel-sibling-lint . --strict
+
+      - name: Import check
+        run: python -c "import stapel_cdn; print('import OK')"
+
+      - name: Install test dependencies
+        # `.[test]` carries Pillow. It is NOT a dependency of the library —
+        # 0.10 moved the whole image path to libvips — but the suite generates
+        # its fixture images with it on purpose, so a decode bug cannot hide
+        # behind "vips writes exactly what vips reads".
+        run: pip install pytest pytest-django pytest-cov && pip install -e ".[test]"
+
+      - name: Tests with coverage
+        run: |
+          pytest tests/ \
+            --cov=stapel_cdn \
+            --cov-report=term-missing \
+            --cov-report=xml \
+            --junitxml=junit.xml \
+            -o junit_family=legacy \
+            -v
+        env:
+          # Sibling imports must resolve from what pyproject.toml declares, not
+          # from whatever happens to be on the box (library-standard, SIB001).
+          STAPEL_TEST_STRICT_SIBLINGS: "1"
+
+      - name: Upload coverage to Codecov
+        uses: codecov/codecov-action@v5
+        if: ${{ !cancelled() }}
+        continue-on-error: true
+        with:
+          files: coverage.xml
+          flags: stapel-cdn
+          token: ${{ secrets.CODECOV_TOKEN }}
+
+      - name: Upload test results to Codecov
+        uses: codecov/test-results-action@v1
+        if: ${{ !cancelled() }}
+        continue-on-error: true
+        with:
+          token: ${{ secrets.CODECOV_TOKEN }}
+
+  core-main:
+    runs-on: ubuntu-latest
+    continue-on-error: true
+    strategy:
+      fail-fast: false
+      matrix:
+        python-version: ["3.11", "3.12", "3.13", "3.14"]
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python-version }}
+          cache: pip
+
+      - name: Install libvips (pyvips runtime dependency)
+        run: sudo apt-get update && sudo apt-get install -y libvips-dev
+
       - name: Install stapel-core
         run: pip install git+https://github.com/usestapel/stapel-core.git
 
