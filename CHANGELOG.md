@@ -6,6 +6,32 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+## 0.19.1 — 2026-09-07
+
+**The registry shipped without its catalogs.** `docs/errors.json` has declared
+this module's twelve `error.*` keys since 0.11, and no
+`translations/errors.<lang>.json` sat beside it. A host frontend that compiles
+the fleet's error catalogs reads each installed library's registry and pairs
+every code with the owner's catalog; for cdn there was nothing to pair, so
+"No file provided", "File is too large" and "Storage quota exceeded" rendered
+in English on every localized screen — the one module in an otherwise
+translated deployment that spoke only the registry's language.
+
+- **`translations/errors.ru.json` and `translations/errors.es.json`** carry
+  all twelve owned keys. Nine take their wording from the stapel-translate
+  builtin corpus, which already carried them; the three minted since
+  (`error.503.image_decoder_unavailable`, `error.403.storage_quota_exceeded`,
+  `error.400.too_many_refs`) are worded in the same register and keep the
+  canon's `{extension}` / `{count}` / `{max}` slots. Packaged in the wheel
+  (`translations/*.json` joins the package-data list).
+- **`tests/test_error_i18n.py`** — the parity gate, so the next key cannot
+  ship untranslated: per shipped language, every owned key is present and
+  non-empty, nothing but owned keys is carried, every text keeps the canon's
+  placeholders, and the set of shipped catalogs is exactly the gated one.
+  `generate_error_keys` re-checks the coverage half at emission time now that
+  the module ships a language (`check_registry_catalog_pairing`), so `make
+  contract-check` fails on the same gap.
+
 ## 0.19.0 — 2026-09-02
 
 **An upload nothing ever claimed stayed forever.** The `refs` list has always

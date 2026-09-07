@@ -1,0 +1,14 @@
+{
+  "error.400.file_hash_required": "Se requiere el parámetro file_hash",
+  "error.400.file_type_not_allowed": "Tipo de archivo no permitido",
+  "error.400.invalid_format": "Formato de archivo no compatible",
+  "error.400.invalid_hash": "Hash de archivo no válido",
+  "error.400.invalid_image_type": "Tipo de imagen no válido",
+  "error.400.missing_fields": "Faltan campos obligatorios",
+  "error.400.no_file": "No se proporcionó ningún archivo",
+  "error.400.too_many_refs": "Demasiadas referencias en una sola petición ({count}; el máximo es {max})",
+  "error.403.storage_quota_exceeded": "Cuota de almacenamiento superada",
+  "error.404.no_images": "No se encontraron imágenes procesadas",
+  "error.413.file_too_large": "El archivo es demasiado grande",
+  "error.503.image_decoder_unavailable": "Este servidor no puede procesar imágenes {extension} en este momento"
+}

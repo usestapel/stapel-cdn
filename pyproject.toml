@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "stapel-cdn"
-version = "0.19.0"
+version = "0.19.1"
 description = "Media/CDN management Django app for the Stapel framework"
 readme = "README.md"
 license = { text = "MIT" }
@@ -94,7 +94,7 @@ package-dir = {"stapel_cdn" = "."}
 packages = ["stapel_cdn", "stapel_cdn.management", "stapel_cdn.management.commands", "stapel_cdn.migrations"]
 
 [tool.setuptools.package-data]
-stapel_cdn = ["py.typed", "migrations/*.py", "schemas/**/*.json", "migrations/**/*.py", "docs/capabilities.json", "docs/llms.txt", "docs/schema.json", "docs/flows.json", "docs/errors.json", "CONFIG.MD"]
+stapel_cdn = ["py.typed", "migrations/*.py", "schemas/**/*.json", "migrations/**/*.py", "translations/*.json", "docs/capabilities.json", "docs/llms.txt", "docs/schema.json", "docs/flows.json", "docs/errors.json", "CONFIG.MD"]
 
 [tool.ruff]
 target-version = "py311"

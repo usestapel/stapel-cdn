@@ -1,0 +1,14 @@
+{
+  "error.400.file_hash_required": "Требуется параметр file_hash",
+  "error.400.file_type_not_allowed": "Недопустимый тип файла",
+  "error.400.invalid_format": "Неподдерживаемый формат файла",
+  "error.400.invalid_hash": "Неверный хеш файла",
+  "error.400.invalid_image_type": "Недопустимый тип изображения",
+  "error.400.missing_fields": "Отсутствуют обязательные поля",
+  "error.400.no_file": "Файл не предоставлен",
+  "error.400.too_many_refs": "Слишком много ссылок в одном запросе ({count}; максимум — {max})",
+  "error.403.storage_quota_exceeded": "Квота хранилища исчерпана",
+  "error.404.no_images": "Обработанные изображения не найдены",
+  "error.413.file_too_large": "Файл слишком большой",
+  "error.503.image_decoder_unavailable": "Этот сервер сейчас не может обрабатывать изображения {extension}"
+}
