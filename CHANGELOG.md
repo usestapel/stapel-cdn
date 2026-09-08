@@ -1007,7 +1007,7 @@ it previously got 201:
 **Left open, deliberately** — `POST /upload/avatar/`
 (`stapel_anonymous_access = ANONYMOUS_ALLOWED`). It is the picture on the
 guest's own profile, which `stapel-profiles` already lets a guest have, and
-it is a **live surface in a real consumer** (meettoday's settings screen is
+it is a **live surface in a real consumer** (a meeting app's settings screen is
 reachable from the header a guest sees, and its profile tab uploads here) —
 closing it would have broken a working flow rather than an abuse vector. It
 is bounded three ways: the image validator, `MAX_IMAGE_SIZE` /

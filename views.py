@@ -652,7 +652,7 @@ class AvatarUploadView(SerializerSeamMixin, APIView):
     permission_classes = [IsAuthenticated]
     # The one upload a guest legitimately owns: the picture on its own
     # profile, which stapel-profiles already lets a guest have. Live in a real
-    # consumer — meettoday's settings screen is reachable from the header a
+    # consumer — a meeting app's settings screen is reachable from the header a
     # guest sees. Bounded by the image validator, MAX_IMAGE_SIZE /
     # MAX_IMAGE_PIXELS, and SHA-256 dedup (re-uploading the same bytes costs
     # no new storage), so "free to mint a session" does not mean "free to

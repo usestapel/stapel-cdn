@@ -12,7 +12,7 @@ file hosting" become the same sentence.
     a guest may upload its own avatar, and nothing else.
 
 The avatar half is the one that would hurt in production if it regressed —
-it is a live surface in a real consumer (meettoday's settings screen is
+it is a live surface in a real consumer (a meeting app's settings screen is
 reachable from the header a guest sees, and its profile tab uploads here).
 """
 

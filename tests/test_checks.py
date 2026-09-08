@@ -67,7 +67,7 @@ class TestImagesDecoderProbe:
 class TestUndecodableFormatProbe:
     """E004 — the setting advertises a format this libvips build cannot read.
 
-    The meettoday defect one level down: ALLOWED_IMAGE_EXTENSIONS declared
+    A client defect one level down: ALLOWED_IMAGE_EXTENSIONS declared
     .heic, nothing in the deployment could decode it, and the first anyone
     heard of it was a user being told their file was invalid. Detectable at
     boot, so it is detected at boot.
