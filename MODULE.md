@@ -168,9 +168,9 @@ POST /cdn/api/v1/describe/
 | Unknown ref | **Data, not an error** — in `missing`, with 200. A page with one deleted attachment still renders the other thirty-nine. |
 | Malformed ref | Also `missing`, not a 400: one bad entry must not cost the caller the other forty-nine snapshots. |
 | Over the ceiling | `400 error.400.too_many_refs`, `params: {count, max}` — page the batch. |
-| Over the rate | `429 error.429.too_many_requests`, `params: {retry_after}`, plus a `Retry-After` header. Not DRF's bare English `detail`. |
+| Over the rate | `429 error.429.too_many_requests`, `params: {retry_after}`, plus a `Retry-After` header carrying the same number. Core's exception handler dresses it, the way it dresses every DRF refusal — the view does not convert it itself. |
 | Guard | `STAPEL_CDN["DESCRIBE_PERMISSIONS"]`, read at request time; default `stapel_cdn.permissions.IsAuthenticatedOrService` — the seam `FileExistsView` uses. Pinning `permission_classes` on a subclass still wins. |
-| Throttle | `STAPEL_CDN["DESCRIBE_THROTTLE"]` (60/min) and `DESCRIBE_ANON_THROTTLE` (10/min, dormant until the guard is opened). Batch size is response size, so the rate bounds bytes, not just queries. |
+| Throttle | `STAPEL_CDN["DESCRIBE_THROTTLE"]` (60/min) and `DESCRIBE_ANON_THROTTLE` (10/min). Checked **before** the guard, so the anonymous rate brakes under every `DESCRIBE_PERMISSIONS`, not only an opened one. Batch size is response size, so the rate bounds bytes, not just queries. |
 
 **What it discloses, and why the guard can be that wide.** Describe answers
 for refs the caller did **not** upload — that is the case it exists for. A ref
@@ -252,7 +252,7 @@ See `CONFIG.MD` for the complete registry (source/required/default per key). Hig
 | `MEDIA_KINDS` | `{}` | Open media-kind registry, merged over the builtins (`image`/`gif`/`video`/`audio`/`file`). Adds stickers or any later kind without a release; `None` removes a builtin. See **Media kinds** above. |
 | `MICRO_PREVIEW_MAX_BYTES` | `4096` | Byte ceiling for ONE inline preview, measured on the finished `data:` URI. Downgrade-then-refuse, never truncation; applied on read as well as at ingest. |
 | `DESCRIBE_PERMISSIONS` | `["stapel_cdn.permissions.IsAuthenticatedOrService"]` | **REPLACE** — guard of `POST /describe/`, dotted paths, ALL must pass. Default is the read-endpoint seam (signed in, guest sessions included, or an internal service call). Tighten to `IsServiceRequest` to keep describe service-side; open to `AllowAny` for public media. Read at request time, so a subclass pinning `permission_classes` still wins. |
-| `DESCRIBE_THROTTLE` / `DESCRIBE_ANON_THROTTLE` | `"60/min"` / `"10/min"` | Rate of `POST /describe/` (DRF scope `cdn_describe`). Batch size is response size, so this bounds bytes, not just queries. The anon rate is dormant under the default guard and becomes the only brake once it is opened. |
+| `DESCRIBE_THROTTLE` / `DESCRIBE_ANON_THROTTLE` | `"60/min"` / `"10/min"` | Rate of `POST /describe/` (DRF scope `cdn_describe`). Batch size is response size, so this bounds bytes, not just queries. Throttles run before the guard, so the anon rate brakes anonymous callers under the default `DESCRIBE_PERMISSIONS` too — and is the only brake left once the guard is opened. |
 | `WAVEFORM_SIZES` / `WAVEFORM_COLOR` | `((240, 40), (120, 32))` / `"#3f7fbf"` | Waveform strip geometry ladder and ink colour for `ffmpeg showwavespic`. |
 | `POSTER_FRAME_AT` / `POSTER_MAX_WIDTH` | `1.0` / `720` | Which second the video poster is lifted from, and the width of the derived `poster.webp`. |
 | `MEDIA_TOOL_TIMEOUT` | `30.0` | Ceiling on any single ffprobe/ffmpeg call; a hung tool degrades with `tool_timeout` instead of pinning a worker. |

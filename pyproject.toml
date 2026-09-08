@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "stapel-cdn"
-version = "0.19.1"
+version = "0.20.0"
 description = "Media/CDN management Django app for the Stapel framework"
 readme = "README.md"
 license = { text = "MIT" }
@@ -25,11 +25,11 @@ classifiers = [
     "Typing :: Typed",
 ]
 dependencies = [
-    # Floor 0.26.0: `generate_error_keys` only started emitting the `owner`
-    # field docs/errors.json (and its drift gate, tests/test_contract.py)
-    # requires on 0.26.0+ — on 0.24.0 every entry is missing the key outright
-    # rather than carrying `owner: null`.
-    "stapel-core>=0.41.0,<1.0",
+    # Floor 0.61.0: the release whose exception handler dresses the refusals
+    # a DRF layer raises (auth, permission, routing, throttling) in the fleet
+    # envelope. POST /describe/ stopped converting `Throttled` itself in 0.20,
+    # so on an older core its 429 would answer DRF's bare `{"detail": ...}`.
+    "stapel-core>=0.61.0,<1.0",
     "celery>=5",
 ]
 

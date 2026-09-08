@@ -36,13 +36,11 @@ import os
 
 from drf_spectacular.utils import OpenApiExample, OpenApiParameter, extend_schema
 from rest_framework import status
-from rest_framework.exceptions import Throttled
 from rest_framework.parsers import FormParser, MultiPartParser
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.throttling import ScopedRateThrottle
 from rest_framework.views import APIView
 from stapel_core.django.api.errors import (
-    ERR_429_TOO_MANY_REQUESTS,
     StapelErrorResponse,
     StapelErrorSerializer,
     StapelResponse,
@@ -1153,10 +1151,11 @@ class DescribeThrottle(ScopedRateThrottle):
     setting, which a library module cannot own, so the rate is read from this
     module's own namespace instead (``DESCRIBE_THROTTLE``).
 
-    A caller with no identity gets ``DESCRIBE_ANON_THROTTLE``. That rate is
-    dormant under the default permission — anonymous callers are refused
-    outright — and becomes the only brake the moment a deployment opens
-    ``DESCRIBE_PERMISSIONS`` for public media.
+    A caller with no identity gets ``DESCRIBE_ANON_THROTTLE``, and gets it
+    under every guard: the view checks throttles before permissions (see
+    :meth:`DescribeMediaView.check_permissions`), so the rate bounds anonymous
+    hammering of the default guard as well as being the only brake left when a
+    deployment opens ``DESCRIBE_PERMISSIONS`` for public media.
     """
 
     scope = "cdn_describe"
@@ -1197,8 +1196,9 @@ class DescribeMediaView(SerializerSeamMixin, APIView):
 
     **Throttle.** Batch size is response size, so the rate bounds bytes, not
     just queries. A refusal is ``error.429.too_many_requests`` with
-    ``retry_after`` — the same localizable envelope as every other refusal
-    here, rather than DRF's bare ``detail`` string.
+    ``retry_after`` — the envelope core's exception handler puts on every
+    throttled endpoint of the fleet, with ``Retry-After`` and the param
+    carrying the one number DRF computed.
     """
 
     #: ``None`` means "ask the settings"; a list pins the view.
@@ -1218,26 +1218,28 @@ class DescribeMediaView(SerializerSeamMixin, APIView):
             for dotted_path in (cdn_settings.DESCRIBE_PERMISSIONS or [])
         ]
 
-    def handle_exception(self, exc):
-        """Answer a throttle refusal in the module's own error envelope.
+    #: Set once per request, because DRF calls ``check_throttles`` after the
+    #: permission check this class already threw it in front of.
+    _throttles_checked = False
 
-        DRF's own answer is a bare ``{"detail": "..."}`` in English, which is
-        the one refusal shape this module does not otherwise emit — every
-        other one carries a registered, localizable key. Converted here rather
-        than by raising through the exception handler so the answer does not
-        depend on a host having wired ``EXCEPTION_HANDLER``, and so
-        ``Retry-After`` (the header a client actually schedules its retry
-        from) survives the conversion.
+    def check_permissions(self, request):
+        """Throttle first, then guard.
+
+        DRF's order is permissions then throttles, which makes
+        ``DESCRIBE_ANON_THROTTLE`` unreachable under the shipped guard: an
+        anonymous caller is refused at the permission and never reaches a
+        throttle, so the rate could only ever brake a deployment that had
+        opened ``DESCRIBE_PERMISSIONS``. Checking here bounds anonymous
+        hammering too, and the request is still counted exactly once.
         """
-        if isinstance(exc, Throttled):
-            params = {}
-            if exc.wait is not None:
-                params["retry_after"] = int(exc.wait) + 1
-            response = StapelErrorResponse(429, ERR_429_TOO_MANY_REQUESTS, params)
-            if exc.wait is not None:
-                response["Retry-After"] = str(int(exc.wait) + 1)
-            return response
-        return super().handle_exception(exc)
+        self.check_throttles(request)
+        super().check_permissions(request)
+
+    def check_throttles(self, request):
+        if self._throttles_checked:
+            return
+        self._throttles_checked = True
+        super().check_throttles(request)
 
     @extend_schema(
         operation_id="describe_media",

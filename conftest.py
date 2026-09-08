@@ -125,6 +125,13 @@ def pytest_configure(config):
                     "rest_framework.authentication.BasicAuthentication",
                     "rest_framework.authentication.SessionAuthentication",
                 ],
+                # What a host running on stapel_core.django.settings has, and
+                # what every refusal raised by a DRF layer (auth, permission,
+                # routing, throttling) is dressed by. Absent here, the suite
+                # asserted envelopes only where a view built one by hand.
+                "EXCEPTION_HANDLER": (
+                    "stapel_core.django.api.errors.stapel_exception_handler"
+                ),
             },
             MEDIA_ROOT="/tmp/stapel_cdn_test_media",
             # Skip migrations — create tables directly from models

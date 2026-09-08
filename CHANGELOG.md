@@ -6,6 +6,43 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+## 0.20.0 — 2026-09-08
+
+**The one endpoint the fleet's throttle envelope did not reach was this one.**
+`stapel-core` 0.61.0 made every refusal a DRF layer raises — auth, permission,
+routing, throttling — answer the fleet error envelope, with a `Throttled`
+carrying its wait to the client as `params.retry_after`, truncated exactly the
+way DRF truncates its own `Retry-After` header so the two halves of one
+response cannot disagree. `DescribeMediaView` overrode `handle_exception` and
+converted `Throttled` itself, inside the view, before the handler ever ran: the
+bump to 0.61.0 changed nothing at `POST /describe/`, and the view answered
+`Throttled.wait + 1` — DRF has already rounded the wait up (`math.ceil`), so
+every client of this endpoint was told one second more than the same refusal
+reports everywhere else on the fleet, and one second more than the refusal's
+own detail sentence said.
+
+- **The interception is gone.** `Throttled` now raises through
+  `stapel_exception_handler` like every other DRF refusal this view can
+  produce (the 401 and 403 from `DESCRIBE_PERMISSIONS` always did), so the
+  429 body is `error.429.too_many_requests` with `params.retry_after`, the
+  `Retry-After` header DRF sets is untouched, and the two carry the same
+  number. Nothing of the old shape is lost: DRF's English `detail` rides on
+  as `params.detail`, where the handler puts every other one.
+- **`stapel-core>=0.61.0`** is now the floor. It is the release that
+  envelopes DRF refusals, and without it this view would answer a bare
+  `{"detail": ...}` — the shape the override existed to avoid.
+- **`DESCRIBE_ANON_THROTTLE` is reachable.** DRF checks permissions before
+  throttles, so under the shipped guard an anonymous caller was refused at
+  the permission and never reached a throttle: the 10/min anon rate could
+  brake nothing unless a deployment had opened `DESCRIBE_PERMISSIONS`. The
+  view now checks throttles first (counting each request exactly once), so
+  the rate bounds anonymous hammering under every guard. An anonymous caller
+  over the rate is answered `429` rather than `401`.
+- **`tests/conftest.py` wires `EXCEPTION_HANDLER`** the way a host running
+  on `stapel_core.django.settings` has it. Without it the suite could only
+  assert envelopes a view had built by hand, which is how a view-local
+  conversion looked equivalent to the fleet's.
+
 ## 0.19.1 — 2026-09-07
 
 **The registry shipped without its catalogs.** `docs/errors.json` has declared

@@ -296,9 +296,58 @@ class TestThrottle:
         assert refused.data["localizable_error"] == "error.429.too_many_requests"
         assert refused["Retry-After"]
         assert refused.data["params"]["retry_after"] >= 1
+        # The header and the number the client is told are one response; a
+        # countdown drawn from the params must not outlive the header.
+        assert refused["Retry-After"] == str(refused.data["params"]["retry_after"])
+
+    def test_the_wait_is_drfs_own_number(self, monkeypatch, reader_client, media):
+        """Exactly ``Throttled.wait``, which DRF has already rounded up.
+
+        The view used to convert the refusal itself and answer
+        ``int(wait) + 1`` on both halves — a second more than DRF's own
+        ``Retry-After`` on every other throttled endpoint of the fleet, and a
+        second more than the refusal's own detail sentence.
+        """
+        from stapel_cdn.views import DescribeThrottle
+
+        monkeypatch.setattr(
+            DescribeThrottle, "allow_request", lambda self, request, view: False
+        )
+        monkeypatch.setattr(DescribeThrottle, "wait", lambda self: 3.2)
+
+        refused = reader_client.post(
+            URL, {"refs": [f"avatar/{IMAGE_HASH}"]}, format="json"
+        )
+
+        assert refused.status_code == status.HTTP_429_TOO_MANY_REQUESTS
+        assert refused.data["localizable_error"] == "error.429.too_many_requests"
+        # math.ceil(3.2) — Throttled rounds up once, and nobody rounds twice.
+        assert refused["Retry-After"] == "4"
+        assert refused.data["params"]["retry_after"] == 4
+
+    def test_the_anonymous_rate_brakes_under_the_default_guard(self, settings, media):
+        """The rate is reachable, not a setting that only reads like one.
+
+        DRF's order is permissions then throttles, which left this rate dead
+        under the shipped guard: the anonymous caller was refused at the
+        permission and never reached a throttle.
+        """
+        settings.STAPEL_CDN = {**settings.STAPEL_CDN, "DESCRIBE_ANON_THROTTLE": "1/min"}
+        client = APIClient()
+        body = {"refs": [f"avatar/{IMAGE_HASH}"]}
+
+        first = client.post(URL, body, format="json")
+        assert first.status_code in (
+            status.HTTP_401_UNAUTHORIZED,
+            status.HTTP_403_FORBIDDEN,
+        )
+
+        refused = client.post(URL, body, format="json")
+        assert refused.status_code == status.HTTP_429_TOO_MANY_REQUESTS
+        assert refused.data["localizable_error"] == "error.429.too_many_requests"
 
     def test_anonymous_callers_get_their_own_rate(self, settings, media):
-        """Dormant under the default guard; the only brake once it is opened."""
+        """The brake a deployment that opens the guard is left with."""
         settings.STAPEL_CDN = {
             **settings.STAPEL_CDN,
             "DESCRIBE_PERMISSIONS": ["rest_framework.permissions.AllowAny"],
@@ -311,6 +360,20 @@ class TestThrottle:
         assert client.post(URL, body, format="json").status_code == 200
         assert (
             client.post(URL, body, format="json").status_code
+            == status.HTTP_429_TOO_MANY_REQUESTS
+        )
+
+    def test_an_authenticated_caller_is_counted_once_per_request(
+        self, settings, reader_client, media
+    ):
+        """Throttling before the guard must not spend two slots per call."""
+        settings.STAPEL_CDN = {**settings.STAPEL_CDN, "DESCRIBE_THROTTLE": "2/min"}
+        body = {"refs": [f"avatar/{IMAGE_HASH}"]}
+
+        assert reader_client.post(URL, body, format="json").status_code == 200
+        assert reader_client.post(URL, body, format="json").status_code == 200
+        assert (
+            reader_client.post(URL, body, format="json").status_code
             == status.HTTP_429_TOO_MANY_REQUESTS
         )
 

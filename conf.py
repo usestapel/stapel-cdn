@@ -111,10 +111,13 @@ DEFAULTS = {
     # 50 snapshots x MICRO_PREVIEW_MAX_BYTES per call, so the rate bounds
     # bytes, not just queries.
     "DESCRIBE_THROTTLE": "60/min",
-    # Rate applied to ANONYMOUS callers of describe. Dormant under the
-    # default permission (which refuses them outright) and the only brake
-    # the moment a deployment opens DESCRIBE_PERMISSIONS — so it ships with
-    # the library rather than being remembered later.
+    # Rate applied to ANONYMOUS callers of describe. Reachable under every
+    # guard: the view checks throttles BEFORE permissions, so this bounds
+    # anonymous hammering of the default (which refuses those callers) as
+    # well as being the only brake left once a deployment opens
+    # DESCRIBE_PERMISSIONS. DRF's own order made it unreachable — a caller
+    # refused at the permission never reaches a throttle — which is a
+    # setting that reads like a limit and is not one.
     "DESCRIBE_ANON_THROTTLE": "10/min",
     # Waveform strip geometry (pixels) for voice messages, best first. Each
     # entry is tried in order until one fits MICRO_PREVIEW_MAX_BYTES.

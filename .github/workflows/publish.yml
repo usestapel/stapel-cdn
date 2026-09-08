@@ -104,10 +104,10 @@ jobs:
       - name: Install libvips (pyvips runtime dependency)
         run: sudo apt-get update && sudo apt-get install -y libvips-dev
 
-      - name: Install stapel-core
-        run: pip install git+https://github.com/usestapel/stapel-core.git
-
-      - name: Install
+      - name: Install (stapel-core resolved from PyPI by the declared range)
+        # The wheel about to be published is tested against the core an end
+        # user will actually get. Git-main core is CI's advisory `core-main`
+        # job, not a release gate.
         run: pip install -e ".[all]" || pip install -e .
 
       - name: Lint
@@ -118,7 +118,7 @@ jobs:
       - name: Import check
         run: python -c "import stapel_cdn; print('import OK')"
 
-      - name: Install stapel-tools (несёт эмиттер, против которого меряет дрейф-гейт)
+      - name: Install stapel-tools (carries the emitter the drift gate measures against)
         run: pip install stapel-tools --quiet
 
       - name: Install test dependencies
