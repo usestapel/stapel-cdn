@@ -6,6 +6,37 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+## 0.20.1 — 2026-09-11
+
+### Fixed — `FileExistsView` admitted a guest and nothing said so
+
+Security audit 2026-09-11, §7 item 7. `stapel_core.adoption.W003` runs a
+view's permission stack against a guest row instead of reading its spelling,
+and it named this view: the gate is a **composition**,
+`[IsAuthenticated | IsServiceRequest]`, so the static E001/W002 sweep — and
+this repo's own `test_no_view_is_left_silent`, which asks the same static
+question — stayed quiet while a guest walked through.
+
+The answer is `ANONYMOUS_ALLOWED`, and the module's own rule is why: a guest
+may upload the one artifact it legitimately owns, its avatar
+(`AvatarUploadView`, unchanged since 0.18.0), and this is the dedup check
+that *precedes* an upload — "use this before uploading to avoid duplicate
+uploads". Refusing it to a guest who may upload makes that guest upload
+blind, which costs more storage, not less. Every lookup behind it is
+`uploaded_by=request.user`: the answer is about the caller's own rows, it
+starts no job, sends no mail and stores nothing, and a guest that has
+uploaded nothing can only ever be told "no".
+
+The audit's §7 asked for `IsNotAnonymousUser` here instead. That is a live
+question for the deployment operator (the audit's own owner-decision O-4),
+not a fact about this library, and it is one line to flip once the owner
+decides. What was actually wrong — a view that admitted a guest with nothing
+in its source saying whether that was meant — is fixed.
+
+`test_no_view_admits_a_guest_without_saying_so` is the permanent probe: it
+asks the W003 question, not the E001 one, so the next composed gate cannot
+slip past it.
+
 ## 0.20.0 — 2026-09-08
 
 **The one endpoint the fleet's throttle envelope did not reach was this one.**

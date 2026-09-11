@@ -210,3 +210,43 @@ def test_no_view_is_left_silent():
         and getattr(obj, "stapel_anonymous_access", None) not in ANONYMOUS_DECLARATIONS
     ]
     assert silent == []
+
+
+def test_no_view_admits_a_guest_without_saying_so():
+    """The W003 question — run the gate, do not read its spelling.
+
+    Security audit 2026-09-11, §7 item 7. ``test_no_view_is_left_silent``
+    above asks the E001/W002 question, which only looks at views whose gate
+    is EXACTLY ``{IsAuthenticated}``. ``FileExistsView`` is gated
+    ``[IsAuthenticated | IsServiceRequest]`` — a composition, so the static
+    sweep stayed quiet — and running that stack against a guest row shows the
+    guest walks straight through it. A second permission class is only a
+    position on identity if it asks about identity.
+    """
+    from rest_framework.views import APIView
+    from stapel_core.django.adoption_checks import GuestPrincipal, gate_admits
+    from stapel_core.django.api.permissions import ANONYMOUS_DECLARATIONS
+
+    try:
+        from django.contrib.auth.models import AnonymousUser
+    except Exception:  # pragma: no cover
+        pytest.skip("django.contrib.auth is not installed")
+
+    undeclared = []
+    for name, obj in vars(views).items():
+        if not (isinstance(obj, type) and issubclass(obj, APIView)):
+            continue
+        if getattr(obj, "stapel_anonymous_access", None) in ANONYMOUS_DECLARATIONS:
+            continue
+        if not getattr(obj, "permission_classes", ()):
+            continue
+        try:
+            if gate_admits(obj, AnonymousUser()):
+                continue  # public — the guest axis says nothing about it
+            if not gate_admits(obj, GuestPrincipal()):
+                continue  # guests are already kept out
+        except Exception:
+            continue  # no verdict is not a finding
+        undeclared.append(name)
+
+    assert undeclared == []

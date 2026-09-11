@@ -15,6 +15,14 @@ answer, and the rule is:
     **a guest may upload the one artifact it legitimately owns — its own
     avatar — and nothing else.**
 
+``FileExistsView`` is ``ANONYMOUS_ALLOWED`` for the same reason read the
+other way round: it is the dedup check that precedes an upload, it answers
+only about the caller's own rows, and refusing it to a guest who may upload
+an avatar just makes that guest upload blind. Its gate is a composition
+(``IsAuthenticated | IsServiceRequest``), which is why the static adoption
+check could not see it and ``stapel_core.adoption.W003`` — the one that runs
+the gate instead of reading it — could.
+
 ``AvatarUploadView`` is ``ANONYMOUS_ALLOWED``: it is the picture on the
 guest's own profile (``stapel-profiles`` lets a guest own one, for the same
 reason — a guest who types a display name before joining a call may
@@ -489,6 +497,21 @@ class FileExistsView(SerializerSeamMixin, APIView):
     """API endpoint for checking if a file exists by hash."""
 
     permission_classes = [IsAuthenticated | IsServiceRequest]
+    # A guest belongs here, and the module's own rule is why: a guest may
+    # upload the one artifact it legitimately owns, its avatar
+    # (``AvatarUploadView``), and this is the dedup check that PRECEDES an
+    # upload — "use this before uploading to avoid duplicate uploads". Refuse
+    # it and the guest uploads blind, which costs more storage, not less.
+    #
+    # Every lookup below is ``uploaded_by=request.user``: the answer is about
+    # the caller's own rows and nobody else's, it starts no job, sends no
+    # mail and stores nothing. A guest that has uploaded nothing can only
+    # ever be told "no".
+    #
+    # Declared rather than gated because the gate is a composition
+    # (``IsAuthenticated | IsServiceRequest``), which is the shape
+    # ``stapel_core.adoption.W003`` exists to catch and E001/W002 cannot see.
+    stapel_anonymous_access = ANONYMOUS_ALLOWED
     # Request serializer applies to the POST body variant; GET reads query params.
     request_serializer_class = FileExistsSerializer
     response_serializer_class = FileExistsResponseSerializer
