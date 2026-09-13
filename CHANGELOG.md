@@ -6,6 +6,94 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+## 0.21.0 — 2026-09-14
+
+### Added — `POST /cdn/api/v1/upload/audio/`: the door the recordings half never had
+
+Everything around this endpoint had already shipped. `Audio` (0.14), its
+content-addressed private storage, the `post_save` hook that queues the
+metadata pass, `AudioProcessingService.extract_metadata` (ffprobe duration +
+ffmpeg `showwavespic` waveform, 0.16), the `audio/<hash>` ref that
+`resolve_refs` / `cdn.describe` / `POST /describe/` already speak, the GDPR
+erasure provider, the unclaimed sweep, the user-merge carry — all of it. What
+was missing was the HTTP intake, so nothing in this library ever *created* an
+`Audio` row, and a browser recording a voice message had nowhere to put it.
+`ALLOWED_AUDIO_EXTENSIONS` and `MAX_AUDIO_SIZE` said as much in `conf.py`:
+"RESERVED, NOT AN ACTIVE KNOB … once an audio path lands HERE, drop the
+noqa." It landed; the noqa is gone and both keys are now read by a gate.
+
+`AudioUploadView` mirrors `VideoUploadView`: multipart `file`, members only
+(`IsNotAnonymousUser` — the one upload a guest owns is its avatar, and a
+voice message is not that), owner-scoped dedup by SHA-256, the fleet error
+envelope, 201 on a new recording and 200 on bytes the caller already holds.
+The response carries `ref` (`audio/<hash>`) — the durable handle a chat
+message stores, not the numeric id.
+
+Storage is passthrough: the recording is playable the moment the 201 lands.
+`duration` and the waveform `preview_b64` are filled in by the background
+pass, so the 201 carries `null` and `""` for them **by contract** — running
+ffmpeg inline would turn every voice message into a request-thread transcode.
+A deployment with no ffmpeg leaves both empty forever with the reason named
+in `render_meta.meta_reason`, never a fabricated zero.
+
+Three refusals run **before** the body is read for hashing, in the module's
+documented cheap-to-expensive order: `MAX_AUDIO_SIZE` (413), the extension
+allowlist (400), and the active-content sniff (400) — markup wearing a
+`.webm` name is served from the media origin like anything else under the
+media root, so the leading bytes get the last word.
+
+`.webm` joins `ALLOWED_AUDIO_EXTENSIONS`, at the front. A browser's
+`MediaRecorder` produces WebM/Opus by default in Chrome and Firefox, so an
+audio allowlist without it refuses the only recorder a chat client actually
+has. It is deliberately shared with `ALLOWED_VIDEO_EXTENSIONS`: the container
+is the same, and the endpoint the caller chose is what decides which model
+the bytes become.
+
+`file/exists/` gained the `audio` kind. It is the dedup check that *precedes*
+an upload; one blind to a kind it is meant to precede sends the caller to
+re-upload bytes it already holds, which is the exact cost the endpoint exists
+to avoid.
+
+Schema delta: one new operation (`upload_audio`, `POST /cdn/api/v1/upload/audio/`)
+and two new components (`Audio`, `AudioUploadResponse`); `FileExistsResponse.file`
+gains `Audio` to its `oneOf`.
+
+### Fixed — a recording counted towards no quota at all
+
+`ownership._owned_models()` was `(Image, Video, File)`. `Audio` joins it.
+
+A model with an intake and no row there is a hole in the ceiling, not a
+smaller ceiling: its bytes are stored, served, swept and GDPR-erased like
+every other object, but they count towards nothing — so an owner at
+`MAX_OBJECTS_PER_OWNER` across images, videos and files could have kept
+uploading voice messages forever, and every other upload would have measured
+a ceiling emptier than the storage actually was. The quota is over an
+owner's *storage*, not over one medium of it. This was latent while nothing
+could create an `Audio` row; shipping the intake without it would have made
+it real in the same release.
+
+### Fixed — `Audio.file_hash` was still globally unique (migration 0009)
+
+0.15's per-owner ownership rework (migration 0005) took the global `unique`
+off `Image`, `Video` and `File` and replaced it with a partial pair — unique
+per `(file_hash, uploaded_by)` for owned rows, per `file_hash` for the
+service pool — because owner-scoped dedup means two principals legitimately
+hold the same bytes. `Audio` was not in that migration, and nothing was red:
+with no intake, no two owners could ever reach the constraint.
+
+The intake reaches it on the most ordinary request there is — two members
+sending the same voice clip — where it was an `IntegrityError`, i.e. a 500.
+Migration 0009 is expand-only: one unique index dropped, two narrower ones
+added, so the table accepts strictly more than before and no existing row
+violates it.
+
+Nothing in `actions._carry_media` changed to keep the user-merge path
+correct, and that is the point: `_owner_dedup_fields` reads the model's own
+constraint list rather than restating it, so a media model that *gains* a
+per-owner constraint cannot be silently ignored there. A recording both
+accounts hold is now folded (refs unioned onto the survivor's row) exactly
+like a duplicate image or video.
+
 ## 0.20.1 — 2026-09-11
 
 ### Fixed — `FileExistsView` admitted a guest and nothing said so

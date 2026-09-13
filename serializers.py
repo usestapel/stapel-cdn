@@ -10,6 +10,7 @@ from stapel_core.django.api.errors import StapelValidationError
 from stapel_core.django.api.serializers import StapelDataclassSerializer
 
 from .dto import (
+    AudioUploadResponse,
     DescribeManyResponse,
     FileExistsResponse,
     FileUploadResponse,
@@ -20,7 +21,7 @@ from .dto import (
 )
 from .errors import ERR_400_FILE_TYPE_NOT_ALLOWED
 from .metadata import DESCRIBE_MANY_LIMIT
-from .models import VARIANTS_STATUSES, File, Image, Video
+from .models import VARIANTS_STATUSES, Audio, File, Image, Video
 
 
 class VariantsMetaField(serializers.JSONField):
@@ -200,7 +201,9 @@ class FileResultFieldExtension(OpenApiSerializerFieldExtension):
         # defined above, FileModelSerializer below; forward references are
         # fine here because none of this runs at class-body-eval time.
         refs = []
-        for serializer_class in (ImageSerializer, VideoSerializer, FileModelSerializer):
+        for serializer_class in (
+            ImageSerializer, VideoSerializer, AudioSerializer, FileModelSerializer
+        ):
             component = auto_schema.resolve_serializer(serializer_class, direction)
             refs.append({"$ref": f"#/components/schemas/{component.name}"})
         return {"oneOf": refs, "nullable": True}
@@ -448,6 +451,88 @@ class VideoSerializer(serializers.ModelSerializer):
         return obj.variant_2160.url if obj.variant_2160 else None
 
 
+class AudioSerializer(serializers.ModelSerializer):
+    """Serializer for the Audio model (voice recordings).
+
+    A recording has no variant ladder and no picture geometry, so this is
+    deliberately much shorter than :class:`VideoSerializer`: the render
+    contract of a voice message is ``duration`` plus the waveform strip, and
+    both live in ``render_meta`` (``duration_ms`` + ``preview_b64``) as well
+    as on their own fields.
+
+    ``ref`` is the field a consumer actually stores. Everything else here is
+    a view of one row; ``audio/<hash>`` is the durable handle that
+    ``cdn.describe`` / ``POST /describe/`` resolve later, and a chat message
+    keeps that string rather than a numeric id.
+    """
+
+    ref = serializers.SerializerMethodField(
+        help_text="Durable media reference: audio/<hash>. Store THIS."
+    )
+    original_url = serializers.SerializerMethodField(
+        help_text="URL to the stored recording (always passthrough — no transcode)."
+    )
+    render_meta = serializers.SerializerMethodField(
+        help_text="cdn.describe snapshot for this recording (see RenderMeta)."
+    )
+    uploaded_by_username = serializers.CharField(
+        source="uploaded_by.username", read_only=True
+    )
+    # Same reasoning as FileModelSerializer.refs: a bare JSONField would type
+    # a known `list[str]` as a free-form blob in the schema.
+    refs = serializers.ListField(
+        child=serializers.CharField(), required=False,
+        help_text="List of references: service/entity_type/entity_id",
+    )
+
+    class Meta:
+        model = Audio
+        fields = [
+            "id",
+            "ref",
+            "file_hash",
+            "original_filename",
+            "file_extension",
+            "mime_type",
+            "original_size",
+            "duration",
+            "preview_b64",
+            "original_url",
+            "render_meta",
+            "refs",
+            "is_compressed",
+            "uploaded_by",
+            "uploaded_by_username",
+            "created_at",
+            "updated_at",
+        ]
+        read_only_fields = [
+            "file_hash",
+            "original_size",
+            "duration",
+            "preview_b64",
+            "render_meta",
+            "is_compressed",
+            "uploaded_by",
+            "created_at",
+            "updated_at",
+        ]
+
+    @extend_schema_field(OpenApiTypes.STR)
+    def get_ref(self, obj):
+        return f"audio/{obj.file_hash}"
+
+    @extend_schema_field(OpenApiTypes.URI)
+    def get_original_url(self, obj):
+        return obj.original.url if obj.original else None
+
+    @extend_schema_field(RenderMetaField)
+    def get_render_meta(self, obj):
+        from .metadata import build_render_metadata
+
+        return build_render_metadata(obj)
+
+
 class FileUploadSerializer(serializers.Serializer):
     """
     Serializer for file upload requests.
@@ -475,6 +560,28 @@ class FileUploadSerializer(serializers.Serializer):
             raise StapelValidationError(ERR_400_FILE_TYPE_NOT_ALLOWED)
 
         return value
+
+
+class AudioUploadSerializer(serializers.Serializer):
+    """Shape only: ``multipart/form-data`` with a ``file`` part.
+
+    Deliberately NOT a subclass of :class:`FileUploadSerializer` with a
+    widened allowlist. That class refuses an extension inside
+    ``is_valid()``, which runs *before* the view's size cap — so on the
+    image/video paths the cheapest gate in the module (a byte ceiling read
+    off ``uploaded_file.size``) is not actually the first one consulted.
+    The audio path states its gates once, in
+    ``views._validate_audio_upload``, in the documented cheap-to-expensive
+    order: size, then extension allowlist, then the byte sniff. One place to
+    read, one place to change, and nothing upstream of the ceiling.
+    """
+
+    file = serializers.FileField(
+        help_text=(
+            "The recording to upload: webm, ogg, opus, m4a, mp3, wav, flac, "
+            "aac (STAPEL_CDN['ALLOWED_AUDIO_EXTENSIONS'])."
+        )
+    )
 
 
 class FileExistsSerializer(serializers.Serializer):
@@ -554,12 +661,26 @@ class VideoUploadResponseSerializer(StapelDataclassSerializer):
         dataclass = VideoUploadResponse
 
 
+class AudioUploadResponseSerializer(StapelDataclassSerializer):
+    """Response for successful audio upload."""
+
+    audio = AudioSerializer(
+        help_text="Uploaded recording, including the audio/<hash> ref to store"
+    )
+
+    class Meta:
+        dataclass = AudioUploadResponse
+
+
 class FileExistsResponseSerializer(StapelDataclassSerializer):
     """Response for file existence check."""
 
     file = FileResultField(
         allow_null=True,
-        help_text="File details (ImageSerializer or VideoSerializer) if found, null otherwise",
+        help_text=(
+            "File details (ImageSerializer, VideoSerializer, AudioSerializer "
+            "or FileModelSerializer) if found, null otherwise"
+        ),
     )
 
     class Meta:

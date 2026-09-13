@@ -41,10 +41,19 @@ QUOTA_UNLIMITED = "unlimited"
 QUOTA_CEILING_KEYS = ("MAX_OBJECTS_PER_OWNER", "MAX_BYTES_PER_OWNER")
 
 def _owned_models():
-    """Models an owner's quota is counted across."""
-    from .models import File, Image, Video
+    """Models an owner's quota is counted across.
 
-    return (Image, Video, File)
+    ``Audio`` joined in 0.21.0, in the same release that gave it an HTTP
+    intake (``views.AudioUploadView``). A model with an upload endpoint and
+    no row here is a hole in the ceiling, not a smaller ceiling: its bytes
+    are stored, served and GDPR-erased like everything else, but they count
+    towards nothing, so an owner at its quota across images, videos and
+    files could keep uploading voice messages forever. The quota is over an
+    owner's *storage*, not over one medium of it.
+    """
+    from .models import Audio, File, Image, Video
+
+    return (Image, Video, File, Audio)
 
 
 def dedup_scope() -> str:

@@ -82,6 +82,7 @@ from stapel_cdn.ownership import dedup_scope_q, quota_exceeded
 from stapel_cdn.validators import sniff_is_active_content, validate_image_file
 
 from .dto import (
+    AudioUploadResponse,
     DescribeManyResponse,
     FileExistsResponse,
     ImageUploadResponse,
@@ -93,8 +94,11 @@ from .dto import (
     FileUploadResponse as FileUploadResponseDTO,
 )
 from .metadata import DESCRIBE_MANY_LIMIT
-from .models import File, Image, Video, get_image_type_choices
+from .models import Audio, File, Image, Video, get_image_type_choices
 from .serializers import (
+    AudioSerializer,
+    AudioUploadResponseSerializer,
+    AudioUploadSerializer,
     DescribeManyRequestSerializer,
     DescribeManyResponseSerializer,
     FileExistsResponseSerializer,
@@ -197,6 +201,36 @@ def _validate_video_upload(uploaded_file):
 
     file_extension = os.path.splitext(uploaded_file.name)[1].lower()
     if file_extension not in cdn_settings.ALLOWED_VIDEO_EXTENSIONS:
+        return StapelErrorResponse(400, ERR_400_INVALID_FORMAT)
+
+    if sniff_is_active_content(uploaded_file):
+        return StapelErrorResponse(400, ERR_400_FILE_TYPE_NOT_ALLOWED)
+
+    return None
+
+
+def _validate_audio_upload(uploaded_file):
+    """Run cheap-to-expensive upload checks BEFORE hashing or storing.
+
+    The same three questions every other intake in this module asks, in the
+    same order and for the same reasons as :func:`_validate_video_upload`:
+    the byte ceiling first (hashing an unbounded body is the DoS), then the
+    extension allowlist, then the leading bytes.
+
+    There is no decode here either — ffprobe runs asynchronously, after the
+    row exists, because a voice message is usable the moment it is stored
+    (cdn-modularity.md §7.2, passthrough). So the byte-level question is the
+    one :func:`sniff_is_active_content` answers: extension and Content-Type
+    are both written by the caller, and a `.webm` carrying HTML/script would
+    otherwise land under the media root and be served from the media origin.
+
+    Returns an error response, or None when the file is acceptable.
+    """
+    if _over_size_cap(uploaded_file, cdn_settings.MAX_AUDIO_SIZE):
+        return StapelErrorResponse(413, ERR_413_FILE_TOO_LARGE)
+
+    file_extension = os.path.splitext(uploaded_file.name)[1].lower()
+    if file_extension not in cdn_settings.ALLOWED_AUDIO_EXTENSIONS:
         return StapelErrorResponse(400, ERR_400_INVALID_FORMAT)
 
     if sniff_is_active_content(uploaded_file):
@@ -492,6 +526,174 @@ Enforced before the body is hashed; over it the answer is 413.
         )
 
 
+@extend_schema(tags=["Audio"])
+class AudioUploadView(SerializerSeamMixin, APIView):
+    """API endpoint for uploading audio recordings (voice messages)."""
+
+    # Members only, like every general-purpose intake here. The one upload a
+    # guest owns is its avatar (see the module docstring); a voice message is
+    # not that — it is arbitrary bytes attached to a conversation the guest
+    # is not in, and a session costs one unauthenticated POST to mint.
+    permission_classes = [IsNotAnonymousUser]
+    parser_classes = [MultiPartParser, FormParser]
+    request_serializer_class = AudioUploadSerializer
+    response_serializer_class = AudioUploadResponseSerializer
+
+    @extend_schema(
+        operation_id="upload_audio",
+        summary="Upload an audio recording",
+        description="""Upload a voice recording (chat voice message, call note).
+
+**Supported formats:** WebM, Ogg, Opus, M4A, MP3, WAV, FLAC, AAC
+(`STAPEL_CDN["ALLOWED_AUDIO_EXTENSIONS"]`). WebM/Opus is what a browser's
+`MediaRecorder` produces, so it is the shape a chat client sends by default.
+
+**What happens on upload:**
+1. Size cap, extension allowlist and byte sniff run BEFORE the body is hashed
+2. File hash (SHA-256) is calculated for deduplication
+3. If the caller already holds these bytes, the existing recording is
+   returned (200 OK) and nothing new is stored
+4. Otherwise the recording is stored **as-is** — passthrough, no transcode —
+   and is immediately playable from `original_url`
+
+**Store `ref` (`audio/<hash>`)**, not the numeric id: it is the handle
+`cdn.describe` / `POST /describe/` resolve, and what a chat message carries.
+
+**`duration` and `preview_b64` are filled in asynchronously.** The waveform
+strip (ffmpeg `showwavespic`) and the measured duration (ffprobe) are
+produced by a background pass, so the 201 that creates the row carries
+`duration: null` and an empty `preview_b64`. That is not a broken upload:
+the recording is already playable. Re-read the ref through `/describe/`
+(or this response's `render_meta.meta_status`) to pick the waveform up. A
+deployment with no ffmpeg leaves both empty forever, with the reason named
+in `render_meta.meta_reason` rather than a fabricated zero.
+
+**Request format:** `multipart/form-data` with `file` field
+
+**Maximum file size:** `STAPEL_CDN["MAX_AUDIO_SIZE"]`, 50MB by default.
+Enforced before the body is hashed; over it the answer is 413.
+
+**Quota:** recordings count towards the per-owner object and byte ceilings
+(`MAX_OBJECTS_PER_OWNER` / `MAX_BYTES_PER_OWNER`) like every other stored
+object; over them the answer is 403.
+""",
+        request={
+            "multipart/form-data": {
+                "type": "object",
+                "properties": {
+                    "file": {
+                        "type": "string",
+                        "format": "binary",
+                        "description": (
+                            "Audio recording to upload (webm, ogg, opus, m4a, "
+                            "mp3, wav, flac, aac)"
+                        ),
+                    }
+                },
+                "required": ["file"],
+            }
+        },
+        responses={
+            201: AudioUploadResponseSerializer,
+            200: AudioUploadResponseSerializer,
+            400: StapelErrorSerializer,
+            401: StapelErrorSerializer,
+            403: StapelErrorSerializer,
+            413: StapelErrorSerializer,
+            500: StapelErrorSerializer,
+        },
+        examples=[
+            OpenApiExample(
+                name="Recording stored",
+                response_only=True,
+                status_codes=["201"],
+                value={
+                    "message": "Audio uploaded successfully",
+                    "audio": {
+                        "id": 12,
+                        "ref": "audio/a1b2c3d4e5f6...",
+                        "file_hash": "a1b2c3d4e5f6...",
+                        "original_filename": "voice.webm",
+                        "file_extension": ".webm",
+                        "original_size": 18324,
+                        "duration": None,
+                        "preview_b64": "",
+                        "is_compressed": False,
+                    },
+                },
+            ),
+            OpenApiExample(
+                name="Audio already exists",
+                response_only=True,
+                status_codes=["200"],
+                value={
+                    "message": "Audio already exists",
+                    "audio": {"id": 12, "ref": "audio/a1b2c3d4e5f6..."},
+                },
+            ),
+        ],
+    )
+    def post(self, request):  # noqa: R007
+        """Store one recording; the waveform/duration pass runs after."""
+        serializer = self.get_request_serializer_class()(data=request.data)
+        serializer.is_valid(raise_exception=True)
+
+        uploaded_file = serializer.validated_data["file"]
+
+        error = _validate_audio_upload(uploaded_file)
+        if error:
+            return error
+
+        file_hash = Audio.calculate_file_hash(uploaded_file)
+        file_extension = os.path.splitext(uploaded_file.name)[1].lower()
+
+        response_serializer_class = self.get_response_serializer_class()
+
+        # Owner-scoped dedup (CDN-02) — see ImageUploadView.
+        existing_audio = Audio.objects.filter(
+            dedup_scope_q(request.user), file_hash=file_hash
+        ).first()
+        if existing_audio:
+            return StapelResponse(
+                response_serializer_class(
+                    AudioUploadResponse(
+                        message="Audio already exists", audio=existing_audio
+                    )
+                ),
+                status=status.HTTP_200_OK,
+            )
+
+        over = quota_exceeded(request.user, uploaded_file.size)
+        if over:
+            return StapelErrorResponse(403, ERR_403_QUOTA_EXCEEDED, over)
+
+        # The duration + waveform pass is queued by the post_save signal
+        # (models.extract_audio_metadata_on_save) — never inline: ffmpeg on a
+        # request thread turns every voice message into a synchronous
+        # transcode, and the recording is usable without it.
+        try:
+            audio = Audio.objects.create(
+                file_hash=file_hash,
+                original_filename=uploaded_file.name,
+                file_extension=file_extension,
+                mime_type=(uploaded_file.content_type or "").strip().lower(),
+                original=uploaded_file,
+                original_size=uploaded_file.size,
+                uploaded_by=request.user,
+            )
+        except Exception:
+            return error_500_internal()
+
+        return StapelResponse(
+            response_serializer_class(
+                AudioUploadResponse(
+                    message="Audio uploaded successfully", audio=audio
+                )
+            ),
+            status=status.HTTP_201_CREATED,
+        )
+
+
 @extend_schema(tags=["Files"])
 class FileExistsView(SerializerSeamMixin, APIView):
     """API endpoint for checking if a file exists by hash."""
@@ -539,6 +741,22 @@ class FileExistsView(SerializerSeamMixin, APIView):
                 response_serializer_class(
                     FileExistsResponse(
                         exists=True, type="video", file=VideoSerializer(video).data
+                    )
+                ),
+                status=status.HTTP_200_OK,
+            )
+
+        # Check if an audio recording exists. This branch landed with the
+        # audio intake (0.21.0): a dedup check that cannot see one of the
+        # kinds it is meant to precede sends the caller to re-upload bytes
+        # it already holds, which is the exact cost this endpoint exists to
+        # avoid.
+        audio = Audio.objects.filter(file_hash=file_hash, uploaded_by=request.user).first()
+        if audio:
+            return StapelResponse(
+                response_serializer_class(
+                    FileExistsResponse(
+                        exists=True, type="audio", file=AudioSerializer(audio).data
                     )
                 ),
                 status=status.HTTP_200_OK,

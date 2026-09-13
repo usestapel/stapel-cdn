@@ -30,7 +30,7 @@ from stapel_core.django.api.permissions import (
 from stapel_core.django.users.models import User
 
 from stapel_cdn import views
-from stapel_cdn.models import File, Image, Video
+from stapel_cdn.models import Audio, File, Image, Video
 
 
 @pytest.fixture
@@ -147,6 +147,21 @@ class TestGuestMayNotUploadAnythingElse:
         assert resp.status_code == status.HTTP_403_FORBIDDEN, resp.content
         assert Video.objects.count() == 0
 
+    def test_audio(self, guest_client):
+        """A voice message is not the one artifact a guest owns."""
+        resp = guest_client.post(
+            "/cdn/api/v1/upload/audio/",
+            {
+                "file": SimpleUploadedFile(
+                    "voice.webm", b"\x1a\x45\xdf\xa3" + b"\x00" * 64,
+                    content_type="audio/webm",
+                )
+            },
+            format="multipart",
+        )
+        assert resp.status_code == status.HTTP_403_FORBIDDEN, resp.content
+        assert Audio.objects.count() == 0
+
     def test_typed_image(self, guest_client):
         """Including `avatar` as the type: the bounded avatar route is the one
         a guest gets, not this general-purpose one wearing its label."""
@@ -188,6 +203,7 @@ def test_closed_views_carry_the_permission_class():
     for view in (
         views.ImageUploadView,
         views.VideoUploadView,
+        views.AudioUploadView,
         views.TypedImageUploadView,
         views.GenericFileUploadView,
     ):

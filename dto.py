@@ -31,12 +31,25 @@ class VideoUploadResponse:
 
 
 @dataclass
+class AudioUploadResponse:
+    """Successful audio (voice recording) upload.
+
+    Attributes:
+        message: Confirmation message. Example: Audio uploaded successfully
+        audio: Uploaded recording object (serialized by AudioSerializer).
+    """
+
+    message: str
+    audio: Any
+
+
+@dataclass
 class FileExistsResponse:
     """File existence check result.
 
     Attributes:
         exists: Whether the file exists. Example: true
-        type: File type if found (image or video). Example: image
+        type: File type if found (image, video, audio or file). Example: image
         file: File object if found, null otherwise.
     """
 

@@ -29,7 +29,7 @@ extra needed — passthrough), `s3` (boto3, reserved). See the submodule table b
   `meta_reason` (the named reason one is missing); `Video` adds `has_poster`.
 - **HTTP API** (`stapel_cdn.urls` → v1 canon `/cdn/api/v1/...`, api-versioning.md §2;
   the URL set itself lives in `stapel_cdn.urls_v1`): `upload/image/`, `upload/avatar/`,
-  `upload/video/`, `upload/file/`, `images/<type>/upload/`, `images/<type>/random/`,
+  `upload/video/`, `upload/audio/`, `upload/file/`, `images/<type>/upload/`, `images/<type>/random/`,
   `file/exists/` (GET and POST), `describe/` (batch render metadata for refs the caller
   holds but did not necessarily upload — the browser's half of `cdn.describe_many`;
   settings-guarded and throttled, see **The render-metadata contract** below),
@@ -265,9 +265,9 @@ See `CONFIG.MD` for the complete registry (source/required/default per key). Hig
 | `MAX_IMAGE_SIZE` | `20 * 1024 * 1024` (20 MiB) | Upload size cap, checked before hashing. |
 | `ALLOWED_IMAGE_EXTENSIONS` | `.jpg .jpeg .png .gif .webp .avif .heic .heif` | Image extension allowlist in views, serializers and `validate_image_file`. The default is exactly what a stock `pip install stapel-cdn[images]` decodes (the pyvips[binary] wheel carries jpeg/png/gif/webp/libheif), so it never trips `E004` out of the box — `.bmp` was in it until 0.17.1 and libvips has no native BMP reader at all. Widening it (`.bmp` via ImageMagick, `.tif`, `.svg`, `.jxl`, `.jp2`) is exactly what `E004` probes. |
 | `ALLOWED_VIDEO_EXTENSIONS` | `.mp4 .webm .mov .avi .mkv` | Video extension allowlist (`FileUploadSerializer`, `VideoUploadView`). |
-| `ALLOWED_AUDIO_EXTENSIONS` | `.mp3 .wav .m4a .ogg .opus .flac .aac` | Audio extension allowlist (`recordings` submodule — passthrough storage always accepts these regardless of `ENABLED_SUBMODULES`). |
+| `ALLOWED_AUDIO_EXTENSIONS` | `.webm .ogg .opus .m4a .mp3 .wav .flac .aac` | Audio extension allowlist (`AudioUploadView`; passthrough storage always accepts these regardless of `ENABLED_SUBMODULES`). `.webm` leads because that is what a browser's `MediaRecorder` produces, and it is deliberately shared with `ALLOWED_VIDEO_EXTENSIONS` — the container is the same, the endpoint the caller chose decides which model the bytes become. Active since 0.21.0; reserved (and CFG006-silenced) before that, when the model had no intake. |
 | `MAX_IMAGE_PIXELS` | `50_000_000` | Decompression-bomb cap: an upload above this many pixels is refused. Exact since 0.10 — Pillow used to only raise above *2x* the configured number. |
-| `MAX_AUDIO_SIZE` | `50 * 1024 * 1024` (50 MiB) | Upload size cap for audio recordings. |
+| `MAX_AUDIO_SIZE` | `50 * 1024 * 1024` (50 MiB) | Upload size cap for audio recordings, checked before the body is hashed (`AudioUploadView`). Over it: 413. |
 | `WATERMARK` | `""` (**off**) | Watermark engine: dotted path to (or directly a) callable `(pyvips.Image) -> pyvips.Image` applied to preview variants. Empty disables watermarking. Built-in reference engine: `stapel_cdn.watermarks.text_watermark`. |
 | `WATERMARK_TEXT` | `""` | Label rendered by the built-in `text_watermark` engine (bottom-right corner). Ignored by custom engines unless they read it. |
 
@@ -320,6 +320,7 @@ class MyImageUpload(ImageUploadView):
 | `AvatarUploadView` | `FileUploadSerializer` | `ImageUploadResponseSerializer` |
 | `TypedImageUploadView` | `FileUploadSerializer` | `ImageUploadResponseSerializer` |
 | `VideoUploadView` | `FileUploadSerializer` | `VideoUploadResponseSerializer` |
+| `AudioUploadView` | `AudioUploadSerializer` | `AudioUploadResponseSerializer` |
 | `GenericFileUploadView` | `None` (raw `request.FILES`) | `FileUploadResponseSerializer` |
 | `FileExistsView` | `FileExistsSerializer` (POST body) | `FileExistsResponseSerializer` |
 | `RandomImageView` | `None` (GET only) | `ImageSerializer` |

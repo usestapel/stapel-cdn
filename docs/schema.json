@@ -550,6 +550,143 @@
         }
       }
     },
+    "/cdn/api/v1/upload/audio/": {
+      "post": {
+        "operationId": "upload_audio",
+        "description": "Upload a voice recording (chat voice message, call note).\n\n**Supported formats:** WebM, Ogg, Opus, M4A, MP3, WAV, FLAC, AAC\n(`STAPEL_CDN[\"ALLOWED_AUDIO_EXTENSIONS\"]`). WebM/Opus is what a browser's\n`MediaRecorder` produces, so it is the shape a chat client sends by default.\n\n**What happens on upload:**\n1. Size cap, extension allowlist and byte sniff run BEFORE the body is hashed\n2. File hash (SHA-256) is calculated for deduplication\n3. If the caller already holds these bytes, the existing recording is\n   returned (200 OK) and nothing new is stored\n4. Otherwise the recording is stored **as-is** — passthrough, no transcode —\n   and is immediately playable from `original_url`\n\n**Store `ref` (`audio/<hash>`)**, not the numeric id: it is the handle\n`cdn.describe` / `POST /describe/` resolve, and what a chat message carries.\n\n**`duration` and `preview_b64` are filled in asynchronously.** The waveform\nstrip (ffmpeg `showwavespic`) and the measured duration (ffprobe) are\nproduced by a background pass, so the 201 that creates the row carries\n`duration: null` and an empty `preview_b64`. That is not a broken upload:\nthe recording is already playable. Re-read the ref through `/describe/`\n(or this response's `render_meta.meta_status`) to pick the waveform up. A\ndeployment with no ffmpeg leaves both empty forever, with the reason named\nin `render_meta.meta_reason` rather than a fabricated zero.\n\n**Request format:** `multipart/form-data` with `file` field\n\n**Maximum file size:** `STAPEL_CDN[\"MAX_AUDIO_SIZE\"]`, 50MB by default.\nEnforced before the body is hashed; over it the answer is 413.\n\n**Quota:** recordings count towards the per-owner object and byte ceilings\n(`MAX_OBJECTS_PER_OWNER` / `MAX_BYTES_PER_OWNER`) like every other stored\nobject; over them the answer is 403.\n\n\n**Permissions:** `IsNotAnonymousUser`",
+        "summary": "Upload an audio recording",
+        "tags": [
+          "Audio"
+        ],
+        "requestBody": {
+          "content": {
+            "multipart/form-data": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "file": {
+                    "type": "string",
+                    "format": "binary",
+                    "description": "Audio recording to upload (webm, ogg, opus, m4a, mp3, wav, flac, aac)"
+                  }
+                },
+                "required": [
+                  "file"
+                ]
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "JWTCookieAuth": []
+          }
+        ],
+        "responses": {
+          "201": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AudioUploadResponse"
+                },
+                "examples": {
+                  "RecordingStored": {
+                    "value": {
+                      "message": "Audio uploaded successfully",
+                      "audio": {
+                        "id": 12,
+                        "ref": "audio/a1b2c3d4e5f6...",
+                        "file_hash": "a1b2c3d4e5f6...",
+                        "original_filename": "voice.webm",
+                        "file_extension": ".webm",
+                        "original_size": 18324,
+                        "duration": null,
+                        "preview_b64": "",
+                        "is_compressed": false
+                      }
+                    },
+                    "summary": "Recording stored"
+                  }
+                }
+              }
+            },
+            "description": ""
+          },
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AudioUploadResponse"
+                },
+                "examples": {
+                  "AudioAlreadyExists": {
+                    "value": {
+                      "message": "Audio already exists",
+                      "audio": {
+                        "id": 12,
+                        "ref": "audio/a1b2c3d4e5f6..."
+                      }
+                    },
+                    "summary": "Audio already exists"
+                  }
+                }
+              }
+            },
+            "description": ""
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/StapelError"
+                }
+              }
+            },
+            "description": ""
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/StapelError"
+                }
+              }
+            },
+            "description": ""
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/StapelError"
+                }
+              }
+            },
+            "description": ""
+          },
+          "413": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/StapelError"
+                }
+              }
+            },
+            "description": ""
+          },
+          "500": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/StapelError"
+                }
+              }
+            },
+            "description": ""
+          }
+        }
+      }
+    },
     "/cdn/api/v1/upload/avatar/": {
       "post": {
         "operationId": "upload_avatar",
@@ -979,6 +1116,226 @@
   },
   "components": {
     "schemas": {
+      "Audio": {
+        "type": "object",
+        "description": "Serializer for the Audio model (voice recordings).\n\nA recording has no variant ladder and no picture geometry, so this is\ndeliberately much shorter than :class:`VideoSerializer`: the render\ncontract of a voice message is ``duration`` plus the waveform strip, and\nboth live in ``render_meta`` (``duration_ms`` + ``preview_b64``) as well\nas on their own fields.\n\n``ref`` is the field a consumer actually stores. Everything else here is\na view of one row; ``audio/<hash>`` is the durable handle that\n``cdn.describe`` / ``POST /describe/`` resolve later, and a chat message\nkeeps that string rather than a numeric id.",
+        "properties": {
+          "id": {
+            "type": "integer",
+            "readOnly": true
+          },
+          "ref": {
+            "type": "string",
+            "readOnly": true,
+            "description": "Durable media reference: audio/<hash>. Store THIS."
+          },
+          "file_hash": {
+            "type": "string",
+            "readOnly": true,
+            "description": "SHA-256 hash of the original file"
+          },
+          "original_filename": {
+            "type": "string",
+            "maxLength": 255
+          },
+          "file_extension": {
+            "type": "string",
+            "maxLength": 10
+          },
+          "mime_type": {
+            "type": "string",
+            "maxLength": 100
+          },
+          "original_size": {
+            "type": "integer",
+            "readOnly": true,
+            "description": "File size in bytes"
+          },
+          "duration": {
+            "type": "number",
+            "format": "double",
+            "readOnly": true,
+            "nullable": true,
+            "description": "Duration in seconds"
+          },
+          "preview_b64": {
+            "type": "string",
+            "readOnly": true,
+            "description": "Inline waveform strip: data:image/webp;base64,..."
+          },
+          "original_url": {
+            "type": "string",
+            "format": "uri",
+            "readOnly": true,
+            "description": "URL to the stored recording (always passthrough — no transcode)."
+          },
+          "render_meta": {
+            "type": "object",
+            "description": "cdn.describe snapshot for this recording (see RenderMeta).",
+            "properties": {
+              "ref": {
+                "type": "string"
+              },
+              "kind": {
+                "type": "string",
+                "nullable": true,
+                "description": "Open media-kind registry (STAPEL_CDN['MEDIA_KINDS']): image, gif, video, audio, file, or a host-defined kind."
+              },
+              "mime": {
+                "type": "string"
+              },
+              "ext": {
+                "type": "string",
+                "description": "Lowercase, dot-prefixed."
+              },
+              "bytes": {
+                "type": "integer"
+              },
+              "width": {
+                "type": "integer",
+                "nullable": true
+              },
+              "height": {
+                "type": "integer",
+                "nullable": true
+              },
+              "aspect": {
+                "type": "number",
+                "format": "float",
+                "nullable": true,
+                "description": "width / height, 6dp."
+              },
+              "square": {
+                "type": "boolean"
+              },
+              "animated": {
+                "type": "boolean"
+              },
+              "duration_ms": {
+                "type": "integer",
+                "nullable": true
+              },
+              "preview_b64": {
+                "type": "string",
+                "nullable": true,
+                "description": "data:image/webp;base64,... bounded by STAPEL_CDN['MICRO_PREVIEW_MAX_BYTES']; null when refused or not generated, with meta_reason saying which."
+              },
+              "preview_kind": {
+                "type": "string",
+                "enum": [
+                  "blur",
+                  "poster",
+                  "waveform"
+                ],
+                "nullable": true
+              },
+              "poster_url": {
+                "type": "string",
+                "nullable": true
+              },
+              "meta_status": {
+                "type": "string",
+                "enum": [
+                  "ok",
+                  "partial",
+                  "missing"
+                ]
+              },
+              "meta_reason": {
+                "type": "string",
+                "nullable": true,
+                "description": "stapel_cdn.metadata.REASONS; null when ok."
+              },
+              "variants": {
+                "type": "array",
+                "items": {
+                  "type": "object"
+                }
+              }
+            },
+            "required": [
+              "ref",
+              "mime",
+              "ext",
+              "bytes",
+              "meta_status"
+            ],
+            "readOnly": true
+          },
+          "refs": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "List of references: service/entity_type/entity_id"
+          },
+          "is_compressed": {
+            "type": "boolean",
+            "readOnly": true,
+            "description": "Whether ffmpeg-audio compression has run (opt-in submodule)"
+          },
+          "uploaded_by": {
+            "type": "string",
+            "format": "uuid",
+            "readOnly": true,
+            "nullable": true
+          },
+          "uploaded_by_username": {
+            "type": "string",
+            "readOnly": true
+          },
+          "created_at": {
+            "type": "string",
+            "format": "date-time",
+            "readOnly": true
+          },
+          "updated_at": {
+            "type": "string",
+            "format": "date-time",
+            "readOnly": true
+          }
+        },
+        "required": [
+          "created_at",
+          "duration",
+          "file_extension",
+          "file_hash",
+          "id",
+          "is_compressed",
+          "original_filename",
+          "original_size",
+          "original_url",
+          "preview_b64",
+          "ref",
+          "render_meta",
+          "updated_at",
+          "uploaded_by",
+          "uploaded_by_username"
+        ]
+      },
+      "AudioUploadResponse": {
+        "type": "object",
+        "description": "Successful audio (voice recording) upload.",
+        "properties": {
+          "audio": {
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/Audio"
+              }
+            ],
+            "description": "Uploaded recording object (serialized by AudioSerializer)"
+          },
+          "message": {
+            "type": "string",
+            "description": "Confirmation message",
+            "example": "Audio uploaded successfully"
+          }
+        },
+        "required": [
+          "audio",
+          "message"
+        ]
+      },
       "DescribeManyRequest": {
         "type": "object",
         "description": "The refs one ``POST /describe/`` call asks about.\n\nShape only. The ceiling is NOT checked here: it belongs to\n``services.describe_refs``, the body the comm Function shares, so that the\nrule (dedup, then compare against ``DESCRIBE_MANY_LIMIT``) has exactly one\nimplementation and the two transports cannot drift apart on where the\nfifty-first ref stops being acceptable.\n\nA ref whose shape is wrong is not a 400 either: it resolves to nothing and\ncomes back in ``missing`` like any other unresolvable ref, so one\nmalformed entry never costs the caller the other forty-nine snapshots.",
@@ -1145,6 +1502,9 @@
                 "$ref": "#/components/schemas/Video"
               },
               {
+                "$ref": "#/components/schemas/Audio"
+              },
+              {
                 "$ref": "#/components/schemas/FileModel"
               }
             ],
@@ -1159,7 +1519,7 @@
           "type": {
             "type": "string",
             "nullable": true,
-            "description": "File type if found (image or video)",
+            "description": "File type if found (image, video, audio or file)",
             "example": "image"
           }
         },

@@ -169,11 +169,7 @@ class TestDuplicateBytes:
         keeper.refresh_from_db()
         assert keeper.refs == ["shop/product/1"]
 
-    def test_audio_is_globally_unique_so_its_rows_only_move(self, guest, survivor):
-        """``Audio.file_hash`` is ``unique=True`` across the table — one row
-        per blob, whoever uploaded it first — so there is no per-owner
-        duplicate to fold and every row simply moves."""
-        assert not Audio._meta.constraints
+    def test_distinct_recordings_simply_move(self, guest, survivor):
         _audio(survivor, file_hash="88" * 32)
         guest_row = _audio(guest, file_hash="99" * 32)
 
@@ -182,6 +178,26 @@ class TestDuplicateBytes:
         guest_row.refresh_from_db()
         assert guest_row.uploaded_by_id == survivor.pk
         assert Audio.objects.filter(uploaded_by_id=survivor.pk).count() == 2
+
+    def test_a_duplicate_recording_is_folded(self, guest, survivor):
+        """0.21.0 gave ``Audio`` the per-owner uniqueness pair every other
+        stored model got in 0005 (it had been globally ``unique`` — see
+        migration 0009), so a recording both accounts hold is now a fold like
+        an image or a video, not a blind move that would hit the constraint.
+
+        Nothing in this handler was changed to make that true:
+        ``_owner_dedup_fields`` reads the model's own constraint list, which
+        is exactly why a media model gaining one cannot be silently ignored
+        here."""
+        keeper = _audio(survivor, file_hash="77" * 32, refs=["chat/message/1"])
+        _audio(guest, file_hash="77" * 32, refs=["chat/message/2"])
+
+        handle_user_merged(_event(from_user_id=guest.pk, into_user_id=survivor.pk))
+
+        assert Audio.objects.count() == 1
+        keeper.refresh_from_db()
+        assert keeper.uploaded_by_id == survivor.pk
+        assert sorted(keeper.refs) == ["chat/message/1", "chat/message/2"]
 
 
 class TestIdempotency:

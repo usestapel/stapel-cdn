@@ -173,14 +173,21 @@ DEFAULTS = {
     # storage always accepts these; ffmpeg-audio compression (once
     # implemented) is gated by "recordings" in ENABLED_SUBMODULES.
     #
-    # RESERVED, NOT AN ACTIVE KNOB. stapel-cdn has no audio upload at all:
-    # the `Audio` model is declared but never instantiated by this library —
-    # the real upload path lives in stapel-recordings with its own
-    # `MAX_UPLOAD_BYTES` in its own namespace. Pulling these keys over there
-    # would couple libs through each other's settings. Silenced on purpose:
-    # once an audio path lands HERE, drop the noqa and validate both values.
-    "ALLOWED_AUDIO_EXTENSIONS": (  # noqa: CFG006
-        ".mp3", ".wav", ".m4a", ".ogg", ".opus", ".flac", ".aac",
+    # ACTIVE as of 0.21.0. This key was reserved (and CFG006-silenced) for as
+    # long as the `Audio` model had no intake in this library — the comment
+    # said "once an audio path lands HERE, drop the noqa", and
+    # `AudioUploadView` is that path. `_validate_audio_upload` reads this
+    # allowlist before the body is hashed, exactly as the image and video
+    # gates read theirs.
+    #
+    # `.webm` leads because it is what the browser produces: a
+    # MediaRecorder voice message is WebM/Opus by default in Chrome and
+    # Firefox, so an audio allowlist without it refuses the only recorder a
+    # chat client actually has. It is deliberately shared with
+    # ALLOWED_VIDEO_EXTENSIONS — the container is the same, the endpoint the
+    # caller chose is what decides which model the bytes become.
+    "ALLOWED_AUDIO_EXTENSIONS": (
+        ".webm", ".ogg", ".opus", ".m4a", ".mp3", ".wav", ".flac", ".aac",
     ),
     # Decompression-bomb cap: an upload whose width*height exceeds this is
     # refused. libvips reads the dimensions from the header without decoding,
@@ -199,9 +206,13 @@ DEFAULTS = {
     # the upload with error.503.image_decoder_unavailable instead; set False to
     # keep the signature-only passthrough.
     "REQUIRE_DECODER": True,
-    # Upload size cap for audio recordings (bytes) — 50 MB.
-    # Same reserved status as ALLOWED_AUDIO_EXTENSIONS above.
-    "MAX_AUDIO_SIZE": 50 * 1024 * 1024,  # noqa: CFG006
+    # Upload size cap for audio recordings (bytes) — 50 MB. Active as of
+    # 0.21.0 with ALLOWED_AUDIO_EXTENSIONS above: `AudioUploadView` consults
+    # it BEFORE reading the body for the SHA-256, so the documented ceiling
+    # and the enforced one are the same number from the first release of the
+    # endpoint (the video path shipped with them disagreeing by infinity —
+    # see MAX_VIDEO_SIZE).
+    "MAX_AUDIO_SIZE": 50 * 1024 * 1024,
     # Watermark engine: dotted path to (or directly a) callable
     # ``(pyvips.Image) -> pyvips.Image`` applied to preview variants.
     # Empty (the default) disables watermarking entirely. The built-in

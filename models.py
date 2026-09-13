@@ -779,9 +779,16 @@ class Audio(models.Model):
     """
 
     # File identification
+    # NOT globally unique — see Meta.constraints. 0.15's per-owner ownership
+    # rework (migration 0005) took the global uniqueness off Image, Video and
+    # File and replaced it with a per-owner pair, because owner-scoped dedup
+    # means two principals legitimately hold the same bytes. Audio was left
+    # behind: it had no intake, so nothing could ever hit the constraint, and
+    # nothing did — until 0.21.0 gave it one, at which point two members
+    # sending the same voice clip was an IntegrityError, i.e. a 500 on a
+    # perfectly ordinary request.
     file_hash = models.CharField(
         max_length=64,
-        unique=True,
         db_index=True,
         help_text="SHA-256 hash of the original file",
     )
@@ -872,6 +879,20 @@ class Audio(models.Model):
         indexes = [
             models.Index(fields=["file_hash"]),
             models.Index(fields=["created_at"]),
+        ]
+        # Per-owner uniqueness, for the reason spelled out on Image.Meta:
+        # owner-scoped dedup means two principals may hold the same bytes.
+        constraints = [
+            models.UniqueConstraint(
+                fields=["file_hash", "uploaded_by"],
+                name="cdn_audio_hash_owner_unique",
+                condition=models.Q(uploaded_by__isnull=False),
+            ),
+            models.UniqueConstraint(
+                fields=["file_hash"],
+                name="cdn_audio_hash_service_unique",
+                condition=models.Q(uploaded_by__isnull=True),
+            ),
         ]
 
     def __str__(self):

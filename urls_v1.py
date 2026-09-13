@@ -9,6 +9,7 @@ from django.urls import path
 from .errors import CdnErrorKeysView
 from .views import (
     ImageUploadView,
+    AudioUploadView,
     AvatarUploadView,
     VideoUploadView,
     DescribeMediaView,
@@ -23,6 +24,7 @@ urlpatterns = [
     path('upload/image/', ImageUploadView.as_view(), name='upload-image'),
     path('upload/avatar/', AvatarUploadView.as_view(), name='upload-avatar'),
     path('upload/video/', VideoUploadView.as_view(), name='upload-video'),
+    path('upload/audio/', AudioUploadView.as_view(), name='upload-audio'),
     path('upload/file/', GenericFileUploadView.as_view(), name='upload-file'),
     path('images/<str:image_type>/random/', RandomImageView.as_view(), name='random-image'),
     path('images/<str:image_type>/upload/', TypedImageUploadView.as_view(), name='typed-image-upload'),

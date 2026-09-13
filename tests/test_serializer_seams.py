@@ -7,6 +7,8 @@ from rest_framework.test import APIRequestFactory, force_authenticate
 from stapel_cdn import views
 from stapel_cdn.models import Image
 from stapel_cdn.serializers import (
+    AudioUploadResponseSerializer,
+    AudioUploadSerializer,
     FileExistsResponseSerializer,
     FileExistsSerializer,
     FileUploadResponseSerializer,
@@ -22,6 +24,7 @@ from stapel_core.django.users.models import User
 EXPECTED_SEAMS = {
     views.ImageUploadView: (FileUploadSerializer, ImageUploadResponseSerializer),
     views.VideoUploadView: (FileUploadSerializer, VideoUploadResponseSerializer),
+    views.AudioUploadView: (AudioUploadSerializer, AudioUploadResponseSerializer),
     views.FileExistsView: (FileExistsSerializer, FileExistsResponseSerializer),
     views.AvatarUploadView: (FileUploadSerializer, ImageUploadResponseSerializer),
     views.TypedImageUploadView: (FileUploadSerializer, ImageUploadResponseSerializer),
