@@ -14,7 +14,7 @@ from django.db.models.signals import post_save
 from django.dispatch import receiver
 from django.utils import timezone
 
-from . import decoders
+from . import bounds, decoders
 from .conf import DEFAULT_VARIANT_SIZES, cdn_settings
 from .storage import cdn_storage
 
@@ -57,14 +57,34 @@ def _private_prefix() -> str:
     return f"{prefix}/" if prefix else ""
 
 
+# THE FILENAME IS PART OF THE STORED PATH, AND THE STORED PATH IS A COLUMN.
+#
+# Each of these builds `<prefix>/<hash>/<filename>` and hands it to a
+# `FileField` with a `max_length`. The prefix is fixed and the hash is 64
+# characters, so the filename is the only variable — and it is chosen by
+# whoever uploads the file. `Video.original` was `max_length=100` against a
+# 71-character prefix, which left 29 characters for a name: a video called
+# `holiday-video-from-summer.mp4` overflowed the column and the upload
+# answered 500. `bounds.fit_stored_name` does the arithmetic the four of us
+# were each doing wrong by not doing it at all, reading the limit off the
+# field so it cannot drift from the column.
+
+
 def image_upload_path(instance, filename):
     """Generate upload path for images: <type>/<hash>/<filename>"""
-    return f"{instance.type}/{instance.file_hash}/{_safe_original_name(filename)}"
+    return bounds.fit_stored_name(
+        f"{instance.type}/{instance.file_hash}/",
+        _safe_original_name(filename),
+        Image,
+        "original",
+    )
 
 
 def video_upload_path(instance, filename):
     """Generate upload path for videos: video/<hash>/<filename>"""
-    return f"video/{instance.file_hash}/{os.path.basename(filename or '')}"
+    return bounds.fit_stored_name(
+        f"video/{instance.file_hash}/", filename, Video, "original"
+    )
 
 
 def file_upload_path(instance, filename):
@@ -73,12 +93,16 @@ def file_upload_path(instance, filename):
     Documents and archives are the payloads the audit calls out as "may not be
     intended public", so they carry the private prefix.
     """
-    return f"{_private_prefix()}file/{instance.file_hash}/{os.path.basename(filename or '')}"
+    return bounds.fit_stored_name(
+        f"{_private_prefix()}file/{instance.file_hash}/", filename, File, "original"
+    )
 
 
 def audio_upload_path(instance, filename):
     """Generate upload path for audio recordings: <private>/audio/<hash>/<filename>"""
-    return f"{_private_prefix()}audio/{instance.file_hash}/{os.path.basename(filename or '')}"
+    return bounds.fit_stored_name(
+        f"{_private_prefix()}audio/{instance.file_hash}/", filename, Audio, "original"
+    )
 
 
 def get_image_type_choices():
@@ -311,12 +335,19 @@ class Image(models.Model):
             if not self.file_hash:
                 self.file_hash = self.calculate_file_hash(self.original)
 
-            # Get filename and extension
+            # Get filename and extension. Both are client-chosen and both land
+            # in bounded columns — `.aaaa…` repeated is a legal extension.
             if not self.original_filename:
-                self.original_filename = self.original.name
+                self.original_filename = bounds.fit_filename(
+                    type(self), "original_filename", self.original.name
+                )
 
             if not self.file_extension:
-                self.file_extension = os.path.splitext(self.original.name)[1].lower()
+                self.file_extension = bounds.fit(
+                    type(self),
+                    "file_extension",
+                    os.path.splitext(self.original.name)[1].lower(),
+                )
 
             # Get file size
             if not self.original_size:
@@ -417,7 +448,14 @@ class Video(models.Model):
 
     # Original file and metadata
     original = models.FileField(
-        upload_to=video_upload_path, max_length=100, help_text="Original uploaded video"
+        # 500, like every sibling here. It was 100 — Django's default — against
+        # an upload_to that builds `video/<64-char sha256>/<filename>`, so the
+        # prefix alone spent 71 of it and any basename over 29 characters
+        # overflowed the column. `bounds.fit_stored_name` stops that being a
+        # 500; this stops it being a truncated name.
+        upload_to=video_upload_path,
+        max_length=500,
+        help_text="Original uploaded video",
     )
     original_width = models.IntegerField(null=True, blank=True)
     original_height = models.IntegerField(null=True, blank=True)
@@ -641,12 +679,19 @@ class Video(models.Model):
             if not self.file_hash:
                 self.file_hash = self.calculate_file_hash(self.original)
 
-            # Get filename and extension
+            # Get filename and extension. Both are client-chosen and both land
+            # in bounded columns — `.aaaa…` repeated is a legal extension.
             if not self.original_filename:
-                self.original_filename = self.original.name
+                self.original_filename = bounds.fit_filename(
+                    type(self), "original_filename", self.original.name
+                )
 
             if not self.file_extension:
-                self.file_extension = os.path.splitext(self.original.name)[1].lower()
+                self.file_extension = bounds.fit(
+                    type(self),
+                    "file_extension",
+                    os.path.splitext(self.original.name)[1].lower(),
+                )
 
             # Get file size
             if not self.original_size:
@@ -756,9 +801,15 @@ class File(models.Model):
             if not self.file_hash:
                 self.file_hash = self.calculate_file_hash(self.original)
             if not self.original_filename:
-                self.original_filename = self.original.name
+                self.original_filename = bounds.fit_filename(
+                    type(self), "original_filename", self.original.name
+                )
             if not self.file_extension:
-                self.file_extension = os.path.splitext(self.original.name)[1].lower()
+                self.file_extension = bounds.fit(
+                    type(self),
+                    "file_extension",
+                    os.path.splitext(self.original.name)[1].lower(),
+                )
             if self.original_size is None:
                 self.original_size = self.original.size
         super().save(*args, **kwargs)
@@ -915,9 +966,15 @@ class Audio(models.Model):
             if not self.file_hash:
                 self.file_hash = self.calculate_file_hash(self.original)
             if not self.original_filename:
-                self.original_filename = self.original.name
+                self.original_filename = bounds.fit_filename(
+                    type(self), "original_filename", self.original.name
+                )
             if not self.file_extension:
-                self.file_extension = os.path.splitext(self.original.name)[1].lower()
+                self.file_extension = bounds.fit(
+                    type(self),
+                    "file_extension",
+                    os.path.splitext(self.original.name)[1].lower(),
+                )
             if self.original_size is None:
                 self.original_size = self.original.size
         super().save(*args, **kwargs)

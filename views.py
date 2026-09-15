@@ -64,6 +64,7 @@ from stapel_core.django.api.permissions import (
 
 from django.core.exceptions import ValidationError
 
+from stapel_cdn import bounds
 from stapel_cdn.decoders import ImageDecoderUnavailable
 from stapel_cdn.errors import (
     ERR_400_FILE_HASH_REQUIRED,
@@ -389,8 +390,10 @@ never added `"product"` gets a 400 here, exactly as
         try:
             image = Image.objects.create(
                 file_hash=file_hash,
-                original_filename=uploaded_file.name,
-                file_extension=file_extension,
+                original_filename=bounds.fit_filename(
+                    Image, "original_filename", uploaded_file.name
+                ),
+                file_extension=bounds.fit(Image, "file_extension", file_extension),
                 type="product",
                 original=uploaded_file,
                 original_size=uploaded_file.size,
@@ -506,8 +509,10 @@ Enforced before the body is hashed; over it the answer is 413.
         try:
             video = Video.objects.create(
                 file_hash=file_hash,
-                original_filename=uploaded_file.name,
-                file_extension=file_extension,
+                original_filename=bounds.fit_filename(
+                    Video, "original_filename", uploaded_file.name
+                ),
+                file_extension=bounds.fit(Video, "file_extension", file_extension),
                 original=uploaded_file,
                 original_size=uploaded_file.size,
                 uploaded_by=request.user,
@@ -674,9 +679,13 @@ object; over them the answer is 403.
         try:
             audio = Audio.objects.create(
                 file_hash=file_hash,
-                original_filename=uploaded_file.name,
-                file_extension=file_extension,
-                mime_type=(uploaded_file.content_type or "").strip().lower(),
+                original_filename=bounds.fit_filename(
+                    Audio, "original_filename", uploaded_file.name
+                ),
+                file_extension=bounds.fit(Audio, "file_extension", file_extension),
+                mime_type=bounds.fit(
+                    Audio, "mime_type", (uploaded_file.content_type or "").strip().lower()
+                ),
                 original=uploaded_file,
                 original_size=uploaded_file.size,
                 uploaded_by=request.user,
@@ -975,8 +984,10 @@ Enforced before the body is hashed; over it the answer is 413.
         try:
             image = Image.objects.create(
                 file_hash=file_hash,
-                original_filename=uploaded_file.name,
-                file_extension=file_extension,
+                original_filename=bounds.fit_filename(
+                    Image, "original_filename", uploaded_file.name
+                ),
+                file_extension=bounds.fit(Image, "file_extension", file_extension),
                 type="avatar",
                 original=uploaded_file,
                 original_size=uploaded_file.size,
@@ -1082,8 +1093,10 @@ Enforced before the body is hashed; over it the answer is 413.
         try:
             image = Image.objects.create(
                 file_hash=file_hash,
-                original_filename=uploaded_file.name,
-                file_extension=file_extension,
+                original_filename=bounds.fit_filename(
+                    Image, "original_filename", uploaded_file.name
+                ),
+                file_extension=bounds.fit(Image, "file_extension", file_extension),
                 type=image_type,
                 original=uploaded_file,
                 original_size=uploaded_file.size,
@@ -1365,8 +1378,10 @@ class GenericFileUploadView(SerializerSeamMixin, APIView):
         try:
             file_obj = File.objects.create(
                 file_hash=file_hash,
-                original_filename=uploaded_file.name,
-                file_extension=file_extension,
+                original_filename=bounds.fit_filename(
+                    File, "original_filename", uploaded_file.name
+                ),
+                file_extension=bounds.fit(File, "file_extension", file_extension),
                 mime_type=uploaded_file.content_type or "",
                 original=uploaded_file,
                 original_size=uploaded_file.size,

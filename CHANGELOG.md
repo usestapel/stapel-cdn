@@ -6,6 +6,63 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+## 0.22.0 — 2026-09-16
+
+### Fixed — a filename a client chose no longer breaks, or quietly renames, an upload
+
+Everything about an upload except its bytes is chosen by whoever sends it: the
+filename, its extension, the `Content-Type` header. All of them land in bounded
+columns, and Django validates `max_length` in **forms**, never on a write — so a
+bound declared on a column was not a bound enforced on the path that wrote it.
+
+Found by `stapel-bounds-lint` (BND002, new in stapel-tools) rather than by a
+traceback. There were two different failures under one finding, and the
+difference was measured rather than assumed:
+
+**A 500.** `original_filename` (255), `file_extension` (10) and `mime_type`
+(100) are assigned straight from the request in the view and never go near
+storage, so an over-long value reached Postgres as `StringDataRightTruncation`,
+the transaction rolled back, and the endpoint answered 500 to somebody whose
+only mistake was naming a file. `file_extension` is the cheapest of the three:
+an extension is whatever follows the last dot of a client-chosen string, so
+`clip.` plus eleven characters was enough. The stored **path** of `Image`,
+`File` and `Audio` was a 500 for a second reason — `OverwriteStorage` overrode
+`get_available_name` to return the name unchanged, which silently dropped the
+trim Django performs against the column.
+
+**A silent rename.** `Video.original` was `FileField(max_length=100)` — Django's
+default, never revisited — against an `upload_to` building
+`video/<64-character sha256>/<filename>`, which spends 71 characters before the
+name is considered. That left 29. `holiday-video-from-summer.mp4` is 29. It is
+also the one stored field with no custom storage, so past 29 Django's own
+`get_available_name` trimmed and randomised instead of failing:
+`holiday-video-from-summer-2026.mp4` was stored as
+`holiday-video-fro_bMgrNZQ.mp4`. No error, no log, and the name a person
+uploaded stopped being the name the system held.
+
+The repair is `bounds.py`, which reads every limit **off the field** and never
+restates it — a limit typed twice makes the next `max_length` change a silent
+data-loss bug. `fit` cuts prose and marks the cut; `fit_filename` keeps the
+extension, because for a filename the tail is the part that carries meaning to
+a browser and to a person reading a list; `fit_stored_name` does the one piece
+of arithmetic nobody does correctly by hand — prefix plus name against the
+column — and is called by the four `upload_to` builders, which are the only
+place that knows both halves. The prefix is never cut: a truncated hash
+directory would put two different files in one place.
+
+- `OverwriteStorage.get_available_name` honours `max_length` again, trimming
+  **deterministically** (no random suffix), because predictable names are why
+  that subclass exists. Belt and braces next to `upload_to`, and not redundant:
+  a host that calls `.save()` on the field never goes through `upload_to`.
+- `Video.original` widened to 500 to match `Image`, `File` and `Audio`
+  (migration `0010`, expand-only — no rows rewritten, nothing existing can
+  violate the wider bound).
+
+`tests/test_upload_name_bounds.py` pins all of it, with every assertion written
+against the field's declared `max_length` rather than against 255 / 100 / 10: a
+test that restates the number passes on the day the column shrinks, which is
+the failure this whole repair exists to prevent.
+
 ## 0.21.0 — 2026-09-14
 
 ### Added — `POST /cdn/api/v1/upload/audio/`: the door the recordings half never had
