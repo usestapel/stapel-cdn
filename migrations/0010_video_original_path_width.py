@@ -37,7 +37,7 @@ from django.db import migrations, models
 
 class Migration(migrations.Migration):
     dependencies = [
-        ("stapel_cdn", "0009_audio_per_owner_uniqueness"),
+        ("cdn", "0009_audio_per_owner_uniqueness"),
     ]
 
     operations = [
