@@ -30,7 +30,7 @@ from .metadata import encode_preview, preview_budget
 logger = logging.getLogger(__name__)
 
 
-def _image_ref_prefixes() -> set[str]:
+def image_ref_prefixes() -> set[str]:
     """Ref prefixes that route to ``Image`` — every configured
     ``STAPEL_CDN["ASSET_TYPES"]`` value, read fresh (not a frozen module
     constant) so overriding the config takes effect immediately.
@@ -46,6 +46,12 @@ def _image_ref_prefixes() -> set[str]:
     for entry in cdn_settings.ASSET_TYPES:
         types.add(entry if isinstance(entry, str) else entry[0])
     return types
+
+
+#: The pre-0.23.0 private name, kept so a host or sibling that reached for it
+#: keeps working. The public name exists because `views._batch_resolve_media`
+#: needs the same answer and had been carrying a frozen copy instead.
+_image_ref_prefixes = image_ref_prefixes
 
 
 class ImageProcessingService:
@@ -788,7 +794,7 @@ def _batch_resolve_media(ref_strings, for_update=False):
     from django.db.models import Q
     from .models import Audio, File, Image, Video
 
-    image_prefixes = _image_ref_prefixes()
+    image_prefixes = image_ref_prefixes()
     image_lookups = {}
     video_lookups = {}
     file_lookups = {}

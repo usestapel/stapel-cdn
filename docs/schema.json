@@ -298,7 +298,7 @@
     "/cdn/api/v1/images/{image_type}/random/": {
       "get": {
         "operationId": "random_image",
-        "description": "Get a random image of the specified type.\n\n**Available types:** product, avatar\n\n**Requires:** Staff user or API key authentication.\n\n**Use case:** Admin UI for quickly selecting test images.\n\n\n**Permissions:** `IsStaffUser`",
+        "description": "Get a random image of the specified type.\n\n**Available types:** every entry of `STAPEL_CDN[\"ASSET_TYPES\"]` — the same\nsetting `TypeEnum` in this document is generated from. The zero-infra\ndefault is `(\"avatar\",)`; anything else answers\n`error.400.invalid_image_type`.\n\n**Requires:** Staff user or API key authentication.\n\n**Use case:** Admin UI for quickly selecting test images.\n\n\n**Permissions:** `IsStaffUser`",
         "summary": "Get random image by type",
         "parameters": [
           {
@@ -375,7 +375,7 @@
     "/cdn/api/v1/images/{image_type}/upload/": {
       "post": {
         "operationId": "upload_typed_image",
-        "description": "Upload an image file with a specific type (product, avatar).\n\n**Supported formats:** JPEG, PNG, GIF, WebP, BMP, HEIC, HEIF\n\n**Available types:** product, avatar\n\n**Maximum file size:** `STAPEL_CDN[\"MAX_IMAGE_SIZE\"]`, 20MB by default.\nEnforced before the body is hashed; over it the answer is 413.\n\n\n**Permissions:** `IsNotAnonymousUser`",
+        "description": "Upload an image file with a caller-chosen type.\n\n**Supported formats:** JPEG, PNG, GIF, WebP, BMP, HEIC, HEIF\n\n**Available types:** every entry of `STAPEL_CDN[\"ASSET_TYPES\"]` — the same\nsetting `TypeEnum` in this document is generated from. The zero-infra\ndefault is `(\"avatar\",)`; anything else answers\n`error.400.invalid_image_type`.\n\n**Maximum file size:** `STAPEL_CDN[\"MAX_IMAGE_SIZE\"]`, 20MB by default.\nEnforced before the body is hashed; over it the answer is 413.\n\n\n**Permissions:** `IsNotAnonymousUser`",
         "summary": "Upload an image with specific type",
         "parameters": [
           {
@@ -880,7 +880,7 @@
     "/cdn/api/v1/upload/image/": {
       "post": {
         "operationId": "upload_image",
-        "description": "Upload an image file for processing.\n\n**Supported formats:** JPEG, PNG, GIF, WebP, BMP, HEIC, HEIF\n\n**What happens on upload:**\n1. File hash (SHA-256) is calculated for deduplication\n2. If file already exists, returns existing image data (200 OK)\n3. If new file, creates image record and generates variants via background task\n4. Variants are generated in WebP format at multiple resolutions\n\n**Generated variants (all WebP):**\n- 16px, 32px, 64px, 120px - min-side thumbnails\n- 160px, 240px, 480px, 560px, 720px, 1080px - w/h preview branches\n\n**`variants_status` — read it before you render a variant URL.** Every\n`variant_<size>_url` in this response is derived from `<type>/<hash>`, so\nall of them are present and well-formed in the 201 that creates the row,\n*before* the background task has written a single file. `variants_status`\nis `\"pending\"` until generation succeeds and `\"ready\"` afterwards\n(`variants_ready_at` carries the moment, null while pending). A `pending`\npayload's variant URLs are a prediction, not a resource; poll the media ref\n(`/file-exists/`) or fall back to `original_url` until it reads `ready`.\nA row that stays `pending` is a broken pipeline, not a slow one — see\n`checks.W008`.\n\n**Request format:** `multipart/form-data` with `file` field\n\n**Maximum file size:** `STAPEL_CDN[\"MAX_IMAGE_SIZE\"]`, 20MB by default.\nEnforced before the body is hashed; over it the answer is 413.\n\n**Stored type:** `\"product\"` — one value from `STAPEL_CDN[\"ASSET_TYPES\"]`,\nsame as any type `TypedImageUploadView` accepts. The zero-infra default is\n`(\"avatar\",)` only (see `ASSET_TYPES` in CONFIG.MD), so a deployment that\nnever added `\"product\"` gets a 400 here, exactly as\n`/images/product/upload/` already does for that string.\n\n\n**Permissions:** `IsNotAnonymousUser`",
+        "description": "Upload an image file for processing.\n\n**Supported formats:** JPEG, PNG, GIF, WebP, BMP, HEIC, HEIF\n\n**What happens on upload:**\n1. File hash (SHA-256) is calculated for deduplication\n2. If file already exists, returns existing image data (200 OK)\n3. If new file, creates image record and generates variants via background task\n4. Variants are generated in WebP format at multiple resolutions\n\n**Generated variants (all WebP):**\n- 16px, 32px, 64px, 120px - min-side thumbnails\n- 160px, 240px, 480px, 560px, 720px, 1080px - w/h preview branches\n\n**`variants_status` — read it before you render a variant URL.** Every\n`variant_<size>_url` in this response is derived from `<type>/<hash>`, so\nall of them are present and well-formed in the 201 that creates the row,\n*before* the background task has written a single file. `variants_status`\nis `\"pending\"` until generation succeeds and `\"ready\"` afterwards\n(`variants_ready_at` carries the moment, null while pending). A `pending`\npayload's variant URLs are a prediction, not a resource; poll the media ref\n(`/file-exists/`) or fall back to `original_url` until it reads `ready`.\nA row that stays `pending` is a broken pipeline, not a slow one — see\n`checks.W008`.\n\n**Request format:** `multipart/form-data` with `file` field\n\n**Maximum file size:** `STAPEL_CDN[\"MAX_IMAGE_SIZE\"]`, 20MB by default.\nEnforced before the body is hashed; over it the answer is 413.\n\n**Stored type:** `STAPEL_CDN[\"DEFAULT_UPLOAD_TYPE\"]` when a deployment names\none, otherwise the FIRST entry of `STAPEL_CDN[\"ASSET_TYPES\"]` — read from the\nsetting, never a literal, so the stored type is always a member of the\n`TypeEnum` this document generates from that same setting. On the zero-infra\ndefault (`ASSET_TYPES = (\"avatar\",)`) that is `\"avatar\"`. A `DEFAULT_UPLOAD_TYPE`\nnaming a value absent from `ASSET_TYPES` is a misconfiguration: this endpoint\nanswers 400 and `stapel_cdn.assets.W014` reports it at boot.\n\n\n**Permissions:** `IsNotAnonymousUser`",
         "summary": "Upload an image",
         "tags": [
           "Images"
@@ -2203,7 +2203,7 @@
           },
           "error_language": {
             "type": "string",
-            "description": "The language `error` is written in (e.g. 'en', 'ru'),"
+            "description": "Active Django locale `error` was rendered in (e.g"
           }
         },
         "required": [

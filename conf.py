@@ -33,6 +33,21 @@ from stapel_core.conf import AppSettings
 #: default, same namespace: ``STAPEL_CDN["ASSET_TYPES"]``).
 DEFAULT_ASSET_TYPES = ("avatar",)
 
+#: The type ``POST /upload/image/`` stores. That endpoint's type is fixed
+#: rather than caller-chosen (``TypedImageUploadView`` is the caller-chosen
+#: one), and until 0.23.0 the fixed value was the string literal
+#: ``"product"`` — a value that is not in ``DEFAULT_ASSET_TYPES``, so on the
+#: shipped config the endpoint had no reachable 2xx at all and on a config
+#: that added ``"product"`` it answered a type the emitted ``TypeEnum`` (also
+#: generated from ``ASSET_TYPES``) did not admit. Wrong under both, in
+#: opposite directions.
+#:
+#: ``None`` means "the first configured ``ASSET_TYPES`` entry", which is true
+#: under every configuration by construction: the value stored is always a
+#: member of the enum generated from the same setting. A deployment that
+#: needs a specific one names it here.
+DEFAULT_UPLOAD_TYPE = None
+
 #: Media submodules with an optional system-binary dependency, enabled by
 #: default. ``images`` is core (every Image save needs pyvips — the
 #: E-check fires unconditionally, cdn-modularity.md §3), so it needs no
@@ -66,6 +81,7 @@ DEFAULT_MEDIA_KINDS: dict = {}
 
 DEFAULTS = {
     "ASSET_TYPES": DEFAULT_ASSET_TYPES,
+    "DEFAULT_UPLOAD_TYPE": DEFAULT_UPLOAD_TYPE,
     "ENABLED_SUBMODULES": DEFAULT_ENABLED_SUBMODULES,
     # --- render metadata (the attachment a UI can draw with no round trip) ---
     # Open registry of media kinds — what an attachment IS, and therefore
@@ -351,6 +367,7 @@ __all__ = [
     "cdn_settings",
     "DEFAULTS",
     "DEFAULT_ASSET_TYPES",
+    "DEFAULT_UPLOAD_TYPE",
     "DEFAULT_ENABLED_SUBMODULES",
     "DEFAULT_MEDIA_KINDS",
     "DEFAULT_THUMBNAIL_SIZES",

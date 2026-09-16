@@ -63,17 +63,22 @@ declared codes), in three families:
    drf-spectacular copies that. Nothing in this module writes a video variant
    (``VideoProcessingService`` is the documented TODO), so the declared shape
    is unreachable in every state, not just the empty one.
-2. ``POST /upload/image/`` declares a 201 and a 200 that it cannot answer
-   under the configuration the contract was emitted from. The view stores a
-   FIXED type of ``"product"`` and refuses with 400 when that string is not
-   in ``ASSET_TYPES`` (views.py:344-351) — and it is not, in the emission's
-   own settings. Add ``"product"`` to ``ASSET_TYPES`` and the 201 arrives,
-   but then ``image.type`` is ``"product"`` while the document's ``TypeEnum``
-   admits only ``"avatar"``: the operation's declared body is wrong under
-   BOTH configurations, in opposite directions.
-   ``test_upload_image_is_wrong_under_the_other_configuration_too`` drives
-   that second horn and pins it, so the entry rests on evidence rather than
-   on this docstring.
+2. **CLOSED in 0.23.0**, recorded because the shape recurs. ``POST
+   /upload/image/`` declared a 201 and a 200 it could not answer under the
+   configuration the contract was emitted from: the view stored a FIXED
+   literal ``"product"`` and refused with 400 when that string was not in
+   ``ASSET_TYPES`` — and it is not, in the emission's own settings, so the
+   endpoint had no reachable 2xx at all out of the box. Adding ``"product"``
+   moved the lie rather than fixing it: the 201 then carried ``image.type ==
+   "product"`` while the same document's ``TypeEnum`` — generated from the
+   same setting — admitted only ``"avatar"``. Wrong under both
+   configurations, in opposite directions, which is what told us neither
+   configuration was the defect. The stored type is now read from
+   ``ASSET_TYPES`` (``DEFAULT_UPLOAD_TYPE``, defaulting to its first entry),
+   so the enum and the wire are generated from one setting and cannot
+   disagree. ``test_upload_image_stores_a_type_its_own_document_admits``
+   drives it here under the emission's own defaults;
+   ``tests/test_asset_types_are_never_frozen.py`` is the gate for the class.
 3. ``GET /images/{image_type}/random/`` declares ``uploaded_by_username`` as
    a REQUIRED, non-nullable ``string`` and OMITS the key entirely from every
    row whose ``uploaded_by`` is null. The field is
@@ -804,23 +809,6 @@ _VIDEO_URLS = (
     "need one because those URLs are derived from the hash and are never null."
 )
 
-_IMAGE_TYPE = (
-    "POST " + V1 + "/upload/image/ declares a 201 and a 200 it cannot answer "
-    "under the configuration the contract was emitted from. The view stores a "
-    "FIXED type of \"product\" and refuses with 400 when that string is not in "
-    "STAPEL_CDN[\"ASSET_TYPES\"] (views.py:344-351); the emission harness sets "
-    "no STAPEL_CDN at all, so ASSET_TYPES is (\"avatar\",) and the refusal is "
-    "the only answer this endpoint has. Add \"product\" and the 201 arrives — "
-    "and then `image.type` is \"product\" while the same document's TypeEnum "
-    "admits only \"avatar\", so the declared body is wrong under BOTH "
-    "configurations, in opposite directions "
-    "(test_upload_image_is_wrong_under_the_other_configuration_too pins the "
-    "second horn). OWNER: this module — either the view's hardcoded "
-    "\"product\" (views.py:344-351, 369, 397) or the endpoint's own "
-    "@extend_schema, which promises two 2xx bodies the shipped defaults make "
-    "unreachable."
-)
-
 #: Operations whose declared body the wire does not send, keyed by
 #: ``(METHOD, path, code)`` — this module declares two 2xx codes on six of
 #: its operations, and a defect can live on one of them and not the other.
@@ -829,8 +817,6 @@ _IMAGE_TYPE = (
 KNOWN_MISMATCHES = {
     ("POST", V1 + "/upload/video/", 201): _VIDEO_URLS,
     ("POST", V1 + "/upload/video/", 200): _VIDEO_URLS,
-    ("POST", V1 + "/upload/image/", 201): _IMAGE_TYPE,
-    ("POST", V1 + "/upload/image/", 200): _IMAGE_TYPE,
 }
 
 _UNOWNED_USERNAME = (
@@ -954,10 +940,9 @@ def test_every_read_is_also_driven_in_its_emptiest_state():
         for method, path, code, _schema in OPERATIONS
         if code == 201
     } | {
-        # Its 201 sibling is xfailed for a reason that is not about state
-        # (the endpoint has no reachable 2xx under this configuration), and
-        # its 200 recipe already falls through to whatever came back. A
-        # second, emptier drive of an unreachable answer proves nothing.
+        # The 200 is "these bytes are already yours", which by construction
+        # requires a row to exist — there is no emptier state of it than the
+        # one its own recipe builds.
         ("POST", V1 + "/upload/image/", 200),
         # FileModel's only nullable field is `uploaded_by`, and owner-scoped
         # dedup means this 200 is only ever answered ABOUT THE CALLER'S OWN
@@ -1077,33 +1062,37 @@ def test_the_wire_matches_the_declared_response_when_there_is_nothing_there(
     _drive(EMPTY_STATE, method, path, code, body_schema, expect_rows=False)
 
 
-def test_upload_image_is_wrong_under_the_other_configuration_too():
-    """The second horn of the ``/upload/image/`` finding, driven.
+def test_upload_image_stores_a_type_its_own_document_admits():
+    """What the two-horned ``/upload/image/`` finding became.
 
-    Under the emission's ``ASSET_TYPES`` the endpoint has no reachable 2xx at
-    all, which is what ``KNOWN_MISMATCHES`` records. This asks the obvious
-    follow-up — "so configure ``product`` and the contract is fine, surely" —
-    and answers it: the 201 then arrives carrying ``image.type == "product"``,
-    which the SAME document's ``TypeEnum`` does not admit. Both halves fail,
-    so the entry is a real defect rather than a misconfigured gate.
+    It used to read: the endpoint declares a 201 and a 200 it cannot answer
+    under the emission's config (the view stored a FIXED literal ``"product"``
+    and ``ASSET_TYPES`` defaults to ``("avatar",)``), and configuring
+    ``"product"`` only moved the lie — the 201 then carried a ``type`` the
+    same document's ``TypeEnum`` did not admit. Wrong under both, in opposite
+    directions.
 
-    If either half is ever fixed this test fails and forces the entry to be
-    revisited, which is the point of writing the evidence down as a test
-    instead of as a sentence.
+    0.23.0 removed the literal: the stored type is read from the same setting
+    ``TypeEnum`` is generated from, so the two cannot disagree. This drives it
+    under the configuration the CONTRACT WAS EMITTED FROM — no
+    ``override_settings``, the shipped defaults — and validates the received
+    body against the committed declaration, the claim the old entry denied.
+
+    ``tests/test_asset_types_are_never_frozen.py`` is the general gate; this
+    is the specific one, kept in the file where the finding was recorded so
+    the history reads straight.
     """
-    declared = SCHEMA["components"]["schemas"]["TypeEnum"]["enum"]
-    assert declared == ["avatar"], (
-        "the committed TypeEnum changed — re-derive this finding"
+    response = post_file(
+        client_for(make_user()), V1 + "/upload/image/", image_upload()
     )
-
-    with override_settings(STAPEL_CDN={"ASSET_TYPES": ("avatar", "product")}):
-        response = post_file(
-            client_for(make_user()), V1 + "/upload/image/", image_upload()
-        )
 
     assert response.status_code == 201, response.content
     body = response.json()
-    assert body["image"]["type"] == "product", body["image"]["type"]
+
+    declared_enum = SCHEMA["components"]["schemas"]["TypeEnum"]["enum"]
+    assert body["image"]["type"] in declared_enum, (
+        f"stored {body['image']['type']!r}, TypeEnum admits {declared_enum}"
+    )
 
     schema = SCHEMA["paths"]["/cdn/api/v1/upload/image/"]["post"]["responses"]["201"][
         "content"
@@ -1113,10 +1102,7 @@ def test_upload_image_is_wrong_under_the_other_configuration_too():
         for error in _validator(schema).iter_errors(body)
         if list(error.path)[:2] == ["image", "type"]
     ]
-    assert errors, (
-        "the wire answered a type the declared TypeEnum does not admit and "
-        "the validator did not object — this finding no longer holds"
-    )
+    assert errors == [], [error.message for error in errors]
 
 
 def test_the_gate_is_not_blind():

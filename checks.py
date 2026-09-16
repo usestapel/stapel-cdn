@@ -55,6 +55,12 @@ of at ``manage.py check`` / boot-smoke time.
   permission classes as "everyone passes", so the accident of an empty list
   publishes the endpoint. ``AllowAny`` says the same thing on purpose and is
   not reported; a blank does not.
+* **assets** (``W014``) — ``STAPEL_CDN["DEFAULT_UPLOAD_TYPE"]`` names a
+  value that is not in ``ASSET_TYPES``, or ``ASSET_TYPES`` is empty. Either
+  way ``POST /upload/image/`` has no reachable 2xx: it refuses every upload
+  with ``error.400.invalid_image_type``, because the type it would store is
+  not a member of its own model's choices. Reported at boot rather than met
+  as a 400 on a working file.
 * **tasks** (``W013``) — this process runs a beat schedule for other work
   and has no entry for ``sweep_unclaimed``, so unclaimed media (zero-ref,
   past ``UNCLAIMED_TTL_HOURS``) accumulates forever behind a TTL setting
@@ -83,6 +89,7 @@ W011_PREVIEW_BUDGET_INVALID = "stapel_cdn.media.W011"
 E005_DESCRIBE_SEAM_UNUSABLE = "stapel_cdn.describe.E005"
 W013_SWEEP_NOT_SCHEDULED = "stapel_cdn.tasks.W013"
 W012_DESCRIBE_GUARD_EMPTY = "stapel_cdn.describe.W012"
+W014_UPLOAD_TYPE_NOT_CONFIGURED = "stapel_cdn.assets.W014"
 
 
 @checks.register("stapel_cdn")
@@ -627,6 +634,7 @@ __all__ = [
     "E005_DESCRIBE_SEAM_UNUSABLE",
     "W012_DESCRIBE_GUARD_EMPTY",
     "W013_SWEEP_NOT_SCHEDULED",
+    "W014_UPLOAD_TYPE_NOT_CONFIGURED",
     "check_describe_seam",
     "check_dedup_scope",
     "check_media_kinds",
@@ -637,3 +645,80 @@ __all__ = [
     "check_sweep_beat_schedule",
     "check_variant_queues",
 ]
+
+
+@checks.register("stapel_cdn")
+def check_default_upload_type(app_configs=None, **kwargs):
+    """W014 — the fixed type ``/upload/image/`` stores is not storable.
+
+    ``Image.type``'s choices, the emitted ``TypeEnum`` and the ref prefixes
+    that route to ``Image`` are all generated from
+    ``STAPEL_CDN["ASSET_TYPES"]``. So is the type this endpoint stores, since
+    0.23.0 — before that it was the literal ``"product"``, which the shipped
+    default does not contain, and the endpoint answered 400 to every upload on
+    an out-of-the-box install while the contract it emitted declared a 201.
+
+    Reading the type from the setting makes the two agree by construction,
+    with one hole left: a deployment can still name a ``DEFAULT_UPLOAD_TYPE``
+    that is not in its own ``ASSET_TYPES``, or leave ``ASSET_TYPES`` empty. In
+    both cases the endpoint correctly refuses — and a refusal that is correct
+    for a reason nobody can see from the response is precisely what a boot
+    check is for. W-level: the rest of the module works, and a deployment that
+    never uses this endpoint is entitled to the configuration.
+    """
+    from .conf import cdn_settings
+    from .models import get_default_upload_type, get_image_type_choices
+
+    valid = [choice[0] for choice in get_image_type_choices()]
+    if not valid:
+        return [
+            checks.Warning(
+                'STAPEL_CDN["ASSET_TYPES"] is empty, so Image.type has no '
+                "valid value and POST /upload/image/ refuses every upload "
+                "with error.400.invalid_image_type.",
+                hint=(
+                    "Name at least one asset type. The shipped default is "
+                    '("avatar",); a host that overrode ASSET_TYPES with an '
+                    "empty collection almost certainly meant to extend it."
+                ),
+                id=W014_UPLOAD_TYPE_NOT_CONFIGURED,
+            )
+        ]
+
+    named = cdn_settings.DEFAULT_UPLOAD_TYPE
+    if named and named not in valid:
+        return [
+            checks.Warning(
+                f'STAPEL_CDN["DEFAULT_UPLOAD_TYPE"] is {named!r}, which is '
+                f"not in ASSET_TYPES ({', '.join(sorted(valid))}). "
+                "POST /upload/image/ refuses every upload with "
+                "error.400.invalid_image_type, because a row of that type "
+                "would not be a member of Image.type's own choices and the "
+                "emitted TypeEnum would not admit it.",
+                hint=(
+                    f"Add {named!r} to ASSET_TYPES, or point "
+                    "DEFAULT_UPLOAD_TYPE at a type that is already there. "
+                    "Leaving DEFAULT_UPLOAD_TYPE unset selects the first "
+                    "ASSET_TYPES entry, which is always valid."
+                ),
+                id=W014_UPLOAD_TYPE_NOT_CONFIGURED,
+            )
+        ]
+
+    # Belt: the resolver must answer something storable whenever the two
+    # settings agree. A future edit that reintroduces a literal fails here.
+    resolved = get_default_upload_type()
+    if resolved not in valid:
+        return [
+            checks.Warning(
+                f"the type POST /upload/image/ would store ({resolved!r}) is "
+                f"not in ASSET_TYPES ({', '.join(sorted(valid))}).",
+                hint=(
+                    "This is a library bug, not a configuration one: the "
+                    "stored type is meant to be read from ASSET_TYPES. "
+                    "Please report it."
+                ),
+                id=W014_UPLOAD_TYPE_NOT_CONFIGURED,
+            )
+        ]
+    return []

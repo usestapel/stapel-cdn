@@ -345,56 +345,107 @@ class TestTypedImageUploadView:
 
 @pytest.mark.django_db
 class TestImageUploadTypeReconciliation:
-    """`/upload/image/`'s fixed "product" type is one ASSET_TYPES value like
-    any other — it must be accepted/rejected the same way
-    `/images/product/upload/` accepts/rejects that identical string, on
-    whatever ASSET_TYPES a deployment configures. Regression coverage for
-    the shipped-default gap: ASSET_TYPES defaults to ``("avatar",)`` only
-    (conf.py), a scope this package's own test settings paper over with
-    ``("avatar", "product")`` (conftest.py) — reproduced here explicitly.
+    """`/upload/image/`'s fixed type is READ from ASSET_TYPES, not a literal.
+
+    History, because the shape recurs. 0.13.0 made this endpoint validate its
+    hardcoded ``"product"`` against ``STAPEL_CDN["ASSET_TYPES"]`` the way
+    ``/images/product/upload/`` already did, so the two agreed about that
+    string. They did — by both refusing it on the shipped default
+    (``("avatar",)``), which left the generic endpoint with no reachable 2xx
+    out of the box while the contract it emits declared a 201. Configuring
+    ``"product"`` only moved the lie to the other side: the 201 then carried a
+    ``type`` the emitted ``TypeEnum`` (generated from the same setting) did
+    not admit.
+
+    0.23.0 removed the literal. The stored type is
+    ``STAPEL_CDN["DEFAULT_UPLOAD_TYPE"]`` or the first ``ASSET_TYPES`` entry,
+    so it is a member of the model's own choices and of the emitted enum under
+    every configuration, by construction rather than by agreement.
     """
 
     url = '/cdn/api/v1/upload/image/'
     typed_url = '/cdn/api/v1/images/product/upload/'
 
-    def test_rejected_on_a_default_asset_types_deployment(self, authenticated_client):
+    def test_accepted_on_a_default_asset_types_deployment(self, authenticated_client):
+        """The inversion. This used to assert a 400 and a stored count of 0.
+
+        An out-of-the-box install now uploads: the type stored is the one
+        ``ASSET_TYPES`` actually names.
+        """
         with override_settings(STAPEL_CDN={'ASSET_TYPES': ('avatar',)}):
+            response = authenticated_client.post(
+                self.url, {'file': make_image_upload()}, format='multipart'
+            )
+        assert response.status_code == status.HTTP_201_CREATED, response.data
+        assert response.data['image']['type'] == 'avatar'
+        assert Image.objects.count() == 1
+
+    def test_the_stored_type_is_always_a_member_of_the_configured_choices(
+        self, authenticated_client
+    ):
+        """Across configurations, never one 201 whose type its own enum
+        rejects — the second horn of the old finding, asserted as a property
+        rather than as a pair of cases."""
+        from stapel_cdn.models import get_image_type_choices
+
+        # Distinct colours per case on purpose: owner-scoped dedup answers
+        # 200 for bytes this caller already holds, which would silently make
+        # the later cases assert about the FIRST case's row.
+        cases = [
+            (('avatar',), 'teal'),
+            (('avatar', 'product'), 'maroon'),
+            (('banner', 'avatar'), 'gold'),
+        ]
+        for asset_types, colour in cases:
+            with override_settings(STAPEL_CDN={'ASSET_TYPES': asset_types}):
+                response = authenticated_client.post(
+                    self.url,
+                    {'file': make_image_upload(color=colour)},
+                    format='multipart',
+                )
+                valid = [value for value, _ in get_image_type_choices()]
+            assert response.status_code == status.HTTP_201_CREATED, (
+                asset_types,
+                response.data,
+            )
+            assert response.data['image']['type'] in valid, (
+                asset_types,
+                response.data['image']['type'],
+                valid,
+            )
+
+    def test_an_explicit_default_upload_type_is_honoured(
+        self, authenticated_client, user
+    ):
+        """The knob a deployment relying on the old ``"product"`` pins."""
+        with override_settings(
+            STAPEL_CDN={
+                'ASSET_TYPES': ('avatar', 'product'),
+                'DEFAULT_UPLOAD_TYPE': 'product',
+            }
+        ):
+            response = authenticated_client.post(
+                self.url, {'file': make_image_upload(color='gold')}, format='multipart'
+            )
+        assert response.status_code == status.HTTP_201_CREATED
+        assert response.data['image']['type'] == 'product'
+        image = Image.objects.get(id=response.data['image']['id'])
+        assert image.uploaded_by == user
+
+    def test_a_default_upload_type_outside_asset_types_is_refused(
+        self, authenticated_client
+    ):
+        """The only configuration that still 400s, and it is a misconfiguration
+        ``stapel_cdn.assets.W014`` names at boot."""
+        with override_settings(
+            STAPEL_CDN={'ASSET_TYPES': ('avatar',), 'DEFAULT_UPLOAD_TYPE': 'product'}
+        ):
             response = authenticated_client.post(
                 self.url, {'file': make_image_upload()}, format='multipart'
             )
         assert response.status_code == status.HTTP_400_BAD_REQUEST
         assert response.data['error'] == 'Invalid image type'
         assert Image.objects.count() == 0
-
-    def test_agrees_with_the_typed_endpoint_for_the_same_string(self, authenticated_client):
-        """Whatever ASSET_TYPES says about "product", both endpoints say the
-        same thing about it — never one 201 and the other 400 for identical
-        bytes and an identical type string."""
-        for asset_types in [('avatar',), ('avatar', 'product')]:
-            with override_settings(STAPEL_CDN={'ASSET_TYPES': asset_types}):
-                generic = authenticated_client.post(
-                    self.url, {'file': make_image_upload(color='teal')}, format='multipart'
-                )
-                typed = authenticated_client.post(
-                    self.typed_url,
-                    {'file': make_image_upload('t.jpg', color='maroon')},
-                    format='multipart',
-                )
-            assert (generic.status_code == status.HTTP_400_BAD_REQUEST) == (
-                typed.status_code == status.HTTP_400_BAD_REQUEST
-            ), (asset_types, generic.status_code, typed.status_code)
-
-    def test_accepted_once_product_is_configured(self, authenticated_client, user):
-        # Covered implicitly by every other test in this module (conftest's
-        # package-wide ASSET_TYPES override) — spelled out here once, next to
-        # the rejection case above, so the two outcomes read as one behavior.
-        response = authenticated_client.post(
-            self.url, {'file': make_image_upload(color='gold')}, format='multipart'
-        )
-        assert response.status_code == status.HTTP_201_CREATED
-        assert response.data['image']['type'] == 'product'
-        image = Image.objects.get(id=response.data['image']['id'])
-        assert image.uploaded_by == user
 
 
 @pytest.mark.django_db
@@ -471,7 +522,14 @@ class TestImageUploadValidationMatrix:
         image_payload = response.data['image']
         for key in ('id', 'file_hash', 'prefix', 'original_url', 'variant_720_url', 'is_processed'):
             assert key in image_payload
-        assert image_payload['prefix'] == f"product/{image_payload['file_hash']}"
+        # The prefix is the STORED type, which this endpoint reads from
+        # ASSET_TYPES (0.23.0) rather than from a literal — asserted against
+        # the same resolver the view uses, so this stays true on any
+        # ASSET_TYPES a future conftest configures.
+        from stapel_cdn.models import get_default_upload_type
+
+        expected_type = get_default_upload_type()
+        assert image_payload['prefix'] == f"{expected_type}/{image_payload['file_hash']}"
         assert image_payload['is_processed'] is False
 
 

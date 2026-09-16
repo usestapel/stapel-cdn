@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "stapel-cdn"
-version = "0.22.0"
+version = "0.23.0"
 description = "Media/CDN management Django app for the Stapel framework"
 readme = "README.md"
 license = { text = "MIT" }
@@ -29,7 +29,14 @@ dependencies = [
     # a DRF layer raises (auth, permission, routing, throttling) in the fleet
     # envelope. POST /describe/ stopped converting `Throttled` itself in 0.20,
     # so on an older core its 429 would answer DRF's bare `{"detail": ...}`.
-    "stapel-core>=0.61.0,<1.0",
+    # Raised to >=0.63.2 in 0.23.0. `tests/test_guest_surface.py` imports
+    # `GuestPrincipal` and `gate_admits` from
+    # `stapel_core.django.adoption_checks` — core 0.63.2's "run the gate
+    # instead of reading its spelling". On 0.61.0 the import raises and the
+    # gate that proves no view admits a guest without saying so does not run
+    # at all. The floor was a statement about what this library requires, and
+    # it was lower than what this library's own suite imports.
+    "stapel-core>=0.63.2,<1.0",
     "celery>=5",
 ]
 

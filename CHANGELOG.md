@@ -6,6 +6,85 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+## 0.23.0 — 2026-09-17
+
+**`POST /upload/image/` stored a type its own contract did not admit.** The
+endpoint's type is fixed rather than caller-chosen, and the fixed value was
+the string literal `"product"` — a value that is not in the shipped
+`ASSET_TYPES` default `("avatar",)`. 0.13.0 made the endpoint *validate* that
+literal against `STAPEL_CDN["ASSET_TYPES"]`, which was right as far as it
+went, and left this:
+
+* On the shipped default, and on the settings the contract is emitted from
+  (`_codegen_settings.py` sets no `STAPEL_CDN` at all), the endpoint had **no
+  reachable 2xx**. Every upload answered `400 error.400.invalid_image_type`,
+  while `docs/schema.json` declared a 201 and a 200.
+* Add `"product"` to `ASSET_TYPES` and the 201 arrives — carrying
+  `image.type == "product"`, which the same document's `TypeEnum`, generated
+  from that same setting, does not admit.
+
+Wrong under both configurations, in opposite directions. That is what said
+neither configuration was the mistake: the literal was. This package's own
+suite never saw it because `conftest.py` widens `ASSET_TYPES` to
+`("avatar", "product")` and says so in a comment — the fixtures predate the
+config being the source of truth.
+
+### Fixed
+
+- **The stored type is read from the setting.** New
+  `STAPEL_CDN["DEFAULT_UPLOAD_TYPE"]`, `None` by default, meaning *the first
+  `ASSET_TYPES` entry*. `Image.type`'s choices, the emitted `TypeEnum`, the
+  ref prefixes that route to `Image` and now the stored type all come from one
+  setting, so the declared body is true under **every** configuration by
+  construction rather than by agreement. On a zero-infra install that is
+  `"avatar"`.
+- **The second frozen copy, in the same file family.** `views.IMAGE_PREFIXES`
+  was `{"product", "avatar"}` — a module constant beside
+  `services._image_ref_prefixes()`, which had been de-hardcoded for exactly
+  this reason and whose docstring calls it out. A deployment with a third
+  asset type resolved `<third>/<hash>` one way through `services` and another
+  through `views._batch_resolve_media`. The view now calls the same reader,
+  promoted to `services.image_ref_prefixes()` (the private name stays as an
+  alias).
+
+### Added
+
+- **`stapel_cdn.assets.W014`** — `DEFAULT_UPLOAD_TYPE` names a value absent
+  from `ASSET_TYPES`, or `ASSET_TYPES` is empty. Both leave the endpoint with
+  no reachable 2xx, and a refusal that is correct for a reason nobody can see
+  from the response is what a boot check is for.
+- **`tests/test_asset_types_are_never_frozen.py`** — the gate for the class,
+  because this is the third frozen copy of one setting. A source scan for the
+  string `"product"` would catch none of the three reliably and fire on every
+  docstring. So it is behavioural: it configures an asset type **no literal
+  anywhere could contain** and requires every seam — model choices, the fixed
+  upload type, the stored row, both ref resolvers — to honour it. A frozen
+  copy cannot pass, whatever it is frozen to and wherever it is written.
+  Verified by reverting both call sites to their old literals and confirming
+  three of its tests go red.
+
+### Changed
+
+- **`stapel-core>=0.61.0` → `>=0.63.2`.** `tests/test_guest_surface.py`
+  imports `GuestPrincipal`/`gate_admits` from
+  `stapel_core.django.adoption_checks`, which is core 0.63.2. On the declared
+  floor that import raised and the gate did not run at all — the same defect
+  as the one above in a different dialect: a declaration that did not match
+  what the code actually requires.
+
+Verified at both ends of the declared range: the full suite is green against
+`stapel-core==0.63.2` (the floor exactly) and against 0.78.0.
+
+**Upgrade note.** A deployment relying on `/upload/image/` storing
+`"product"` must now pin it:
+`STAPEL_CDN["DEFAULT_UPLOAD_TYPE"] = "product"` (with `"product"` still in
+`ASSET_TYPES`). Without that pin the endpoint stores the first `ASSET_TYPES`
+entry instead. Existing rows are untouched, and refs already recorded keep
+resolving — `image_ref_prefixes()` accepts every configured type, so
+`product/<hash>` still routes to `Image` for as long as `"product"` is in
+`ASSET_TYPES`. A deployment on the shipped default gains a working endpoint
+where it previously had a 400.
+
 ## 0.22.0 — 2026-09-16
 
 ### Fixed — a filename a client chose no longer breaks, or quietly renames, an upload

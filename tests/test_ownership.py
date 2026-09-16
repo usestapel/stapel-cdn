@@ -81,7 +81,10 @@ class TestCollidingUploadRevealsNothing:
     @pytest.mark.parametrize(
         "url,image_type",
         [
-            ("/cdn/api/v1/upload/image/", "product"),
+            # The generic endpoint stores the FIRST ASSET_TYPES entry since
+            # 0.23.0 (conftest configures ("avatar", "product")), not the
+            # literal "product" it used to.
+            ("/cdn/api/v1/upload/image/", "avatar"),
             ("/cdn/api/v1/upload/avatar/", "avatar"),
             ("/cdn/api/v1/images/product/upload/", "product"),
         ],
