@@ -95,7 +95,14 @@ from .dto import (
     FileUploadResponse as FileUploadResponseDTO,
 )
 from .metadata import DESCRIBE_MANY_LIMIT
-from .models import Audio, File, Image, Video, get_image_type_choices
+from .models import (
+    Audio,
+    File,
+    Image,
+    Video,
+    get_default_upload_type,
+    get_image_type_choices,
+)
 from .serializers import (
     AudioSerializer,
     AudioUploadResponseSerializer,
@@ -284,11 +291,13 @@ A row that stays `pending` is a broken pipeline, not a slow one — see
 **Maximum file size:** `STAPEL_CDN["MAX_IMAGE_SIZE"]`, 20MB by default.
 Enforced before the body is hashed; over it the answer is 413.
 
-**Stored type:** `"product"` — one value from `STAPEL_CDN["ASSET_TYPES"]`,
-same as any type `TypedImageUploadView` accepts. The zero-infra default is
-`("avatar",)` only (see `ASSET_TYPES` in CONFIG.MD), so a deployment that
-never added `"product"` gets a 400 here, exactly as
-`/images/product/upload/` already does for that string.
+**Stored type:** `STAPEL_CDN["DEFAULT_UPLOAD_TYPE"]` when a deployment names
+one, otherwise the FIRST entry of `STAPEL_CDN["ASSET_TYPES"]` — read from the
+setting, never a literal, so the stored type is always a member of the
+`TypeEnum` this document generates from that same setting. On the zero-infra
+default (`ASSET_TYPES = ("avatar",)`) that is `"avatar"`. A `DEFAULT_UPLOAD_TYPE`
+naming a value absent from `ASSET_TYPES` is a misconfiguration: this endpoint
+answers 400 and `stapel_cdn.assets.W014` reports it at boot.
 """,
         request=FileUploadSerializer,
         responses={
@@ -339,14 +348,18 @@ never added `"product"` gets a 400 here, exactly as
         Variants are automatically generated via Django signals.
         """
         # This endpoint's type is fixed rather than caller-chosen (see
-        # TypedImageUploadView for that), but "product" is still one value
-        # from STAPEL_CDN["ASSET_TYPES"] like any other choice on the model —
-        # it must be validated the same way, or a zero-infra deployment
-        # (ASSET_TYPES defaults to ("avatar",) only) would silently store an
-        # image whose type isn't in its own choices, while
-        # /images/product/upload/ 400s for that identical string.
+        # TypedImageUploadView for that), but it is READ from conf, never a
+        # literal: `get_default_upload_type()` answers
+        # STAPEL_CDN["DEFAULT_UPLOAD_TYPE"] or the first ASSET_TYPES entry, so
+        # the value stored is a member of the same setting the model's choices
+        # and the emitted TypeEnum are generated from, under every
+        # configuration. It is still validated — an explicitly configured
+        # DEFAULT_UPLOAD_TYPE that is not in ASSET_TYPES is a misconfiguration
+        # this endpoint must refuse rather than store (checks.W010 reports it
+        # at boot), and an empty ASSET_TYPES leaves nothing to store at all.
+        upload_type = get_default_upload_type()
         valid_types = [choice[0] for choice in get_image_type_choices()]
-        if "product" not in valid_types:
+        if upload_type not in valid_types:
             return StapelErrorResponse(400, ERR_400_INVALID_IMAGE_TYPE)
 
         serializer = self.get_request_serializer_class()(data=request.data)
@@ -366,7 +379,7 @@ never added `"product"` gets a 400 here, exactly as
         # Owner-scoped dedup (CDN-02): "have these bytes been seen before?"
         # is answered only about objects this caller already owns.
         existing_image = Image.objects.filter(
-            dedup_scope_q(request.user), file_hash=file_hash, type="product"
+            dedup_scope_q(request.user), file_hash=file_hash, type=upload_type
         ).first()
         if existing_image:
             return StapelResponse(
@@ -394,7 +407,7 @@ never added `"product"` gets a 400 here, exactly as
                     Image, "original_filename", uploaded_file.name
                 ),
                 file_extension=bounds.fit(Image, "file_extension", file_extension),
-                type="product",
+                type=upload_type,
                 original=uploaded_file,
                 original_size=uploaded_file.size,
                 uploaded_by=request.user,
@@ -1019,11 +1032,14 @@ class TypedImageUploadView(SerializerSeamMixin, APIView):
     @extend_schema(
         operation_id="upload_typed_image",
         summary="Upload an image with specific type",
-        description="""Upload an image file with a specific type (product, avatar).
+        description="""Upload an image file with a caller-chosen type.
 
 **Supported formats:** JPEG, PNG, GIF, WebP, BMP, HEIC, HEIF
 
-**Available types:** product, avatar
+**Available types:** every entry of `STAPEL_CDN["ASSET_TYPES"]` — the same
+setting `TypeEnum` in this document is generated from. The zero-infra
+default is `("avatar",)`; anything else answers
+`error.400.invalid_image_type`.
 
 **Maximum file size:** `STAPEL_CDN["MAX_IMAGE_SIZE"]`, 20MB by default.
 Enforced before the body is hashed; over it the answer is 413.
@@ -1126,7 +1142,10 @@ class RandomImageView(SerializerSeamMixin, APIView):
         summary="Get random image by type",
         description="""Get a random image of the specified type.
 
-**Available types:** product, avatar
+**Available types:** every entry of `STAPEL_CDN["ASSET_TYPES"]` — the same
+setting `TypeEnum` in this document is generated from. The zero-infra
+default is `("avatar",)`; anything else answers
+`error.400.invalid_image_type`.
 
 **Requires:** Staff user or API key authentication.
 
@@ -1171,7 +1190,19 @@ ALLOWED_FILE_EXTENSIONS = frozenset(DEFAULTS["ALLOWED_FILE_EXTENSIONS"])
 ALLOWED_MIME_TYPES = frozenset(DEFAULTS["ALLOWED_FILE_MIME_TYPES"])
 
 
-IMAGE_PREFIXES = {"product", "avatar"}
+#: Ref prefixes that route to `Image`. Read fresh from
+#: `STAPEL_CDN["ASSET_TYPES"]` on every call — NOT a module constant.
+#:
+#: This was `{"product", "avatar"}` until 0.23.0: a frozen copy of a setting,
+#: sitting beside `services._image_ref_prefixes()`, which had been fixed for
+#: exactly this reason and whose own docstring says so. A deployment with a
+#: third asset type resolved `<third>/<hash>` one way through `services` and
+#: another way through this view. Same defect, same file family, twice.
+#: `tests/test_asset_types_are_never_frozen.py` is the gate: it configures a
+#: type no literal could contain and requires every seam to honour it.
+#:
+#: Imported inside the function, like every other `services` use in this
+#: module — `services` imports back from here at module scope.
 
 
 def _batch_resolve_media(ref_strings, for_update=False):
@@ -1195,12 +1226,16 @@ def _batch_resolve_media(ref_strings, for_update=False):
     video_lookups = {}  # hash → ref_str
     file_lookups = {}  # hash → ref_str
 
+    from .services import image_ref_prefixes
+
+    image_prefixes = image_ref_prefixes()
+
     for ref_str in ref_strings:
         parts = ref_str.split("/")
         if len(parts) != 2:
             continue
         prefix, file_hash = parts
-        if prefix in IMAGE_PREFIXES:
+        if prefix in image_prefixes:
             image_lookups[(prefix, file_hash)] = ref_str
         elif prefix == "video":
             video_lookups[file_hash] = ref_str
