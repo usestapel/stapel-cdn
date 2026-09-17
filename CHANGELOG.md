@@ -1,5 +1,24 @@
 # Changelog
 
+## [0.23.1] — 2026-09-17
+
+Patch: delete this module's copies of `gdpr.section.erased` and
+`gdpr.owner.alive`.
+
+`stapel-core` owns both facts and has shipped schemas for them since 0.81.0.
+These copies validated identically to core's — they differed only in prose —
+so nothing was being refused. They are deleted because identical copies are how
+divergent ones start: two sibling modules had already drifted theirs into
+pinning `owner` to their own name, which rejects every other owner's receipt
+inside the erasure's transaction.
+
+This module's copy is also what took a fleet's cdn family to `Restarting` on
+2026-09-17, when core 0.81.0 shipped `comm.E010` at Error level. Core 0.82.2
+grades that check by whether the copy actually validates differently; this
+release removes the reason to report it at all.
+
+Floor moves to `stapel-core>=0.81.0`, the release that ships the two schemas.
+
 All notable changes to this project will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
