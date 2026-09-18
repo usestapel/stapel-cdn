@@ -1,5 +1,52 @@
 # Changelog
 
+## [0.25.0] — 2026-09-18
+
+Minor: the erasure protocol is core's, not this module's copy of it.
+
+`apps.ready()` now calls `stapel_core.gdpr.register_gdpr_owner("media",
+("account", "workspace", "file", "recording"), erasure.erase)`. That one call
+subscribes `gdpr.erasure.requested`, `gdpr.owner.probe` and the pre-0.5.0
+`user.deleted`, builds the receipt inside the erasure's transaction, stays
+silent for a subject type this module does not claim, logs and drops a
+malformed payload, and answers the probe from the subscriber that erases.
+
+`actions.handle_erasure_requested`, `actions.handle_owner_probe` and
+`actions.handle_user_deleted` are deleted. Nothing about the erasure itself
+changed: the same `erasure.erase` destroys the same rows and blobs, keeps the
+same refcount discipline and returns the same counts, under the same owner
+name `media` — receipts and `ErasurePart` rows are keyed by that name, and
+renaming it would orphan every row an orchestrator already holds.
+`MediaErasureIncomplete` still escapes the handler, so a blob that could not
+be unlinked still rolls the receipt back and is redelivered.
+
+**Two payload details move, both to core's canonical form.**
+
+* `receipt_id` is now `media:<subject_type>:<subject_key>:<correlation_id>`
+  instead of `media:<correlation_id>`. Still derived, so a redelivery mints
+  the same id; it now also distinguishes two subjects erased under one
+  request.
+* The `user.deleted` receipt is the owner protocol's payload (`owner`,
+  `subject_type`, `subject_key`, `receipt_id`, `counts`) plus `user_id`,
+  where it used to be the 0.4.x `{user_id, correlation_id, service}`.
+  stapel-gdpr reads the section from `owner` **or** from the older `service`,
+  so a host on either orchestrator lands the receipt on the same part — and
+  it now carries counts, which the old shape could not.
+
+**Why it matters in a service.** Core's provider bridge answers
+`gdpr.erasure.requested` for a registered `GDPRProvider` that nothing else
+answers for. A library that ALSO hand-wrote the protocol made the bridge's
+decision an app-level guess (`gdpr.W012` at core 0.85.1): it yields for every
+section that app registers, whether or not the hand-written handler speaks for
+that one. One registration makes the question exact, and `manage.py check` on
+this module's settings now reports neither `gdpr.W012` nor `gdpr.E011` —
+pinned by a test, alongside one fan-out writing exactly one receipt per part.
+
+`erasure.erase` takes `workspace_id` as a positional third parameter (the
+shape the protocol calls), accepted and ignored as before.
+
+Floor: `stapel-core>=0.85.1`.
+
 ## [0.24.0] — 2026-09-18
 
 Minor, no migration: the eight derived video URLs are declared **nullable**.

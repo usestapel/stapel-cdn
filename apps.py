@@ -27,6 +27,17 @@ class CdnConfig(AppConfig):
         # microservices — same code, transport chosen by STAPEL_COMM).
         from . import actions  # noqa: F401
 
+        # The erasure protocol, implemented once in stapel-core:
+        # gdpr.erasure.requested -> erase -> gdpr.section.erased with a
+        # deterministic receipt inside the erase's transaction, the
+        # gdpr.owner.probe answer from the same subscriber, and the
+        # deprecated user.deleted account path. No protocol code here.
+        from stapel_core.gdpr import register_gdpr_owner
+
+        from .erasure import OWNER, SUBJECT_TYPES, erase
+
+        register_gdpr_owner(OWNER, SUBJECT_TYPES, erase)
+
         # comm Function providers (cdn.media_exists, cdn.describe,
         # cdn.describe_many, cdn.import_from_url, cdn.refs_sync).
         # Idempotent even if ready() runs more than once: the module import

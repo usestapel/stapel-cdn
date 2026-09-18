@@ -7,10 +7,17 @@ import pytest
 from pathlib import Path
 from unittest.mock import MagicMock, patch
 from django.core.files.uploadedfile import SimpleUploadedFile
-from stapel_cdn.actions import handle_user_deleted, handle_user_deletion_initiated
+from stapel_core.gdpr import register_gdpr_owner
+
+from stapel_cdn.actions import handle_user_deletion_initiated
+from stapel_cdn.erasure import OWNER, SUBJECT_TYPES, erase
 from stapel_cdn.gdpr import CDNGDPRProvider, _serialize_dates
 from stapel_cdn.models import File, Image, Video
 from stapel_core.django.users.models import User
+
+#: The registration `apps.ready()` made — same terms, so this hands back
+#: the existing one and reaches the handlers the bus calls.
+MEDIA_OWNER = register_gdpr_owner(OWNER, SUBJECT_TYPES, erase)
 
 
 @pytest.fixture
@@ -145,7 +152,7 @@ class TestHandleUserDeleted:
         _make_image(user, refs=[])
         event = MagicMock()
         event.payload = {'user_id': user.id}
-        handle_user_deleted(event)
+        MEDIA_OWNER.handle_user_deleted(event)
         assert Image.objects.count() == 0
 
     def test_missing_user_id_logged(self, user):
@@ -153,7 +160,7 @@ class TestHandleUserDeleted:
         event = MagicMock()
         event.payload = {}
         event.event_id = 'evt-1'
-        handle_user_deleted(event)
+        MEDIA_OWNER.handle_user_deleted(event)
         # Nothing deleted without a user_id
         assert Image.objects.count() == 1
 
@@ -169,15 +176,23 @@ class TestHandleUserDeletedConfirmation:
         event = MagicMock()
         event.payload = {'user_id': user.id, 'correlation_id': 'corr-42'}
         with patch('stapel_core.comm.emit') as m_emit:
-            handle_user_deleted(event)
+            MEDIA_OWNER.handle_user_deleted(event)
         assert Image.objects.count() == 0
         m_emit.assert_called_once()
         args, kwargs = m_emit.call_args
         assert args[0] == 'gdpr.section.erased'
+        # The owner protocol's receipt, carrying user_id for the
+        # account-only form. stapel-gdpr reads the section from `owner` or
+        # from the older `service`, so both orchestrators land it on the
+        # same part.
         assert args[1] == {
-            'user_id': str(user.id),
+            'owner': 'media',
+            'subject_type': 'account',
+            'subject_key': str(user.id),
             'correlation_id': 'corr-42',
-            'service': 'media',
+            'receipt_id': f'media:account:{user.id}:corr-42',
+            'counts': {'objects_removed': 1, 'objects_anonymized': 0},
+            'user_id': str(user.id),
         }
 
     def test_no_confirmation_without_correlation_id(self, user):
@@ -187,7 +202,7 @@ class TestHandleUserDeletedConfirmation:
         event = MagicMock()
         event.payload = {'user_id': user.id}
         with patch('stapel_core.comm.emit') as m_emit:
-            handle_user_deleted(event)
+            MEDIA_OWNER.handle_user_deleted(event)
         assert Image.objects.count() == 0
         m_emit.assert_not_called()
 
@@ -295,7 +310,7 @@ class TestErasureFailureIsNotAReceipt:
 
         with patch('stapel_core.comm.emit') as m_emit:
             with self._unlink_fails(), pytest.raises(Exception):
-                handle_user_deleted(event)
+                MEDIA_OWNER.handle_user_deleted(event)
 
         m_emit.assert_not_called()
         assert Image.objects.count() == 1

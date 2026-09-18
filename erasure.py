@@ -53,12 +53,18 @@ SUBJECT_TYPES = ("account", "workspace", "file", "recording")
 _ENTITY_TYPES = {"recording": "recording", "workspace": "workspace"}
 
 
-def erase(subject_type: str, subject_key, *, workspace_id=None) -> dict:
+def erase(subject_type: str, subject_key, workspace_id=None) -> dict:
     """Erase everything this module owns about one subject; return the counts.
+
+    The shape :func:`stapel_core.gdpr.register_gdpr_owner` calls, which is
+    what reaches this module over comm. ``workspace_id`` is a partition hint
+    for owners that need one; a workspace subject is named by its key here,
+    so it is accepted and ignored.
 
     An unclaimed subject type raises :class:`ValueError` — a typo must not
     receipt as an empty success, which would certify an erasure nobody
-    performed.
+    performed. The protocol never reaches that branch: the registration
+    filters on :data:`SUBJECT_TYPES` before calling.
     """
     if subject_type == "account":
         return erase_account(subject_key)

@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "stapel-cdn"
-version = "0.24.0"
+version = "0.25.0"
 description = "Media/CDN management Django app for the Stapel framework"
 readme = "README.md"
 license = { text = "MIT" }
@@ -36,7 +36,12 @@ dependencies = [
     # gate that proves no view admits a guest without saying so does not run
     # at all. The floor was a statement about what this library requires, and
     # it was lower than what this library's own suite imports.
-    "stapel-core>=0.81.0,<1.0",
+    # 0.85.1 floor: the erasure protocol this module used to hand-write is
+    # core's `register_gdpr_owner` since 0.25.0, and 0.85.1 is the release
+    # whose provider bridge decides what already answers for a section
+    # (`gdpr.W012`, `gdpr.E011`) — what keeps one erasure part to one receipt
+    # in a service that installs this app.
+    "stapel-core>=0.85.1,<1.0",
     "celery>=5",
 ]
 

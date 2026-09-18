@@ -11,13 +11,19 @@ import pytest
 from django.core.files.uploadedfile import SimpleUploadedFile
 from stapel_core.django.users.models import User
 
-from stapel_cdn.actions import (
-    handle_erasure_requested,
-    handle_owner_probe,
-    handle_user_deleted,
-)
-from stapel_cdn.erasure import erase
+from django.core.checks import run_checks
+from stapel_core.comm import action_registry
+from stapel_core.comm.actions import deliver_to_subscribers
+from stapel_core.gdpr import register_gdpr_owner, registered_gdpr_owners
+
+from stapel_cdn.erasure import OWNER, SUBJECT_TYPES, erase
 from stapel_cdn.models import Audio, File, Image, Video
+
+#: The registration `apps.ready()` made. Same terms means the helper hands the
+#: existing registration back rather than subscribing a second time, so this is
+#: both how the tests reach the protocol handlers and an assertion that
+#: `ready()` performed the registration with exactly these terms.
+MEDIA_OWNER = register_gdpr_owner(OWNER, SUBJECT_TYPES, erase)
 
 pytestmark = pytest.mark.django_db
 
@@ -99,7 +105,7 @@ def _request(subject_type, subject_key, correlation_id="corr-1", **extra):
     }
     event.event_id = "evt-erasure"
     with patch("stapel_core.comm.emit") as emit:
-        handle_erasure_requested(event)
+        MEDIA_OWNER.handle_erasure_requested(event)
     return emit
 
 
@@ -126,7 +132,9 @@ class TestFileSubject:
         assert receipt["owner"] == "media"
         assert receipt["subject_type"] == "file"
         assert receipt["subject_key"] == f"avatar/{image.file_hash}"
-        assert receipt["receipt_id"] == "media:corr-1"
+        assert receipt["receipt_id"] == (
+            f"media:file:avatar/{image.file_hash}:corr-1"
+        )
         assert receipt["counts"]["objects_removed"] == 1
         assert receipt["counts"]["blobs_unlinked"] == 1
 
@@ -305,26 +313,33 @@ class TestAccountSubject:
         assert first["counts"]["objects_removed"] == 1
         assert second["counts"] == {"objects_removed": 0, "objects_anonymized": 0}
 
-    def test_user_deleted_still_erases_and_still_receipts_its_legacy_shape(
-        self, user
-    ):
+    def test_user_deleted_still_erases_and_still_receipts(self, user):
         """The deprecated event keeps working for one minor, routed through
-        the same erase; its receipt keeps the 0.4.x payload so a host on the
-        older orchestrator still completes."""
+        the same erase.
+
+        The receipt is the owner protocol's now, and it still names this
+        owner: stapel-gdpr reads the section from `owner` or from the older
+        `service`, so a host on either orchestrator lands it on the same
+        part — and `user_id` is carried for the account-only form.
+        """
         _image(user, refs=[])
         event = MagicMock()
         event.payload = {"user_id": user.id, "correlation_id": "corr-42"}
 
         with patch("stapel_core.comm.emit") as emit:
-            handle_user_deleted(event)
+            MEDIA_OWNER.handle_user_deleted(event)
 
         assert Image.objects.count() == 0
         args, _ = emit.call_args
         assert args[0] == "gdpr.section.erased"
         assert args[1] == {
-            "user_id": str(user.id),
+            "owner": "media",
+            "subject_type": "account",
+            "subject_key": str(user.id),
             "correlation_id": "corr-42",
-            "service": "media",
+            "receipt_id": f"media:account:{user.id}:corr-42",
+            "counts": {"objects_removed": 1, "objects_anonymized": 0},
+            "user_id": str(user.id),
         }
 
 
@@ -343,7 +358,7 @@ class TestForeignAndMalformedRequests:
         event.event_id = "evt-bad"
 
         with patch("stapel_core.comm.emit") as emit:
-            handle_erasure_requested(event)
+            MEDIA_OWNER.handle_erasure_requested(event)
 
         emit.assert_not_called()
 
@@ -358,7 +373,7 @@ class TestOwnerProbe:
         event.payload = {"correlation_id": "corr-probe"}
 
         with patch("stapel_core.comm.emit") as emit:
-            handle_owner_probe(event)
+            MEDIA_OWNER.handle_owner_probe(event)
 
         args, _ = emit.call_args
         assert args[0] == "gdpr.owner.alive"
@@ -371,10 +386,12 @@ class TestOwnerProbe:
     def test_the_probe_is_answered_from_the_erasure_subscriber(self):
         """Co-location is the contract: gdpr's W006 reads these answers as
         evidence that the erasure path is consumed, so an answer from a
-        module that does not also erase would make the check lie."""
-        assert handle_owner_probe.__module__ == handle_erasure_requested.__module__ == (
-            "stapel_cdn.actions"
-        )
+        module that does not also erase would make the check lie. One
+        registration builds both handlers over one ``erase``, which is what
+        keeps them together."""
+        assert MEDIA_OWNER.handle_owner_probe.stapel_gdpr_owner == OWNER
+        assert MEDIA_OWNER.handle_erasure_requested.stapel_gdpr_owner == OWNER
+        assert MEDIA_OWNER.erase is erase
 
     def test_the_owner_name_is_the_provider_section(self):
         from stapel_cdn.erasure import OWNER
@@ -391,3 +408,81 @@ class TestOwnerProbe:
         }
         for subject_type in SUBJECT_TYPES:
             erase(subject_type, keys.get(subject_type, "some-id"))  # no ValueError
+
+
+class TestTheRegistration:
+    """What ``apps.ready()`` put on the bus, and what one fan-out produces."""
+
+    def test_the_owner_claims_the_four_subject_types_it_erases(self):
+        assert registered_gdpr_owners()[OWNER] == tuple(SUBJECT_TYPES)
+
+    def test_the_three_protocol_actions_are_subscribed(self):
+        assert action_registry.handlers("gdpr.erasure.requested")
+        assert action_registry.handlers("gdpr.owner.probe")
+        # The deprecated account signal, until stapel-gdpr 0.6.0 drops it.
+        assert action_registry.handlers("user.deleted")
+
+    def test_boot_reports_no_second_answerer_and_no_stranded_section(self):
+        """``manage.py check`` on this module's settings.
+
+        ``gdpr.W012`` is core's bridge naming a library that answers the
+        protocol by hand beside it; ``gdpr.E011`` is a registered provider
+        nothing in the process answers for. This module must raise neither:
+        one registration, one answerer, one receipt per part.
+        """
+        ids = {message.id for message in run_checks()}
+
+        assert "stapel_core.gdpr.W012" not in ids
+        assert "stapel_core.gdpr.E011" not in ids
+
+    def test_one_fan_out_writes_exactly_one_receipt(self, user):
+        """Every subscriber of the action, delivered as the bus delivers it.
+
+        Core's provider bridge is subscribed too and would answer for a
+        section nothing else claims — one part, two receipts, two deletions
+        asserted where one happened.
+        """
+        _image(user, refs=[])
+        event = MagicMock()
+        event.payload = {
+            "correlation_id": "corr-fanout",
+            "subject_type": "account",
+            "subject_key": str(user.id),
+        }
+        event.event_id = "evt-fanout"
+        handlers = action_registry.handlers("gdpr.erasure.requested")
+
+        with patch("stapel_core.comm.emit") as emit:
+            failures = deliver_to_subscribers(event, handlers)
+
+        assert failures == []
+        receipts = [
+            call.args[1] for call in emit.call_args_list
+            if call.args[0] == "gdpr.section.erased"
+        ]
+        assert len(receipts) == 1
+        assert receipts[0]["owner"] == OWNER
+        assert receipts[0]["counts"]["objects_removed"] == 1
+
+    def test_a_second_fan_out_removes_nothing_and_still_receipts(self, user):
+        _image(user, refs=[])
+        event = MagicMock()
+        event.payload = {
+            "correlation_id": "corr-again",
+            "subject_type": "account",
+            "subject_key": str(user.id),
+        }
+        event.event_id = "evt-again"
+        handlers = action_registry.handlers("gdpr.erasure.requested")
+
+        with patch("stapel_core.comm.emit") as emit:
+            deliver_to_subscribers(event, handlers)
+            deliver_to_subscribers(event, handlers)
+
+        receipts = [
+            call.args[1] for call in emit.call_args_list
+            if call.args[0] == "gdpr.section.erased"
+        ]
+        assert len(receipts) == 2
+        assert receipts[1]["counts"]["objects_removed"] == 0
+        assert receipts[1]["receipt_id"] == receipts[0]["receipt_id"]

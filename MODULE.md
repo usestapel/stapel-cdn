@@ -334,10 +334,10 @@ class MyImageUpload(ImageUploadView):
 | `cdn.describe` | provides (function) | `call("cdn.describe", {"ref": "<type>/<hash>"})` → the render-metadata snapshot (table above). `LookupError` (surfaced as `FunctionCallError`) for an unknown ref — a missing asset is the caller's placeholder case, not an empty snapshot. |
 | `cdn.describe_many` | provides (function) | `call("cdn.describe_many", {"refs": [...]})` → `{"items": {ref: snapshot}, "missing": [ref, ...]}`. One query per model for a whole page of attachments; an unknown ref is data, not an error. Max 50 refs per call. |
 | `cdn.refs_sync` | provides (function) | `call("cdn.refs_sync", {"service", "entity_type", "entity_id", "old_hashes", "new_hashes"})` → `{"added", "removed", "errors"}`. Same logic as `RefSyncView` / `services.apply_ref_sync`. |
-| `gdpr.erasure.requested` | subscribes (action) | Subject-scoped erasure — `account` \| `workspace` \| `file` \| `recording` (see **Erasure** below), confirmed with `gdpr.section.erased` carrying `{owner: "media", subject_type, subject_key, receipt_id, counts}` in the same transaction. Schema: `schemas/consumes/gdpr.erasure.requested.json`. Idempotent. |
-| `gdpr.owner.probe` | subscribes (action) | Answered with `gdpr.owner.alive {owner: "media", subject_types}` from the *same* subscriber that erases. Schema: `schemas/consumes/gdpr.owner.probe.json`. |
+| `gdpr.erasure.requested` | subscribes (action) | Subject-scoped erasure — `account` \| `workspace` \| `file` \| `recording` (see **Erasure** below), confirmed with `gdpr.section.erased` carrying `{owner: "media", subject_type, subject_key, receipt_id, counts}` in the same transaction. Subscribed by `stapel_core.gdpr.register_gdpr_owner` from `apps.ready()` over `erasure.erase`. Schema: `schemas/consumes/gdpr.erasure.requested.json`. Idempotent. |
+| `gdpr.owner.probe` | subscribes (action) | Answered with `gdpr.owner.alive {owner: "media", subject_types}` from the *same* subscriber that erases (same registration). Schema: `schemas/consumes/gdpr.owner.probe.json`. |
 | `gdpr.section.erased` / `gdpr.owner.alive` | emits (action) | The receipt and the probe answer above. Schemas: `schemas/emits/`. |
-| `user.deleted` | subscribes (action) | The pre-0.5.0 account path, now routed through `erasure.erase("account", …)`; when the payload carries a `correlation_id` it confirms with `gdpr.section.erased` in its 0.4.x shape (`service: "media"`) so a host on the older orchestrator still completes. Deprecated in stapel-gdpr 0.5.0, removed there in 0.6.0. Schema: `schemas/consumes/user.deleted.json`. Idempotent. |
+| `user.deleted` | subscribes (action) | The pre-0.5.0 account path, routed through `erasure.erase("account", …)` by the same registration; when the payload carries a `correlation_id` it confirms with `gdpr.section.erased` — the owner protocol's payload, plus `user_id` for the account-only form (0.25.0; stapel-gdpr reads the section from `owner` or from the older `service`, so both orchestrators land it on the same part). Deprecated in stapel-gdpr 0.5.0, removed there in 0.6.0. Schema: `schemas/consumes/user.deleted.json`. Idempotent. |
 | `user.deletion_initiated` | subscribes (action) | Grace period started: purges the user's *unreferenced* media (`refs == []`) via `CDNGDPRProvider.purge_unreferenced()`; referenced media keeps serving (and its ownership link) until `user.deleted` — grace is cancellable. Schema: `schemas/consumes/user.deletion_initiated.json`. Idempotent. |
 | `user.merged` | subscribes (action) | The opposite instruction to `user.deleted`: a guest account was folded into an existing one, so `uploaded_by` is re-pointed on `Image`, `Video`, `File` and `Audio` — nothing is erased. Dedup is owner-scoped, so a guest object whose bytes the survivor already holds is folded into the survivor's row (refs unioned, duplicate row dropped, blob never unlinked). A survivor with no user row here yet raises `MergeTargetNotReady` so the outbox redelivers rather than marking the uploads delivered-and-lost. Schema: `schemas/consumes/user.merged.json`. Idempotent. |
 | `cdn.ref.sync` | consumes (bus) | `manage.py consume_cdn_events` (Kafka topic `stapel.cdn.ref-sync`); the producer-side helper `sync_cdn_refs()` lives in `stapel_core.django.cdn.ref_sync`, so other modules publish without importing this package. |
@@ -348,11 +348,15 @@ Registration happens in `CdnConfig.ready()`; transport (in-process vs bus) is ch
 ### Erasure
 
 This module is the **`media`** data owner in stapel-gdpr's erasure protocol
-(deletion-lifecycle §1.3/§2). One subscriber (`actions.py`) handles both
-`gdpr.erasure.requested` and `gdpr.owner.probe`; the erasing itself lives in
-`erasure.py` (`erase(subject_type, subject_key) -> counts`), callable
-in-process too. Declare it exactly as it claims itself
-(`stapel_cdn.erasure.OWNER` / `SUBJECT_TYPES`):
+(deletion-lifecycle §1.3/§2). `apps.ready()` calls
+`stapel_core.gdpr.register_gdpr_owner("media", SUBJECT_TYPES,
+erasure.erase)`, and core builds the protocol: one subscriber answers
+`gdpr.erasure.requested` and `gdpr.owner.probe`, the receipt (with core's
+deterministic `receipt_id`) rides the erasure's transaction, and the probe
+is answered by the subscriber that erases. This module keeps what is its own
+— `erasure.py` (`erase(subject_type, subject_key, workspace_id=None) ->
+counts`), callable in-process too. Declare the owner exactly as it claims
+itself (`stapel_cdn.erasure.OWNER` / `SUBJECT_TYPES`):
 
 ```python
 STAPEL_GDPR = {"DATA_OWNERS": {"media": ["account", "workspace", "file", "recording"]}}
