@@ -51,18 +51,23 @@ WHAT IT FOUND on its first run — 11 operations, 17 declared (method, path,
 2xx) rows, all driven, 5 red (2 of them the same defect on an operation's two
 declared codes), in three families:
 
-1. ``POST /upload/video/`` declares seven ``variant_*p_url`` fields and a
-   ``poster_url`` as REQUIRED, non-nullable ``string``/``uri``, and sends
-   **null** for all eight on every video it has ever accepted. They are
+1. ``POST /upload/video/`` declared seven ``variant_*p_url`` fields and a
+   ``poster_url`` as REQUIRED, non-nullable ``string``/``uri``, and sent
+   **null** for all eight on every video it had ever accepted. They are
    ``SerializerMethodField``s returning ``obj.variant_16.url if
-   obj.variant_16 else None`` (serializers.py:426-451) and
-   ``Video.poster_url``, which returns ``None`` "while none has been
-   written" (models.py:649-661) — its own docstring says so. The
-   ``@extend_schema_field(OpenApiTypes.URI)`` decorator above each getter is
-   what erases the null from the claim: it pins the field to a bare URI and
-   drf-spectacular copies that. Nothing in this module writes a video variant
-   (``VideoProcessingService`` is the documented TODO), so the declared shape
-   is unreachable in every state, not just the empty one.
+   obj.variant_16 else None`` and ``Video.poster_url``, which returns
+   ``None`` "while none has been written" (models.py, its own docstring).
+   The ``@extend_schema_field(OpenApiTypes.URI)`` decorator above each getter
+   was what erased the null from the claim: it pins the field to a bare URI
+   and drf-spectacular copies that.
+
+   **CLOSED in 0.24.0**: the eight are produced ASYNCHRONOUSLY — the ladder
+   is transcoded and the poster cut after the upload has answered — so they
+   are declared ``nullable`` (``NULLABLE_URI`` in serializers.py) and stay in
+   the payload, where a client that polls the row finds them filling in.
+   The 200 recipe below now drives a row mid-transcode (one rung and the
+   poster written, the rest still null), because a gate that only ever sees
+   these null has checked one half of a two-valued claim.
 2. **CLOSED in 0.23.0**, recorded because the shape recurs. ``POST
    /upload/image/`` declared a 201 and a 200 it could not answer under the
    configuration the contract was emitted from: the view stored a FIXED
@@ -763,7 +768,16 @@ def _video_create(call):
 
 @recipe("POST", "/upload/video/", 200)
 def _video_dedup(call):
-    """The same bytes again, on a row whose geometry and duration are known."""
+    """The same bytes again, on a row the pipeline has already worked on.
+
+    Geometry and duration are known, ONE variant of the ladder has been
+    written and so has the poster. The eight derived URLs are declared
+    nullable because they are produced out of band — but a gate that only
+    ever sees them null has checked half of that claim, and the half it
+    skipped is the one a player actually renders. Here the 720p rung and the
+    poster carry a string while the other six rungs are still null, which is
+    the ordinary shape of a ladder mid-transcode.
+    """
     from stapel_cdn.models import Video
 
     user = make_user()
@@ -771,10 +785,23 @@ def _video_dedup(call):
     client = client_for(user)
     first = post_file(client, call.url(), uploaded)
     assert first.status_code == 201, first.content
-    Video.objects.filter(pk=first.json()["video"]["id"]).update(
-        original_width=1920, original_height=1080, duration=42.0
+    row = Video.objects.get(pk=first.json()["video"]["id"])
+    Video.objects.filter(pk=row.pk).update(
+        original_width=1920,
+        original_height=1080,
+        duration=42.0,
+        has_poster=True,
+        variant_720=f"video/{row.file_hash}/clip-720p.mp4",
     )
-    return call(client, data={"file": again(uploaded)}, fmt="multipart")
+    answer = call(client, data={"file": again(uploaded)}, fmt="multipart")
+    body = answer.json()["video"]
+    # The nullable half is checked by the empty-state recipe below; this
+    # branch exists for the OTHER half, so it fails loudly if the state it
+    # was written for stops being reachable.
+    assert body["variant_720p_url"], body
+    assert body["poster_url"], body
+    assert body["variant_1080p_url"] is None, body
+    return answer
 
 
 @empty_state("POST", "/upload/video/", 200)
@@ -794,30 +821,13 @@ def _video_dedup_bare(call):
 # ─────────────────────────────────────────────────────────────────────────────
 
 
-_VIDEO_URLS = (
-    "POST " + V1 + "/upload/video/ declares seven `variant_*p_url` fields and "
-    "`poster_url` as REQUIRED, non-nullable string/uri and sends null for all "
-    "eight — on every video, in every state, because nothing in this module "
-    "writes a video variant (VideoProcessingService.process_video is the "
-    "documented TODO) and `Video.poster_url` returns None while no poster has "
-    "been written (models.py:649-661, its own docstring). The nulls come from "
-    "`obj.variant_16.url if obj.variant_16 else None` and friends "
-    "(serializers.py:426-451). OWNER: this module's VideoSerializer — the "
-    "`@extend_schema_field(OpenApiTypes.URI)` decorator over each getter "
-    "(serializers.py:411, 421-451) is what erases the null from the claim; "
-    "`OpenApiTypes.URI` has a nullable sibling and the Image ladder does not "
-    "need one because those URLs are derived from the hash and are never null."
-)
 
 #: Operations whose declared body the wire does not send, keyed by
 #: ``(METHOD, path, code)`` — this module declares two 2xx codes on six of
 #: its operations, and a defect can live on one of them and not the other.
 #: An entry names the defect AND its owner, and ``strict=True`` turns a fixed
 #: one into a failure until the entry is deleted.
-KNOWN_MISMATCHES = {
-    ("POST", V1 + "/upload/video/", 201): _VIDEO_URLS,
-    ("POST", V1 + "/upload/video/", 200): _VIDEO_URLS,
-}
+KNOWN_MISMATCHES: dict = {}
 
 _UNOWNED_USERNAME = (
     "`uploaded_by_username` is declared a REQUIRED, non-nullable string and "
@@ -843,7 +853,6 @@ _UNOWNED_USERNAME = (
 #: The same, for the EMPTY-state pass: a defect can live in one state and not
 #: the other, and marking both would hide a claim the wire actually keeps.
 KNOWN_MISMATCHES_EMPTY = {
-    ("POST", V1 + "/upload/video/", 200): _VIDEO_URLS,
     ("GET", V1 + "/images/{image_type}/random/", 200): _UNOWNED_USERNAME,
 }
 

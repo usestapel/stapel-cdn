@@ -1,5 +1,35 @@
 # Changelog
 
+## [0.24.0] — 2026-09-18
+
+Minor, no migration: the eight derived video URLs are declared **nullable**.
+`docs/schema.json` changes shape (`Video`), so the frontend pair must be
+regenerated; the wire is byte-for-byte what it was.
+
+`POST /upload/video/` declares seven `variant_*p_url` fields and `poster_url`
+as REQUIRED `string`/`uri` — and sends **null** for all eight on every video
+it has ever accepted. It has to: the ladder is transcoded and the poster is
+cut AFTER the upload has answered, and `Video.poster_url` says so in its own
+docstring ("`None` while none has been written"). The
+`@extend_schema_field(OpenApiTypes.URI)` decorator over each getter is what
+erased the null from the claim — it pins the field to a bare URI, and
+drf-spectacular copies what it is given. A client generated from this
+contract typed eight non-null strings and read null from the very response
+that created the row.
+
+The fields **stay in the payload** — a client polling the row watches them
+fill in, and removing them would take that away — and are now declared for
+what they are: `nullable: true` (`NULLABLE_URI` in `serializers.py`, one
+schema shared by the eight getters). Nothing about the bodies changes. The
+Image ladder is untouched and needs no such schema: those URLs are derived
+from the hash and exist the moment the row does.
+
+`tests/test_contract_wire.py` now also drives a row MID-TRANSCODE — the 720p
+rung and the poster written, the other six rungs still null — because a gate
+that only ever sees these null has checked one half of a two-valued claim,
+and the half it skipped is the one a player renders. The `KNOWN_MISMATCHES`
+entries for both declared codes are deleted.
+
 ## [0.23.1] — 2026-09-17
 
 Patch: delete this module's copies of `gdpr.section.erased` and

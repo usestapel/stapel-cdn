@@ -2277,41 +2277,49 @@
           "variant_16p_url": {
             "type": "string",
             "format": "uri",
+            "nullable": true,
             "readOnly": true
           },
           "variant_32p_url": {
             "type": "string",
             "format": "uri",
+            "nullable": true,
             "readOnly": true
           },
           "variant_240p_url": {
             "type": "string",
             "format": "uri",
+            "nullable": true,
             "readOnly": true
           },
           "variant_480p_url": {
             "type": "string",
             "format": "uri",
+            "nullable": true,
             "readOnly": true
           },
           "variant_720p_url": {
             "type": "string",
             "format": "uri",
+            "nullable": true,
             "readOnly": true
           },
           "variant_1080p_url": {
             "type": "string",
             "format": "uri",
+            "nullable": true,
             "readOnly": true
           },
           "variant_2160p_url": {
             "type": "string",
             "format": "uri",
+            "nullable": true,
             "readOnly": true
           },
           "poster_url": {
             "type": "string",
             "format": "uri",
+            "nullable": true,
             "readOnly": true,
             "description": "Derived poster frame; null until one has been written."
           },

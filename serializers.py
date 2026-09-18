@@ -346,6 +346,18 @@ class ImageSerializer(serializers.ModelSerializer):
         return obj.get_variant_url(2160)
 
 
+#: A URL that only EXISTS once the asynchronous pipeline has written the file
+#: behind it. The variant ladder and the poster frame are produced after the
+#: upload answers — ``VideoProcessingService`` transcodes out of band — so
+#: every one of these is null on the 201 that creates the row and stays null
+#: until the work lands. ``OpenApiTypes.URI`` alone erases that: it emits
+#: ``{"type": "string", "format": "uri"}`` and a generated client reads a
+#: REQUIRED non-null string where the wire always sends null at upload time.
+#: The Image ladder needs no such schema — those URLs are derived from the
+#: hash and exist the moment the row does.
+NULLABLE_URI = {"type": "string", "format": "uri", "nullable": True}
+
+
 class VideoSerializer(serializers.ModelSerializer):
     """Serializer for Video model."""
 
@@ -418,35 +430,35 @@ class VideoSerializer(serializers.ModelSerializer):
 
         return build_render_metadata(obj)
 
-    @extend_schema_field(OpenApiTypes.URI)
+    @extend_schema_field(NULLABLE_URI)
     def get_poster_url(self, obj):
         return obj.poster_url
 
-    @extend_schema_field(OpenApiTypes.URI)
+    @extend_schema_field(NULLABLE_URI)
     def get_variant_16p_url(self, obj):
         return obj.variant_16.url if obj.variant_16 else None
 
-    @extend_schema_field(OpenApiTypes.URI)
+    @extend_schema_field(NULLABLE_URI)
     def get_variant_32p_url(self, obj):
         return obj.variant_32.url if obj.variant_32 else None
 
-    @extend_schema_field(OpenApiTypes.URI)
+    @extend_schema_field(NULLABLE_URI)
     def get_variant_240p_url(self, obj):
         return obj.variant_240.url if obj.variant_240 else None
 
-    @extend_schema_field(OpenApiTypes.URI)
+    @extend_schema_field(NULLABLE_URI)
     def get_variant_480p_url(self, obj):
         return obj.variant_480.url if obj.variant_480 else None
 
-    @extend_schema_field(OpenApiTypes.URI)
+    @extend_schema_field(NULLABLE_URI)
     def get_variant_720p_url(self, obj):
         return obj.variant_720.url if obj.variant_720 else None
 
-    @extend_schema_field(OpenApiTypes.URI)
+    @extend_schema_field(NULLABLE_URI)
     def get_variant_1080p_url(self, obj):
         return obj.variant_1080.url if obj.variant_1080 else None
 
-    @extend_schema_field(OpenApiTypes.URI)
+    @extend_schema_field(NULLABLE_URI)
     def get_variant_2160p_url(self, obj):
         return obj.variant_2160.url if obj.variant_2160 else None
 
