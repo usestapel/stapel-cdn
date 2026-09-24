@@ -126,14 +126,14 @@ class TestImageProcessingService:
 
     def test_watermark_engine_from_settings(self, settings):
         """The STAPEL_CDN['WATERMARK'] callable is applied by the pipeline."""
-        mock_img, marked = MagicMock(), MagicMock()
+        mock_img, marked = MagicMock(width=1000, height=1000), MagicMock()
         settings.STAPEL_CDN = {"WATERMARK": lambda img: marked}
         assert ImageProcessingService._add_watermark(mock_img) is marked
 
     def test_watermark_engine_dotted_path_empty_text(self, settings):
         """A dotted-path engine resolves; the built-in text engine without
         WATERMARK_TEXT is a no-op."""
-        mock_img = MagicMock()
+        mock_img = MagicMock(width=1000, height=1000)
         settings.STAPEL_CDN = {
             "WATERMARK": "stapel_cdn.watermarks.text_watermark",
         }

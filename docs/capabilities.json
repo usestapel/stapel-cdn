@@ -1,6 +1,6 @@
 {
   "module": "stapel-cdn",
-  "version": "0.25.0",
+  "version": "0.26.0",
   "provides": "Media management: image/video/file/audio upload, processing (thumbnail/preview generation via libvips, ffprobe/ffmpeg metadata and poster/waveform rendering) and CDN ref tracking, with a media-submodule opt-in (images core, video/recordings behind ENABLED_SUBMODULES + ffmpeg system checks), an open media-kind registry, a budgeted inline preview (blur-up / poster / waveform) every attachment carries, a watermark seam, upload speed-limiting, cdn.describe / cdn.describe_many / cdn.media_exists / cdn.refs_sync comm Functions for other modules to render, check and sync media without importing this package, and a batched POST /describe/ endpoint so a browser — which has no comm bus — can resolve that same snapshot for refs it holds but did not upload.",
   "axes": [
     {
@@ -179,12 +179,39 @@
       ]
     },
     {
+      "name": "overlay_watermark",
+      "kind": "factory",
+      "path": "stapel_cdn.watermarks.overlay_watermark",
+      "intent": "Composite a PNG mark onto a pyvips rendition, scaled to it (SCALE of the width, capped at MAX_HEIGHT of the height) at a corner or the center. The engine behind STAPEL_CDN['WATERMARKS']; call it from your own WATERMARK callable to reuse the scaling and placement.",
+      "instead_of": [
+        "hand-rolled pyvips logo compositing"
+      ]
+    },
+    {
+      "name": "request_site_key",
+      "kind": "gate_function",
+      "path": "stapel_cdn.watermarks.request_site_key",
+      "intent": "The site key an upload request arrived on (the stapel_core.sites brand key, else the host; '' for an unregistered host) — what Image.site_key records.",
+      "instead_of": [
+        "deriving a brand from request.get_host() by hand"
+      ]
+    },
+    {
       "name": "text_watermark",
       "kind": "factory",
       "path": "stapel_cdn.watermarks.text_watermark",
       "intent": "The built-in WATERMARK engine (`(pyvips.Image) -> pyvips.Image`) the preview-generation pipeline applies when STAPEL_CDN['WATERMARK'] points at it. Point the setting here directly for a plain bottom-right text label (STAPEL_CDN['WATERMARK_TEXT']), or call it from your own callable to layer a logo/opacity effect on top — reach for this before writing a pyvips text/compositing routine from scratch.",
       "instead_of": [
         "hand-rolled pyvips text/logo compositing"
+      ]
+    },
+    {
+      "name": "watermark_spec_for",
+      "kind": "gate_function",
+      "path": "stapel_cdn.watermarks.watermark_spec_for",
+      "intent": "The per-site watermark spec that applies to an Image (its site_key or WATERMARK_DEFAULT_SITE, filtered by WATERMARK_ASSET_TYPES), or None — the one answer to 'is this photo branded, and how'.",
+      "instead_of": [
+        "reading STAPEL_CDN['WATERMARKS'] by hand"
       ]
     }
   ],

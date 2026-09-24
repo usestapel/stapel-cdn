@@ -212,9 +212,9 @@ def process_image_async(image_id: int):
     # Sent through _send so the configured queue (or the app's default one)
     # applies — .delay() cannot carry a queue option.
     _send(generate_thumbnails, "THUMBNAILS_QUEUE", args=(image_id,))
-    # for now disable watermarks since design and letterboxing are not ready
-    _send(generate_previews, "PREVIEWS_QUEUE", args=(image_id,),
-          kwargs={"watermark": False})
+    # Watermarking is decided per rendition by the pipeline (off unless
+    # STAPEL_CDN["WATERMARKS"] or ["WATERMARK"] is configured).
+    _send(generate_previews, "PREVIEWS_QUEUE", args=(image_id,))
 
 
 @shared_task
@@ -282,8 +282,7 @@ def retry_unprocessed():
         logger.info(f"Retrying unprocessed image {image.id} ({image.file_hash[:8]})")
         _append_log(image, f"[{datetime.now().isoformat()}] RETRY: re-queued by periodic task")
         _send(generate_thumbnails, "THUMBNAILS_QUEUE", args=(image.id,))
-        _send(generate_previews, "PREVIEWS_QUEUE", args=(image.id,),
-              kwargs={"watermark": False})
+        _send(generate_previews, "PREVIEWS_QUEUE", args=(image.id,))
         retried += 1
 
     stuck_videos = Video.objects.filter(is_processed=False, created_at__lt=cutoff)

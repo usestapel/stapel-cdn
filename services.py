@@ -29,6 +29,10 @@ from .metadata import encode_preview, preview_budget
 
 logger = logging.getLogger(__name__)
 
+#: Subdirectory (beside the public renditions) holding the clean copies of
+#: watermarked renditions — for machine readers, never for display.
+CLEAN_DIR = "clean"
+
 
 def image_ref_prefixes() -> set[str]:
     """Ref prefixes that route to ``Image`` — every configured
@@ -183,14 +187,25 @@ class ImageProcessingService:
         return None
 
     @classmethod
-    def _add_watermark(cls, img: pyvips.Image) -> pyvips.Image:
-        """Apply the configured watermark engine, if any.
+    def _add_watermark(cls, img: pyvips.Image, image_model=None) -> pyvips.Image:
+        """Apply the watermark that applies to this rendition, if any.
 
-        Off by default: ``STAPEL_CDN["WATERMARK"]`` is empty unless the
-        host project points it at a callable (see stapel_cdn.watermarks).
+        A per-site spec (``STAPEL_CDN["WATERMARKS"]``, keyed by the image's
+        ``site_key``) wins; otherwise the ``WATERMARK`` callable. Both are
+        off by default. Renditions whose shorter side is under
+        ``WATERMARK_MIN_SIDE`` stay clean.
         """
+        from .watermarks import overlay_watermark, watermark_spec_for
+
+        spec = watermark_spec_for(image_model) if image_model is not None else None
         engine = cdn_settings.WATERMARK
-        return engine(img) if engine else img
+        if spec is None and not engine:
+            return img
+        if min(img.width, img.height) < int(cdn_settings.WATERMARK_MIN_SIDE or 0):
+            return img
+        if spec is not None:
+            return overlay_watermark(img, spec)
+        return engine(img)
 
     @classmethod
     def generate_thumbnails_only(cls, image_model) -> str:
@@ -381,21 +396,39 @@ class ImageProcessingService:
                 current = cls._resize(current, target, axis=axis)
                 resized = (current.width, current.height) != before
 
-                output = cls._add_watermark(current) if apply_watermark else current
+                output = (
+                    cls._add_watermark(current, image_model)
+                    if apply_watermark
+                    else current
+                )
                 output.webpsave(
                     os.path.join(output_dir, f"{name}{axis}.webp"), Q=cls.WEBP_QUALITY
                 )
+                watermarked = output is not current
+                clean_name = f"{name}{axis}.webp"
+                clean_path = os.path.join(output_dir, CLEAN_DIR, clean_name)
+                if watermarked and cdn_settings.WATERMARK_KEEP_CLEAN:
+                    os.makedirs(os.path.dirname(clean_path), exist_ok=True)
+                    current.webpsave(clean_path, Q=cls.WEBP_QUALITY)
+                elif os.path.exists(clean_path):
+                    os.unlink(clean_path)
 
                 current = current.copy_memory()
-                meta_entries.append(
-                    {
-                        "tier": target,
-                        "branch": axis,
-                        "url": image_model.get_variant_url(target, branch=axis),
-                        "width": current.width,
-                        "height": current.height,
-                    }
-                )
+                entry = {
+                    "tier": target,
+                    "branch": axis,
+                    "url": image_model.get_variant_url(target, branch=axis),
+                    "width": current.width,
+                    "height": current.height,
+                }
+                if watermarked:
+                    entry["watermarked"] = True
+                    if cdn_settings.WATERMARK_KEEP_CLEAN:
+                        entry["clean_url"] = (
+                            f"{settings.MEDIA_URL}{image_model.type}/"
+                            f"{image_model.file_hash}/{CLEAN_DIR}/{clean_name}"
+                        )
+                meta_entries.append(entry)
 
                 elapsed = int((time.perf_counter() - start) * 1000)
                 resize_info = (

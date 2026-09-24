@@ -1,5 +1,33 @@
 # Changelog
 
+## [0.26.0] — 2026-09-24
+
+Minor: per-site logo watermarks on preview renditions.
+
+* `Image.site_key` (migration 0011, expand-only) records the site an upload
+  arrived on — the brand key of its `stapel_core.sites` entry, else its host;
+  empty for an unregistered host, so an internal call is never stamped with
+  the primary's brand.
+* `STAPEL_CDN["WATERMARKS"]` maps a site key to a PNG and its placement. The
+  preview pipeline draws that site's mark on every preview rendition whose
+  shorter side is at least `WATERMARK_MIN_SIDE` (240), for the types in
+  `WATERMARK_ASSET_TYPES`. Thumbnails and the stored original are never
+  touched. Off by default.
+* Each watermarked rendition is also written clean at
+  `clean/<tier><branch>.webp` and its variant entry carries
+  `watermarked: true` and `clean_url` — the address moderation and vision
+  models should read (`WATERMARK_KEEP_CLEAN`, default on).
+* **Behaviour change:** `process_image_async` and `retry_unprocessed` no
+  longer force `watermark=False` on the preview task. With neither
+  `WATERMARK` nor `WATERMARKS` set nothing changes; a host that set
+  `WATERMARK` now actually gets it (previously the setting was ignored on the
+  upload path), subject to `WATERMARK_MIN_SIDE`.
+* `regenerate_media --previews-only` re-renders just the preview tiers in
+  place (no 404 window), `--assign-site KEY` stamps rows with no site first,
+  and the command prints watermarked counts before and after.
+* `stapel_cdn.watermark.W015`: a WATERMARKS entry whose PNG is unreadable or
+  whose POSITION is unknown, or a WATERMARK_DEFAULT_SITE with no entry.
+
 ## [0.25.0] — 2026-09-18
 
 Minor: the erasure protocol is core's, not this module's copy of it.

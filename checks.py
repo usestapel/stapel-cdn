@@ -68,6 +68,10 @@ of at ``manage.py check`` / boot-smoke time.
   that runs *something* looks exactly like one that runs *this*. Silent
   when no schedule exists at all — a host may sweep from cron via
   ``manage.py cdn_sweep_unclaimed`` and never touch beat.
+* **watermark** (``W015``) — a ``STAPEL_CDN["WATERMARKS"]`` entry whose PNG
+  cannot be read, or whose POSITION is unknown, or a
+  ``WATERMARK_DEFAULT_SITE`` with no entry. The pipeline logs and leaves the
+  rendition clean, so without this the photos just quietly lack the mark.
 """
 from __future__ import annotations
 
@@ -90,6 +94,7 @@ E005_DESCRIBE_SEAM_UNUSABLE = "stapel_cdn.describe.E005"
 W013_SWEEP_NOT_SCHEDULED = "stapel_cdn.tasks.W013"
 W012_DESCRIBE_GUARD_EMPTY = "stapel_cdn.describe.W012"
 W014_UPLOAD_TYPE_NOT_CONFIGURED = "stapel_cdn.assets.W014"
+W015_WATERMARK_UNUSABLE = "stapel_cdn.watermark.W015"
 
 
 @checks.register("stapel_cdn")
@@ -722,3 +727,51 @@ def check_default_upload_type(app_configs=None, **kwargs):
             )
         ]
     return []
+
+
+@checks.register("stapel_cdn")
+def check_watermarks(app_configs=None, **kwargs):
+    """W015 — a per-site watermark that would silently not be drawn."""
+    import os
+
+    from .conf import cdn_settings
+    from .watermarks import POSITIONS
+
+    specs = cdn_settings.WATERMARKS or {}
+    found = []
+    if not isinstance(specs, dict):
+        return [
+            checks.Warning(
+                'STAPEL_CDN["WATERMARKS"] must be a dict of site key -> spec.',
+                id=W015_WATERMARK_UNUSABLE,
+            )
+        ]
+    for key, spec in specs.items():
+        path = str((spec or {}).get("PATH") or "")
+        if not path or not os.access(path, os.R_OK):
+            found.append(
+                checks.Warning(
+                    f'STAPEL_CDN["WATERMARKS"][{key!r}]["PATH"] ({path!r}) is not '
+                    "a readable file; that site's renditions stay clean.",
+                    id=W015_WATERMARK_UNUSABLE,
+                )
+            )
+        position = (spec or {}).get("POSITION")
+        if position and position not in POSITIONS:
+            found.append(
+                checks.Warning(
+                    f'STAPEL_CDN["WATERMARKS"][{key!r}]["POSITION"] is {position!r}; '
+                    f"expected one of {', '.join(POSITIONS)} (bottom-right is used).",
+                    id=W015_WATERMARK_UNUSABLE,
+                )
+            )
+    default = cdn_settings.WATERMARK_DEFAULT_SITE
+    if default and default not in specs:
+        found.append(
+            checks.Warning(
+                f'STAPEL_CDN["WATERMARK_DEFAULT_SITE"] is {default!r}, which has no '
+                "WATERMARKS entry.",
+                id=W015_WATERMARK_UNUSABLE,
+            )
+        )
+    return found

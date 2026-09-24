@@ -60,6 +60,27 @@
       "instead_of": [
         "hand-rolled cache-based counters (race-prone get+set)"
       ]
+    },
+    "overlay_watermark": {
+      "kind": "factory",
+      "intent": "Composite a PNG mark onto a pyvips rendition, scaled to it (SCALE of the width, capped at MAX_HEIGHT of the height) at a corner or the center. The engine behind STAPEL_CDN['WATERMARKS']; call it from your own WATERMARK callable to reuse the scaling and placement.",
+      "instead_of": [
+        "hand-rolled pyvips logo compositing"
+      ]
+    },
+    "watermark_spec_for": {
+      "kind": "gate_function",
+      "intent": "The per-site watermark spec that applies to an Image (its site_key or WATERMARK_DEFAULT_SITE, filtered by WATERMARK_ASSET_TYPES), or None — the one answer to 'is this photo branded, and how'.",
+      "instead_of": [
+        "reading STAPEL_CDN['WATERMARKS'] by hand"
+      ]
+    },
+    "request_site_key": {
+      "kind": "gate_function",
+      "intent": "The site key an upload request arrived on (the stapel_core.sites brand key, else the host; '' for an unregistered host) — what Image.site_key records.",
+      "instead_of": [
+        "deriving a brand from request.get_host() by hand"
+      ]
     }
   }
 }

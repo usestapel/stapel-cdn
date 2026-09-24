@@ -228,6 +228,16 @@ class Image(models.Model):
         ),
     )
 
+    # The site the upload arrived on: the brand key of its stapel_core.sites
+    # registry entry (or its host when the entry has no brand). Selects the
+    # per-site watermark (STAPEL_CDN["WATERMARKS"]); empty when unknown.
+    site_key = models.CharField(
+        max_length=64,
+        blank=True,
+        default="",
+        help_text="Site (brand key) the upload arrived on; empty when unknown",
+    )
+
     # Reference tracking
     refs = models.JSONField(
         default=list,

@@ -237,6 +237,32 @@ DEFAULTS = {
     # supply their own callable for designed watermarks.
     "WATERMARK": "",
     "WATERMARK_TEXT": "",
+    # Per-site logo watermarks (0.26.0). Maps a site key — the brand key of
+    # the stapel_core.sites registry entry the upload arrived on, recorded in
+    # Image.site_key — to a spec:
+    #
+    #   {"PATH": "/abs/mark.png",     # RGBA PNG, drawn as-is (bake opacity in)
+    #    "POSITION": "bottom-right",  # bottom-left / top-right / top-left / center
+    #    "SCALE": 0.24,               # mark width as a fraction of the rendition width
+    #    "MAX_HEIGHT": 0.10,          # ...never taller than this fraction of its height
+    #    "MARGIN": 0.028,             # inset, fraction of the shorter side
+    #    "OPACITY": 1.0}              # extra multiplier on the PNG's own alpha
+    #
+    # Empty (the default) = no per-site watermark; WATERMARK above still
+    # applies. When a site has a spec it wins over WATERMARK for that image.
+    "WATERMARKS": {},
+    # Spec key for images with no recorded site (service-side imports, rows
+    # uploaded before 0.26.0). Empty = those images are not watermarked.
+    "WATERMARK_DEFAULT_SITE": "",
+    # Renditions whose shorter side is below this are left clean: a mark
+    # scaled onto a small tile is noise. Thumbnails are never watermarked.
+    "WATERMARK_MIN_SIDE": 240,
+    # Image types that get the per-site watermark. Empty = every type.
+    "WATERMARK_ASSET_TYPES": (),
+    # Also write each watermarked rendition clean, at clean/<tier><branch>.webp,
+    # and report it as the variant's `clean_url` — what machine readers
+    # (moderation, vision models) should read instead of the branded copy.
+    "WATERMARK_KEEP_CLEAN": True,
     # --- cdn.import_from_url (SSRF-hardened egress fetcher) ---------------
     # Body size cap for a fetched image (bytes). Aborts the stream mid-flight
     # once crossed — kept below MAX_IMAGE_SIZE since avatars are small and a

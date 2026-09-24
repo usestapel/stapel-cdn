@@ -9,6 +9,13 @@ full pipeline runs again, producing min-side thumbnails, w/h preview
 branches and the persisted ``variants_meta`` geometry.
 
 Synchronous by design — this is an operator command, not the upload path.
+
+``--previews-only`` re-renders just the preview tiers (what changes when a
+watermark is turned on or redesigned): thumbnails, the original and the
+inline placeholder are left as they are. ``--assign-site KEY`` stamps rows
+with no recorded site first, so photos uploaded before sites were recorded
+get that site's watermark. Counts of watermarked renditions are printed
+before and after.
 """
 import os
 import re
@@ -19,6 +26,8 @@ from django.core.management.base import BaseCommand
 # Anything the pipeline has ever generated: "<digits>.webp", "<digits>w.webp",
 # "<digits>h.webp", legacy "<digits>.jpg".
 _VARIANT_FILE_RE = re.compile(r"^\d+[wh]?\.(webp|jpg)$")
+# Preview tiers only: "<digits>w.webp" / "<digits>h.webp".
+_PREVIEW_FILE_RE = re.compile(r"^\d+[wh]\.webp$")
 
 
 class Command(BaseCommand):
@@ -36,6 +45,16 @@ class Command(BaseCommand):
             help="Only regenerate images of this type (e.g. product, avatar).",
         )
         parser.add_argument(
+            "--previews-only",
+            action="store_true",
+            help="Re-render only the preview tiers; thumbnails stay as they are.",
+        )
+        parser.add_argument(
+            "--assign-site",
+            default=None,
+            help="Set site_key on rows that have none before re-rendering.",
+        )
+        parser.add_argument(
             "--dry-run",
             action="store_true",
             help="List what would be regenerated without touching anything.",
@@ -51,6 +70,15 @@ class Command(BaseCommand):
 
         total = qs.count()
         self.stdout.write(f"regenerate_media: {total} image(s) to process")
+        before = _watermark_counts(qs)
+        self.stdout.write(
+            f"  before: {before[0]} image(s) with watermarked renditions, "
+            f"{before[1]} watermarked rendition(s)"
+        )
+
+        if options["assign_site"] and not options["dry_run"]:
+            stamped = qs.filter(site_key="").update(site_key=options["assign_site"])
+            self.stdout.write(f"  assigned site {options['assign_site']!r} to {stamped} row(s)")
 
         done = 0
         failed = 0
@@ -60,11 +88,16 @@ class Command(BaseCommand):
                 self.stdout.write(f"  would regenerate {label}")
                 continue
             try:
-                removed = self._remove_variant_files(image)
-                image.variants_meta = []
-                image.is_processed = False
-                image.save(update_fields=["variants_meta", "is_processed"])
-                ImageProcessingService.process_image(image)
+                if options["previews_only"]:
+                    # Overwritten in place: the public URLs never 404 mid-sweep.
+                    removed = 0
+                    ImageProcessingService.generate_previews_only(image)
+                else:
+                    removed = self._remove_variant_files(image)
+                    image.variants_meta = []
+                    image.is_processed = False
+                    image.save(update_fields=["variants_meta", "is_processed"])
+                    ImageProcessingService.process_image(image)
                 done += 1
                 self.stdout.write(f"  regenerated {label} (removed {removed} old file(s))")
             except Exception as exc:  # keep going: one broken file must not stop the sweep
@@ -75,6 +108,11 @@ class Command(BaseCommand):
             self.stdout.write(self.style.SUCCESS(f"dry-run complete: {total} image(s)"))
             return
 
+        after = _watermark_counts(qs)
+        self.stdout.write(
+            f"  after: {after[0]} image(s) with watermarked renditions, "
+            f"{after[1]} watermarked rendition(s)"
+        )
         summary = f"regenerate_media: {done} regenerated, {failed} failed of {total}"
         if failed:
             self.stderr.write(self.style.ERROR(summary))
@@ -83,6 +121,8 @@ class Command(BaseCommand):
 
     def _remove_variant_files(self, image) -> int:
         """Delete generated variant files, keeping the original upload."""
+        from stapel_cdn.services import CLEAN_DIR
+
         output_dir = os.path.join(settings.MEDIA_ROOT, image.type, image.file_hash)
         if not os.path.isdir(output_dir):
             return 0
@@ -97,4 +137,21 @@ class Command(BaseCommand):
             if _VARIANT_FILE_RE.match(name):
                 os.unlink(os.path.join(output_dir, name))
                 removed += 1
+        clean_dir = os.path.join(output_dir, CLEAN_DIR)
+        if os.path.isdir(clean_dir):
+            for name in os.listdir(clean_dir):
+                if _PREVIEW_FILE_RE.match(name):
+                    os.unlink(os.path.join(clean_dir, name))
+                    removed += 1
         return removed
+
+
+def _watermark_counts(qs) -> tuple[int, int]:
+    """(images with any watermarked rendition, watermarked renditions)."""
+    images = renditions = 0
+    for meta in qs.values_list("variants_meta", flat=True).iterator():
+        marked = sum(1 for entry in (meta or []) if entry.get("watermarked"))
+        if marked:
+            images += 1
+            renditions += marked
+    return images, renditions

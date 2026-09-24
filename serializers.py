@@ -54,6 +54,18 @@ class VariantsMetaFieldExtension(OpenApiSerializerFieldExtension):
                     "url": {"type": "string"},
                     "width": {"type": "integer"},
                     "height": {"type": "integer"},
+                    "watermarked": {
+                        "type": "boolean",
+                        "description": "Present (true) when this rendition carries a watermark.",
+                    },
+                    "clean_url": {
+                        "type": "string",
+                        "description": (
+                            "The same rendition without the watermark, for machine "
+                            "readers (moderation, vision models). Only on watermarked "
+                            "renditions with STAPEL_CDN['WATERMARK_KEEP_CLEAN']."
+                        ),
+                    },
                 },
                 "required": ["tier", "url", "width", "height"],
             },

@@ -81,6 +81,7 @@ from stapel_cdn.errors import (
 )
 from stapel_cdn.ownership import dedup_scope_q, quota_exceeded
 from stapel_cdn.validators import sniff_is_active_content, validate_image_file
+from stapel_cdn.watermarks import request_site_key
 
 from .dto import (
     AudioUploadResponse,
@@ -411,6 +412,7 @@ answers 400 and `stapel_cdn.assets.W014` reports it at boot.
                 original=uploaded_file,
                 original_size=uploaded_file.size,
                 uploaded_by=request.user,
+                site_key=request_site_key(request),
             )
         except Exception:
             return error_500_internal()
@@ -1005,6 +1007,7 @@ Enforced before the body is hashed; over it the answer is 413.
                 original=uploaded_file,
                 original_size=uploaded_file.size,
                 uploaded_by=request.user,
+                site_key=request_site_key(request),
             )
         except Exception:
             return error_500_internal()
@@ -1117,6 +1120,7 @@ Enforced before the body is hashed; over it the answer is 413.
                 original=uploaded_file,
                 original_size=uploaded_file.size,
                 uploaded_by=request.user,
+                site_key=request_site_key(request),
             )
         except Exception:
             return error_500_internal()

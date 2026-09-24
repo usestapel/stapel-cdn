@@ -116,7 +116,7 @@ class TestProcessImageAsync:
                 patch.object(tasks.generate_previews, 'apply_async') as mock_prev:
             tasks.process_image_async(image.id)
         mock_thumb.assert_called_once_with(args=[image.id], kwargs={})
-        mock_prev.assert_called_once_with(args=[image.id], kwargs={'watermark': False})
+        mock_prev.assert_called_once_with(args=[image.id], kwargs={})
         image.refresh_from_db()
         assert 'Processing started' in image.processing_log
 
@@ -208,7 +208,7 @@ class TestRetryUnprocessed:
             retried = tasks.retry_unprocessed()
         assert retried == 1
         mock_thumb.assert_called_once_with(args=[image.id], kwargs={})
-        mock_prev.assert_called_once_with(args=[image.id], kwargs={'watermark': False})
+        mock_prev.assert_called_once_with(args=[image.id], kwargs={})
         image.refresh_from_db()
         assert 'RETRY: re-queued by periodic task' in image.processing_log
 
@@ -266,7 +266,7 @@ class TestQueueRouting:
             tasks.process_image_async(image.id)
         assert thumb.call_args.kwargs == {"args": [image.id], "kwargs": {}}
         assert prev.call_args.kwargs == {
-            "args": [image.id], "kwargs": {"watermark": False}
+            "args": [image.id], "kwargs": {}
         }
 
     @override_settings(

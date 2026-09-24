@@ -51,6 +51,11 @@ as passthrough file storage drops `images` from the tuple and is not asked to in
 | REQUIRE_DECODER | env | whether image storage requires a working decoder. With no libvips the pixel cap and the decode never run, so `True` refuses the upload (503) instead; `False` keeps the signature-only passthrough. | no | `True` |
 | WATERMARK | env | dotted path to (or a) callable `(pyvips.Image) -> pyvips.Image` applied to preview variants; empty disables watermarking. | no | `""` |
 | WATERMARK_TEXT | env | text rendered by the built-in `stapel_cdn.watermarks.text_watermark` engine. | no | `""` |
+| WATERMARKS | settings | per-site logo watermarks: site key (the `stapel_core.sites` brand key recorded in `Image.site_key`) -> `{PATH, POSITION, SCALE, MAX_HEIGHT, MARGIN, OPACITY}`; wins over WATERMARK for that image. | no | `{}` |
+| WATERMARK_DEFAULT_SITE | env | spec key for images with no recorded site; empty leaves them clean. | no | `""` |
+| WATERMARK_MIN_SIDE | env | renditions whose shorter side is below this stay clean. | no | `240` |
+| WATERMARK_ASSET_TYPES | settings | image types that get the per-site watermark; empty = all. | no | `()` |
+| WATERMARK_KEEP_CLEAN | env | also write each watermarked rendition clean at `clean/<tier><branch>.webp` and report it as the variant's `clean_url`. | no | `True` |
 | IMPORT_FROM_URL_MAX_BYTES | env | `cdn.import_from_url` body size cap, bytes. | no | `10 * 1024 * 1024` |
 | IMPORT_FROM_URL_TIMEOUT | env | `cdn.import_from_url` connect/read timeout, seconds. | no | `5.0` |
 | IMPORT_FROM_URL_MAX_REDIRECTS | env | `cdn.import_from_url` max redirect hops (each re-validated: scheme + DNS + IP). | no | `3` |
