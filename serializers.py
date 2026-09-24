@@ -341,7 +341,16 @@ class ImageSerializer(serializers.ModelSerializer):
 
     @extend_schema_field(OpenApiTypes.URI)
     def get_original_url(self, obj):
-        return obj.original.url if obj.original else None
+        if not obj.original:
+            return None
+        from .protected import original_is_protected
+
+        if original_is_protected(obj):
+            # The owner's authenticated download, never the protected path.
+            from django.urls import reverse
+
+            return reverse("cdn-image-original", args=[obj.type, obj.file_hash])
+        return obj.original.url
 
     @extend_schema_field(RenderMetaField)
     def get_render_meta(self, obj):

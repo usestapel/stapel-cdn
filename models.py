@@ -71,9 +71,21 @@ def _private_prefix() -> str:
 
 
 def image_upload_path(instance, filename):
-    """Generate upload path for images: <type>/<hash>/<filename>"""
+    """Generate upload path for images: <type>/<hash>/<filename>
+
+    An image its site watermarks keeps its original off the public route:
+    ``<protected>/<type>/<hash>/<filename>`` (stapel_cdn.protected).
+    """
+    from .protected import protected_rel_dir
+    from .watermarks import watermark_spec_for
+
+    folder = (
+        f"{protected_rel_dir(instance)}/"
+        if watermark_spec_for(instance) is not None
+        else f"{instance.type}/{instance.file_hash}/"
+    )
     return bounds.fit_stored_name(
-        f"{instance.type}/{instance.file_hash}/",
+        folder,
         _safe_original_name(filename),
         Image,
         "original",

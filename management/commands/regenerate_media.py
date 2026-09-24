@@ -12,7 +12,9 @@ Synchronous by design — this is an operator command, not the upload path.
 
 ``--previews-only`` re-renders just the preview tiers (what changes when a
 watermark is turned on or redesigned): thumbnails, the original and the
-inline placeholder are left as they are. ``--assign-site KEY`` stamps rows
+inline placeholder are left as they are. ``--protect-originals`` moves the
+original of every watermarked image off the public route
+(stapel_cdn.protected). ``--assign-site KEY`` stamps rows
 with no recorded site first, so photos uploaded before sites were recorded
 get that site's watermark. Counts of watermarked renditions are printed
 before and after.
@@ -55,6 +57,14 @@ class Command(BaseCommand):
             help="Set site_key on rows that have none before re-rendering.",
         )
         parser.add_argument(
+            "--protect-originals",
+            action="store_true",
+            help=(
+                "Move the original of every image its site watermarks into the "
+                "protected tree (off the public media route)."
+            ),
+        )
+        parser.add_argument(
             "--dry-run",
             action="store_true",
             help="List what would be regenerated without touching anything.",
@@ -62,7 +72,9 @@ class Command(BaseCommand):
 
     def handle(self, *args, **options):
         from stapel_cdn.models import Image
+        from stapel_cdn.protected import protect_original
         from stapel_cdn.services import ImageProcessingService
+        from stapel_cdn.watermarks import watermark_spec_for
 
         qs = Image.objects.all().order_by("pk")
         if options["image_type"]:
@@ -82,12 +94,15 @@ class Command(BaseCommand):
 
         done = 0
         failed = 0
+        moved = 0
         for image in qs.iterator():
             label = f"{image.type}/{image.file_hash[:12]} (id={image.pk})"
             if options["dry_run"]:
                 self.stdout.write(f"  would regenerate {label}")
                 continue
             try:
+                if options["protect_originals"] and watermark_spec_for(image):
+                    moved += int(protect_original(image))
                 if options["previews_only"]:
                     # Overwritten in place: the public URLs never 404 mid-sweep.
                     removed = 0
@@ -113,6 +128,8 @@ class Command(BaseCommand):
             f"  after: {after[0]} image(s) with watermarked renditions, "
             f"{after[1]} watermarked rendition(s)"
         )
+        if options["protect_originals"]:
+            self.stdout.write(f"  protected {moved} original(s)")
         summary = f"regenerate_media: {done} regenerated, {failed} failed of {total}"
         if failed:
             self.stderr.write(self.style.ERROR(summary))
@@ -121,7 +138,7 @@ class Command(BaseCommand):
 
     def _remove_variant_files(self, image) -> int:
         """Delete generated variant files, keeping the original upload."""
-        from stapel_cdn.services import CLEAN_DIR
+        from stapel_cdn.protected import CLEAN_DIR, protected_rel_dir
 
         output_dir = os.path.join(settings.MEDIA_ROOT, image.type, image.file_hash)
         if not os.path.isdir(output_dir):
@@ -137,7 +154,9 @@ class Command(BaseCommand):
             if _VARIANT_FILE_RE.match(name):
                 os.unlink(os.path.join(output_dir, name))
                 removed += 1
-        clean_dir = os.path.join(output_dir, CLEAN_DIR)
+        clean_dir = os.path.join(
+            settings.MEDIA_ROOT, protected_rel_dir(image), CLEAN_DIR
+        )
         if os.path.isdir(clean_dir):
             for name in os.listdir(clean_dir):
                 if _PREVIEW_FILE_RE.match(name):

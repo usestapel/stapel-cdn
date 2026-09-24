@@ -274,7 +274,9 @@ See `CONFIG.MD` for the complete registry (source/required/default per key). Hig
 | `WATERMARK_DEFAULT_SITE` | `""` | Spec used for images with no recorded site. |
 | `WATERMARK_MIN_SIDE` | `240` | Renditions with a shorter side below this stay clean. |
 | `WATERMARK_ASSET_TYPES` | `()` | Types that get the per-site mark; empty = all. |
-| `WATERMARK_KEEP_CLEAN` | `True` | Keep a clean copy of each watermarked rendition (`clean/…`, reported as the variant's `clean_url`) for machine readers. |
+| `WATERMARK_KEEP_CLEAN` | `True` | Keep a clean copy of each watermarked rendition in the protected tree, for machine readers (`cdn.describe` `{"clean": true}` → signed `clean_url`). |
+| `PROTECTED_MEDIA_PREFIX` | `"protected"` | Stored-but-not-public image bytes: a watermarked image's original and clean copies. The operator denies it on the public media route. |
+| `SIGNED_MEDIA_TTL_SECONDS` | `900` | Lifetime of a signed protected-media link. |
 
 ### Media submodules — extras, opt-in, and system checks (tag `stapel_cdn`)
 
@@ -293,7 +295,7 @@ boot-smoke time, not at first use:
 | Seam | Current state | Fork-free? |
 |---|---|---|
 | File storage | `stapel_cdn.storage.cdn_storage` — a module-level `OverwriteStorage(FileSystemStorage)` instance baked into `Image.original` / `File.original` `FileField(storage=...)` | **No dotted-path seam.** Not selectable via `STAPEL_CDN`; S3/remote storage support (the `s3` extra exists in `pyproject.toml` but is unused by code) is an upstream contribution. |
-| Per-site watermark | `STAPEL_CDN["WATERMARKS"]` + `Image.site_key` (stamped at upload by `watermarks.request_site_key`) | **Yes.** Config only; `watermarks.overlay_watermark` is reusable from a custom engine. Machine readers take a variant's `clean_url` when present. |
+| Per-site watermark | `STAPEL_CDN["WATERMARKS"]` + `Image.site_key` (stamped at upload by `watermarks.request_site_key`) | **Yes.** Config only; `watermarks.overlay_watermark` is reusable from a custom engine. With a mark configured, public describe/serving exposes only marked renditions; machine readers call `cdn.describe` with `{"clean": true}` and fetch the signed `clean_url`; the uploader downloads the original at `images/<type>/<hash>/original/`. |
 | Watermark engine | `STAPEL_CDN["WATERMARK"]` — dotted path (via `import_strings`) or direct callable `(pyvips.Image) -> pyvips.Image`; off by default | **Yes.** The only dotted-path key in the namespace. Built-in reference: `stapel_cdn.watermarks.text_watermark` (renders `WATERMARK_TEXT`). |
 | Image pipeline | `services.ImageProcessingService` classmethods (`process_image`, `generate_thumbnails_only`, `generate_previews_only`, `WEBP_QUALITY=85`, `JPEG_QUALITY=85`) | Subclassable, but call sites (`tasks.py`, `models.py` post_save signal, `admin.py`) import the class directly — a replacement class cannot be injected via settings. Behavior *is* conf-driven through `THUMBNAIL_SIZES`/`PREVIEW_SIZES` and `WATERMARK`. Anything else (quality, formats) is upstream. |
 | Upload throttling | `upload_handlers.SpeedLimitUploadHandler` | Yes — plain Django upload handler; enable/replace via `FILE_UPLOAD_HANDLERS` in the host project. Its constants (`UPLOAD_MAX_TIME=300`, `UPLOAD_MIN_SPEED=2048`) are module-level, not conf keys. |

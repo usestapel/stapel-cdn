@@ -10,5 +10,6 @@
   "error.403.storage_quota_exceeded": "Квота хранилища исчерпана",
   "error.404.no_images": "Обработанные изображения не найдены",
   "error.413.file_too_large": "Файл слишком большой",
-  "error.503.image_decoder_unavailable": "Этот сервер сейчас не может обрабатывать изображения {extension}"
+  "error.503.image_decoder_unavailable": "Этот сервер сейчас не может обрабатывать изображения {extension}",
+  "error.404.media_not_found": "Файл не найден или ссылка устарела"
 }

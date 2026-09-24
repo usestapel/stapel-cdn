@@ -1,5 +1,32 @@
 # Changelog
 
+## [0.27.0] — 2026-09-25
+
+Minor: with a watermark configured, only marked renditions are public.
+
+0.26.0 kept the clean copies beside the public renditions and published their
+`clean_url` (and the original's URL) in every `cdn.describe` — so anyone could
+take an unmarked copy. Now:
+
+* **Protected tree.** The original of an image its site watermarks, and the
+  clean copy of each marked rendition, are stored under
+  `STAPEL_CDN["PROTECTED_MEDIA_PREFIX"]` (`protected/<type>/<hash>/…`). The
+  operator denies that prefix on the public media route. New uploads land
+  there directly; `regenerate_media --protect-originals` moves existing ones
+  (every row over a shared blob follows).
+* **Public snapshot.** `cdn.describe`, `describe_many` and `POST /describe/`
+  expose only the marked renditions of such an image: no `clean_url`, no
+  original entry. `ImageSerializer.original_url` points at the owner download.
+* **Internal readers.** `cdn.describe` with `{"clean": true}` (a comm
+  Function, so services only) adds a signed `clean_url` to each marked
+  variant and returns the original as a signed URL. Links are served by
+  `GET media/signed/<token>/` and expire after `SIGNED_MEDIA_TTL_SECONDS`
+  (900); expired, forged and out-of-tree tokens all answer 404
+  `error.404.media_not_found`.
+* **Owner download.** `GET images/<type>/<hash>/original/` streams the
+  caller's own original (or any, for a service call); everyone else gets 404.
+* Erasure removes the clean copies with the original.
+
 ## [0.26.0] — 2026-09-24
 
 Minor: per-site logo watermarks on preview renditions.

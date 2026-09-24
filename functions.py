@@ -68,6 +68,14 @@ DESCRIBE_SCHEMA = {
             "type": "string",
             "description": "Media reference in <type>/<id> form, e.g. product/<hash>",
         },
+        "clean": {
+            "type": "boolean",
+            "description": (
+                "Internal readers only: add short-lived signed URLs for the "
+                "unwatermarked copies (clean_url on marked variants, and the "
+                "protected original)."
+            ),
+        },
     },
     "required": ["ref"],
 }
@@ -129,6 +137,12 @@ def describe(payload: dict) -> dict:
     Consumers denormalize this ONCE when resolving a ref (chat attachment,
     catalog card) — it is not meant to be recomputed per render.
 
+    ``{"clean": true}`` is for machine readers (moderation, vision models):
+    watermarked variants gain a signed ``clean_url`` and a protected original
+    is returned as a signed URL. Without it — and always over HTTP — only
+    the marked renditions are exposed. Signed URLs expire
+    (``SIGNED_MEDIA_TTL_SECONDS``), so never denormalize a clean snapshot.
+
     Raises ``LookupError`` for an unknown ref (surfaced to the caller as a
     ``FunctionCallError``) — a missing asset is the caller's placeholder
     case, not an empty snapshot.
@@ -139,7 +153,7 @@ def describe(payload: dict) -> dict:
     resolved = _batch_resolve_media([ref])
     if ref not in resolved:
         raise LookupError(f"cdn.describe: unknown media ref {ref!r}")
-    return build_render_metadata(resolved[ref])
+    return build_render_metadata(resolved[ref], clean=bool(payload.get("clean")))
 
 
 @function("cdn.describe_many", schema=DESCRIBE_MANY_SCHEMA)

@@ -259,10 +259,20 @@ DEFAULTS = {
     "WATERMARK_MIN_SIDE": 240,
     # Image types that get the per-site watermark. Empty = every type.
     "WATERMARK_ASSET_TYPES": (),
-    # Also write each watermarked rendition clean, at clean/<tier><branch>.webp,
-    # and report it as the variant's `clean_url` — what machine readers
-    # (moderation, vision models) should read instead of the branded copy.
+    # Also write each watermarked rendition clean, under the protected tree
+    # (PROTECTED_MEDIA_PREFIX/<type>/<hash>/clean/<tier><branch>.webp). Never
+    # on the public route: cdn.describe with {"clean": true} — service callers
+    # only — hands out a short-lived signed `clean_url` for it.
     "WATERMARK_KEEP_CLEAN": True,
+    # Where stored-but-not-public image bytes live: the original of a
+    # watermarked image and the clean copies of its renditions. The operator
+    # DENIES this prefix on the public media route (a deny rule, not an
+    # allowlist — nothing else moves). Served only via signed URLs and the
+    # uploader's own original download.
+    "PROTECTED_MEDIA_PREFIX": "protected",
+    # Lifetime of a signed protected-media URL (seconds). Long enough for a
+    # vision provider to fetch it, short enough that a leaked one dies fast.
+    "SIGNED_MEDIA_TTL_SECONDS": 900,
     # --- cdn.import_from_url (SSRF-hardened egress fetcher) ---------------
     # Body size cap for a fetched image (bytes). Aborts the stream mid-flight
     # once crossed — kept below MAX_IMAGE_SIZE since avatars are small and a

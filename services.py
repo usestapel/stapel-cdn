@@ -26,12 +26,9 @@ from .conf import cdn_settings
 from .metadata import DESCRIBE_MANY_LIMIT
 from .metadata import build_render_metadata as build_render_metadata  # re-export
 from .metadata import encode_preview, preview_budget
+from .protected import clean_rel_path
 
 logger = logging.getLogger(__name__)
-
-#: Subdirectory (beside the public renditions) holding the clean copies of
-#: watermarked renditions — for machine readers, never for display.
-CLEAN_DIR = "clean"
 
 
 def image_ref_prefixes() -> set[str]:
@@ -406,7 +403,9 @@ class ImageProcessingService:
                 )
                 watermarked = output is not current
                 clean_name = f"{name}{axis}.webp"
-                clean_path = os.path.join(output_dir, CLEAN_DIR, clean_name)
+                clean_path = os.path.join(
+                    settings.MEDIA_ROOT, clean_rel_path(image_model, clean_name)
+                )
                 if watermarked and cdn_settings.WATERMARK_KEEP_CLEAN:
                     os.makedirs(os.path.dirname(clean_path), exist_ok=True)
                     current.webpsave(clean_path, Q=cls.WEBP_QUALITY)
@@ -423,11 +422,6 @@ class ImageProcessingService:
                 }
                 if watermarked:
                     entry["watermarked"] = True
-                    if cdn_settings.WATERMARK_KEEP_CLEAN:
-                        entry["clean_url"] = (
-                            f"{settings.MEDIA_URL}{image_model.type}/"
-                            f"{image_model.file_hash}/{CLEAN_DIR}/{clean_name}"
-                        )
                 meta_entries.append(entry)
 
                 elapsed = int((time.perf_counter() - start) * 1000)

@@ -75,6 +75,7 @@ from stapel_cdn.errors import (
     ERR_400_NO_FILE,
     ERR_400_TOO_MANY_REFS,
     ERR_403_QUOTA_EXCEEDED,
+    ERR_404_MEDIA_NOT_FOUND,
     ERR_404_NO_IMAGES,
     ERR_413_FILE_TOO_LARGE,
     ERR_503_IMAGE_DECODER_UNAVAILABLE,
@@ -1636,3 +1637,84 @@ snapshot, not something to recompute per render.
             ),
             status=status.HTTP_200_OK,
         )
+
+
+def _protected_file_response(path: str):
+    """Stream a protected file; never cacheable by a shared cache."""
+    import mimetypes
+
+    from django.http import FileResponse
+
+    response = FileResponse(
+        open(path, "rb"),  # noqa: SIM115 - FileResponse closes it
+        content_type=mimetypes.guess_type(path)[0] or "application/octet-stream",
+    )
+    response["Cache-Control"] = "private, no-store"
+    response["X-Robots-Tag"] = "noindex"
+    return response
+
+
+@extend_schema(tags=["Media"])
+class SignedMediaView(APIView):
+    """Serve one protected file behind a short-lived signed token.
+
+    The token (``stapel_cdn.protected.signed_url``) is minted only for
+    internal readers — ``cdn.describe`` with ``{"clean": true}`` is a comm
+    Function — and names one path inside the protected tree. Anyone holding
+    it may fetch until it expires (``SIGNED_MEDIA_TTL_SECONDS``): that is what
+    lets a vision provider fetch the clean copy by URL. Expired, forged and
+    unknown tokens all answer the same 404.
+    """
+
+    stapel_anonymous_access = ANONYMOUS_ALLOWED
+    permission_classes = []
+    authentication_classes = []
+
+    @extend_schema(
+        operation_id="cdn_signed_media",
+        summary="Fetch a protected file by signed token",
+        responses={(200, "application/octet-stream"): bytes, 404: StapelErrorSerializer},
+    )
+    def get(self, request, token):  # noqa: R007
+        from .protected import resolve_token
+
+        path = resolve_token(token)
+        if path is None:
+            return StapelErrorResponse(404, ERR_404_MEDIA_NOT_FOUND)
+        return _protected_file_response(path)
+
+
+@extend_schema(tags=["Images"])
+class ImageOriginalView(APIView):
+    """The uploader's own original, when it is kept off the public route.
+
+    A watermarked image's original is protected (``stapel_cdn.protected``);
+    the person who uploaded it may still download it, and so may an internal
+    service call. Everyone else gets the same 404 as for a missing image.
+    """
+
+    permission_classes = [IsNotAnonymousUser | IsServiceRequest]
+
+    @extend_schema(
+        operation_id="cdn_image_original",
+        summary="Download my original upload",
+        responses={
+            (200, "application/octet-stream"): bytes,
+            401: StapelErrorSerializer,
+            404: StapelErrorSerializer,
+        },
+    )
+    def get(self, request, image_type, file_hash):  # noqa: R007
+        rows = Image.objects.filter(type=image_type, file_hash=file_hash)
+        if not IsServiceRequest().has_permission(request, self):
+            rows = rows.filter(uploaded_by=request.user)
+        image = rows.first()
+        path = None
+        if image is not None and image.original:
+            try:
+                path = image.original.path
+            except Exception:  # noqa: BLE001 - storage without a path
+                path = None
+        if not path or not os.path.isfile(path):
+            return StapelErrorResponse(404, ERR_404_MEDIA_NOT_FOUND)
+        return _protected_file_response(path)

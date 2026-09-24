@@ -55,7 +55,9 @@ as passthrough file storage drops `images` from the tuple and is not asked to in
 | WATERMARK_DEFAULT_SITE | env | spec key for images with no recorded site; empty leaves them clean. | no | `""` |
 | WATERMARK_MIN_SIDE | env | renditions whose shorter side is below this stay clean. | no | `240` |
 | WATERMARK_ASSET_TYPES | settings | image types that get the per-site watermark; empty = all. | no | `()` |
-| WATERMARK_KEEP_CLEAN | env | also write each watermarked rendition clean at `clean/<tier><branch>.webp` and report it as the variant's `clean_url`. | no | `True` |
+| WATERMARK_KEEP_CLEAN | env | also write each watermarked rendition clean, under the protected tree (`<PROTECTED_MEDIA_PREFIX>/<type>/<hash>/clean/`); internal readers get a signed `clean_url` from `cdn.describe` with `{"clean": true}`. | no | `True` |
+| PROTECTED_MEDIA_PREFIX | env | where the original of a watermarked image and its clean copies are stored. **Deny this prefix on the public media route**; it is served only through signed links and the uploader's own `images/<type>/<hash>/original/` download. | no | `"protected"` |
+| SIGNED_MEDIA_TTL_SECONDS | env | lifetime of a signed protected-media link (`media/signed/<token>/`). | no | `900` |
 | IMPORT_FROM_URL_MAX_BYTES | env | `cdn.import_from_url` body size cap, bytes. | no | `10 * 1024 * 1024` |
 | IMPORT_FROM_URL_TIMEOUT | env | `cdn.import_from_url` connect/read timeout, seconds. | no | `5.0` |
 | IMPORT_FROM_URL_MAX_REDIRECTS | env | `cdn.import_from_url` max redirect hops (each re-validated: scheme + DNS + IP). | no | `3` |

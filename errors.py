@@ -8,6 +8,9 @@ ERR_413_FILE_TOO_LARGE = 'error.413.file_too_large'
 ERR_400_INVALID_HASH = 'error.400.invalid_hash'
 ERR_400_INVALID_IMAGE_TYPE = 'error.400.invalid_image_type'
 ERR_404_NO_IMAGES = 'error.404.no_images'
+#: A protected-media link that is expired, forged or names nothing, or an
+#: original the caller did not upload. One answer for all, on purpose.
+ERR_404_MEDIA_NOT_FOUND = 'error.404.media_not_found'
 ERR_400_FILE_HASH_REQUIRED = 'error.400.file_hash_required'
 ERR_400_MISSING_FIELDS = 'error.400.missing_fields'
 ERR_400_FILE_TYPE_NOT_ALLOWED = 'error.400.file_type_not_allowed'
@@ -49,6 +52,7 @@ CDN_ERRORS = {
     ERR_400_INVALID_HASH: 'Invalid file hash',
     ERR_400_INVALID_IMAGE_TYPE: 'Invalid image type',
     ERR_404_NO_IMAGES: 'No processed images found',
+    ERR_404_MEDIA_NOT_FOUND: 'Media not found or link expired',
     ERR_400_FILE_HASH_REQUIRED: 'file_hash parameter is required',
     ERR_400_MISSING_FIELDS: 'Required fields are missing',
     ERR_400_FILE_TYPE_NOT_ALLOWED: 'File type not allowed',

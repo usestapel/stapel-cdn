@@ -351,7 +351,8 @@ def _snapshot(
     }
 
 
-def _image_snapshot(image) -> dict:
+def _image_snapshot(image, clean: bool = False) -> dict:
+    from .protected import clean_rel_path, original_is_protected, signed_url
     from .services import ImageProcessingService
 
     width = image.original_width or None
@@ -361,8 +362,27 @@ def _image_snapshot(image) -> dict:
         and height is not None
         and abs(width - height) <= ImageProcessingService.SQUARE_EPSILON
     )
-    variants = list(image.variants_meta or [])
+    variants = [dict(entry) for entry in (image.variants_meta or [])]
+    protected = original_is_protected(image)
+    if clean:
+        # Internal readers: each marked rendition's clean copy, signed.
+        for entry in variants:
+            entry.pop("clean_url", None)
+            if entry.get("watermarked"):
+                name = os.path.basename(str(entry.get("url") or ""))
+                if os.path.isfile(
+                    os.path.join(settings.MEDIA_ROOT, clean_rel_path(image, name))
+                ):
+                    entry["clean_url"] = signed_url(clean_rel_path(image, name))
+    else:
+        for entry in variants:
+            entry.pop("clean_url", None)
     original_entry = _original_variant_entry(image, width, height)
+    if original_entry is not None and protected:
+        # Never the protected path itself; a signed URL for internal readers.
+        original_entry = (
+            {**original_entry, "url": signed_url(image.original.name)} if clean else None
+        )
     if original_entry is not None:
         variants.append(original_entry)
 
@@ -437,7 +457,7 @@ def _file_snapshot(file_obj) -> dict:
 DESCRIBE_MANY_LIMIT = 50
 
 
-def build_render_metadata(obj) -> dict:
+def build_render_metadata(obj, clean: bool = False) -> dict:
     """The render-metadata snapshot for one stored object.
 
     Shape (images-and-cdn.md §5, extended by the metadata pipeline)::
@@ -468,7 +488,7 @@ def build_render_metadata(obj) -> dict:
     from .models import Audio, File, Image, Video
 
     if isinstance(obj, Image):
-        return _image_snapshot(obj)
+        return _image_snapshot(obj, clean=clean)
     if isinstance(obj, Video):
         return _video_snapshot(obj)
     if isinstance(obj, File):

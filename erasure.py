@@ -36,6 +36,8 @@ request finds nothing left to remove and receipts zeros.
 """
 from __future__ import annotations
 
+import os
+
 import logging
 
 logger = logging.getLogger(__name__)
@@ -240,8 +242,25 @@ def _destroy(row, counts: dict) -> None:
                 f"is NOT erased."
             ) from exc
         counts["blobs_unlinked"] += 1
+        _remove_clean_copies(row)
     row.delete()
     counts["objects_removed"] += 1
+
+
+def _remove_clean_copies(row) -> None:
+    """The unwatermarked renditions of an image go with its original."""
+    import shutil
+
+    from django.conf import settings
+
+    from .models import Image
+    from .protected import CLEAN_DIR, protected_rel_dir
+
+    if isinstance(row, Image):
+        shutil.rmtree(
+            os.path.join(settings.MEDIA_ROOT, protected_rel_dir(row), CLEAN_DIR),
+            ignore_errors=True,
+        )
 
 
 __all__ = [

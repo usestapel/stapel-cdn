@@ -10,5 +10,6 @@
   "error.403.storage_quota_exceeded": "Cuota de almacenamiento superada",
   "error.404.no_images": "No se encontraron imágenes procesadas",
   "error.413.file_too_large": "El archivo es demasiado grande",
-  "error.503.image_decoder_unavailable": "Este servidor no puede procesar imágenes {extension} en este momento"
+  "error.503.image_decoder_unavailable": "Este servidor no puede procesar imágenes {extension} en este momento",
+  "error.404.media_not_found": "Archivo no encontrado o enlace caducado"
 }

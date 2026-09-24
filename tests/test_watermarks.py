@@ -9,7 +9,8 @@ from PIL import Image as PILImage
 
 from stapel_cdn import checks
 from stapel_cdn.models import Image
-from stapel_cdn.services import CLEAN_DIR, ImageProcessingService
+from stapel_cdn.protected import CLEAN_DIR, protected_rel_dir
+from stapel_cdn.services import ImageProcessingService
 from stapel_cdn.watermarks import (
     overlay_watermark,
     request_site_key,
@@ -127,24 +128,28 @@ class TestPipeline:
         row.original.path = str(path)
         return row, folder, original_bytes
 
-    def test_previews_marked_small_tiers_and_original_clean(self, image, mark_png):
+    def _clean_dir(self, row, tmp_root):
+        return tmp_root / protected_rel_dir(row) / CLEAN_DIR
+
+    def test_previews_marked_small_tiers_and_original_clean(self, image, mark_png, settings):
         row, folder, original_bytes = image
+        clean_dir = self._clean_dir(row, folder.parent.parent)
         with override_settings(STAPEL_CDN=_cdn(mark_png)):
             ImageProcessingService.generate_previews_only(row)
         meta = {(e["tier"], e["branch"]): e for e in row.variants_meta}
-        # 1080w is 1080x810: marked, with a clean copy beside it.
+        # 1080w is 1080x810: marked; its clean copy lives in the protected tree.
         big = meta[(1080, "w")]
         assert big["watermarked"] is True
-        assert big["clean_url"].endswith(f"/{CLEAN_DIR}/1080w.webp")
-        assert (folder / CLEAN_DIR / "1080w.webp").exists()
+        assert "clean_url" not in big
+        assert not (folder / CLEAN_DIR).exists()
         marked = pyvips.Image.new_from_file(str(folder / "1080w.webp"))
-        clean = pyvips.Image.new_from_file(str(folder / CLEAN_DIR / "1080w.webp"))
+        clean = pyvips.Image.new_from_file(str(clean_dir / "1080w.webp"))
         corner = (marked.width - 30 - 100, marked.height - 23 - 20)
         assert marked.getpoint(*corner)[0] > 60
         assert clean.getpoint(*corner)[0] < 10
         # 240w is 240x180: under WATERMARK_MIN_SIDE, left clean.
         assert "watermarked" not in meta[(240, "w")]
-        assert not (folder / CLEAN_DIR / "240w.webp").exists()
+        assert not (clean_dir / "240w.webp").exists()
         # The stored original is byte-identical.
         assert (folder / "original.jpg").read_bytes() == original_bytes
 
@@ -153,7 +158,7 @@ class TestPipeline:
         with override_settings(STAPEL_CDN={"ASSET_TYPES": ("product",)}):
             ImageProcessingService.generate_previews_only(row)
         assert not any(e.get("watermarked") for e in row.variants_meta)
-        assert not os.path.exists(folder / CLEAN_DIR)
+        assert not self._clean_dir(row, folder.parent.parent).exists()
 
     def test_turning_it_off_removes_stale_clean_copies(self, image, mark_png):
         row, folder, _ = image
@@ -161,7 +166,7 @@ class TestPipeline:
             ImageProcessingService.generate_previews_only(row)
         with override_settings(STAPEL_CDN={"ASSET_TYPES": ("product",)}):
             ImageProcessingService.generate_previews_only(row)
-        assert os.listdir(folder / CLEAN_DIR) == []
+        assert os.listdir(self._clean_dir(row, folder.parent.parent)) == []
 
 
 class TestCheck:

@@ -295,6 +295,72 @@
         }
       }
     },
+    "/cdn/api/v1/images/{image_type}/{file_hash}/original/": {
+      "get": {
+        "operationId": "cdn_image_original",
+        "description": "The uploader's own original, when it is kept off the public route.\n\nA watermarked image's original is protected (``stapel_cdn.protected``);\nthe person who uploaded it may still download it, and so may an internal\nservice call. Everyone else gets the same 404 as for a missing image.\n\n**Permissions:** `OperandHolder`",
+        "summary": "Download my original upload",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "file_hash",
+            "schema": {
+              "type": "string"
+            },
+            "required": true
+          },
+          {
+            "in": "path",
+            "name": "image_type",
+            "schema": {
+              "type": "string"
+            },
+            "required": true
+          }
+        ],
+        "tags": [
+          "Images"
+        ],
+        "security": [
+          {
+            "JWTCookieAuth": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/octet-stream": {
+                "schema": {
+                  "type": "string",
+                  "format": "binary"
+                }
+              }
+            },
+            "description": ""
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/StapelError"
+                }
+              }
+            },
+            "description": ""
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/StapelError"
+                }
+              }
+            },
+            "description": ""
+          }
+        }
+      }
+    },
     "/cdn/api/v1/images/{image_type}/random/": {
       "get": {
         "operationId": "random_image",
@@ -480,6 +546,49 @@
             "description": ""
           },
           "500": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/StapelError"
+                }
+              }
+            },
+            "description": ""
+          }
+        }
+      }
+    },
+    "/cdn/api/v1/media/signed/{token}/": {
+      "get": {
+        "operationId": "cdn_signed_media",
+        "description": "Serve one protected file behind a short-lived signed token.\n\nThe token (``stapel_cdn.protected.signed_url``) is minted only for\ninternal readers — ``cdn.describe`` with ``{\"clean\": true}`` is a comm\nFunction — and names one path inside the protected tree. Anyone holding\nit may fetch until it expires (``SIGNED_MEDIA_TTL_SECONDS``): that is what\nlets a vision provider fetch the clean copy by URL. Expired, forged and\nunknown tokens all answer the same 404.",
+        "summary": "Fetch a protected file by signed token",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "token",
+            "schema": {
+              "type": "string"
+            },
+            "required": true
+          }
+        ],
+        "tags": [
+          "Media"
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/octet-stream": {
+                "schema": {
+                  "type": "string",
+                  "format": "binary"
+                }
+              }
+            },
+            "description": ""
+          },
+          "404": {
             "content": {
               "application/json": {
                 "schema": {
