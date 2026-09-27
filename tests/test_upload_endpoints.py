@@ -384,35 +384,60 @@ class TestImageUploadTypeReconciliation:
         self, authenticated_client
     ):
         """Across configurations, never one 201 whose type its own enum
-        rejects — the second horn of the old finding, asserted as a property
-        rather than as a pair of cases."""
+        rejects. A multi-type deployment names the type per request."""
         from stapel_cdn.models import get_image_type_choices
 
         # Distinct colours per case on purpose: owner-scoped dedup answers
-        # 200 for bytes this caller already holds, which would silently make
-        # the later cases assert about the FIRST case's row.
+        # 200 for bytes this caller already holds.
         cases = [
-            (('avatar',), 'teal'),
-            (('avatar', 'product'), 'maroon'),
-            (('banner', 'avatar'), 'gold'),
+            (('avatar',), None, 'teal'),
+            (('avatar', 'product'), 'product', 'maroon'),
+            (('banner', 'avatar'), 'banner', 'gold'),
         ]
-        for asset_types, colour in cases:
+        for asset_types, named, colour in cases:
+            data = {'file': make_image_upload(color=colour)}
+            if named:
+                data['type'] = named
             with override_settings(STAPEL_CDN={'ASSET_TYPES': asset_types}):
-                response = authenticated_client.post(
-                    self.url,
-                    {'file': make_image_upload(color=colour)},
-                    format='multipart',
-                )
+                response = authenticated_client.post(self.url, data, format='multipart')
                 valid = [value for value, _ in get_image_type_choices()]
             assert response.status_code == status.HTTP_201_CREATED, (
                 asset_types,
                 response.data,
             )
-            assert response.data['image']['type'] in valid, (
-                asset_types,
-                response.data['image']['type'],
-                valid,
+            assert response.data['image']['type'] == (named or asset_types[0])
+            assert response.data['image']['type'] in valid
+
+    def test_several_types_and_no_type_named_is_refused(self, authenticated_client):
+        """No silent first-entry default: that stored listing photos as avatars."""
+        with override_settings(STAPEL_CDN={'ASSET_TYPES': ('avatar', 'product')}):
+            response = authenticated_client.post(
+                self.url, {'file': make_image_upload(color='olive')}, format='multipart'
             )
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        assert response.data['localizable_error'] == 'error.400.image_type_required'
+        assert Image.objects.count() == 0
+
+    def test_the_named_type_is_stored(self, authenticated_client):
+        with override_settings(STAPEL_CDN={'ASSET_TYPES': ('avatar', 'product')}):
+            response = authenticated_client.post(
+                self.url,
+                {'type': 'product', 'file': make_image_upload(color='olive')},
+                format='multipart',
+            )
+        assert response.status_code == status.HTTP_201_CREATED, response.data
+        assert response.data['image']['type'] == 'product'
+
+    def test_a_named_type_outside_asset_types_is_refused(self, authenticated_client):
+        with override_settings(STAPEL_CDN={'ASSET_TYPES': ('avatar', 'product')}):
+            response = authenticated_client.post(
+                self.url,
+                {'type': 'banner', 'file': make_image_upload(color='olive')},
+                format='multipart',
+            )
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        assert response.data['error'] == 'Invalid image type'
+        assert Image.objects.count() == 0
 
     def test_an_explicit_default_upload_type_is_honoured(
         self, authenticated_client, user
@@ -464,7 +489,7 @@ class TestImageUploadValidationMatrix:
             STAPEL_CDN={'MAX_IMAGE_SIZE': 10, 'ASSET_TYPES': ('avatar', 'product')}
         ):
             response = authenticated_client.post(
-                self.url, {'file': make_image_upload('big.jpg')}, format='multipart'
+                self.url, {'type': 'product', 'file': make_image_upload('big.jpg')}, format='multipart'
             )
         assert response.status_code == 413
         assert response.data['error'] == 'File is too large'
@@ -472,14 +497,14 @@ class TestImageUploadValidationMatrix:
 
     def test_wrong_extension_rejected(self, authenticated_client):
         bad = SimpleUploadedFile('image.exe', make_image_bytes(), content_type='image/jpeg')
-        response = authenticated_client.post(self.url, {'file': bad}, format='multipart')
+        response = authenticated_client.post(self.url, {'type': 'product', 'file': bad}, format='multipart')
         assert response.status_code == status.HTTP_400_BAD_REQUEST
         assert Image.objects.count() == 0
 
     def test_video_extension_rejected_by_image_check(self, authenticated_client):
         # .mp4 passes the shared upload serializer but must fail the image allowlist
         fake = SimpleUploadedFile('clip.mp4', b'\x00\x00\x00\x1cftypisom', content_type='video/mp4')
-        response = authenticated_client.post(self.url, {'file': fake}, format='multipart')
+        response = authenticated_client.post(self.url, {'type': 'product', 'file': fake}, format='multipart')
         assert response.status_code == status.HTTP_400_BAD_REQUEST
         assert response.data['error'] == 'Unsupported file format'
         assert Image.objects.count() == 0
@@ -488,7 +513,7 @@ class TestImageUploadValidationMatrix:
         spoofed = SimpleUploadedFile(
             'page.jpg', b'<html><body>not an image</body></html>', content_type='image/jpeg'
         )
-        response = authenticated_client.post(self.url, {'file': spoofed}, format='multipart')
+        response = authenticated_client.post(self.url, {'type': 'product', 'file': spoofed}, format='multipart')
         assert response.status_code == status.HTTP_400_BAD_REQUEST
         assert response.data['error'] == 'Unsupported file format'
         assert Image.objects.count() == 0
@@ -502,7 +527,7 @@ class TestImageUploadValidationMatrix:
         with override_settings(
             STAPEL_CDN={'MAX_IMAGE_PIXELS': 1000, 'ASSET_TYPES': ('avatar', 'product')}
         ):
-            response = authenticated_client.post(self.url, {'file': bomb}, format='multipart')
+            response = authenticated_client.post(self.url, {'type': 'product', 'file': bomb}, format='multipart')
         assert response.status_code == status.HTTP_400_BAD_REQUEST
         assert response.data['error'] == 'Unsupported file format'
         assert Image.objects.count() == 0
@@ -510,26 +535,20 @@ class TestImageUploadValidationMatrix:
     def test_create_failure_returns_500(self, authenticated_client):
         with patch('stapel_cdn.views.Image.objects.create', side_effect=RuntimeError('db down')):
             response = authenticated_client.post(
-                self.url, {'file': make_image_upload('e.jpg', color='navy')}, format='multipart'
+                self.url, {'type': 'product', 'file': make_image_upload('e.jpg', color='navy')}, format='multipart'
             )
         assert response.status_code == 500
 
     def test_upload_response_envelope(self, authenticated_client):
         response = authenticated_client.post(
-            self.url, {'file': make_image_upload('env.jpg', color='teal')}, format='multipart'
+            self.url, {'type': 'product', 'file': make_image_upload('env.jpg', color='teal')}, format='multipart'
         )
         assert response.status_code == status.HTTP_201_CREATED
         image_payload = response.data['image']
         for key in ('id', 'file_hash', 'prefix', 'original_url', 'variant_720_url', 'is_processed'):
             assert key in image_payload
-        # The prefix is the STORED type, which this endpoint reads from
-        # ASSET_TYPES (0.23.0) rather than from a literal — asserted against
-        # the same resolver the view uses, so this stays true on any
-        # ASSET_TYPES a future conftest configures.
-        from stapel_cdn.models import get_default_upload_type
-
-        expected_type = get_default_upload_type()
-        assert image_payload['prefix'] == f"{expected_type}/{image_payload['file_hash']}"
+        # The prefix is the STORED type: the one the request named.
+        assert image_payload['prefix'] == f"product/{image_payload['file_hash']}"
         assert image_payload['is_processed'] is False
 
 
@@ -542,7 +561,7 @@ class TestVideoUploadExtras:
     def test_upload_persists_and_returns_envelope(self, authenticated_client, user):
         content = b'\x00\x00\x00\x1cftypisom-unique-video-1'
         video_file = SimpleUploadedFile('movie.mov', content, content_type='video/quicktime')
-        response = authenticated_client.post(self.url, {'file': video_file}, format='multipart')
+        response = authenticated_client.post(self.url, {'type': 'product', 'file': video_file}, format='multipart')
         assert response.status_code == status.HTTP_201_CREATED
         payload = response.data['video']
         assert payload['original_filename'] == 'movie.mov'

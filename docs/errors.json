@@ -162,6 +162,14 @@
     "owner": "stapel_cdn"
   },
   {
+    "code": "error.400.image_type_required",
+    "status": 400,
+    "params": [],
+    "remediation": "fix_input",
+    "en": "Image type is required",
+    "owner": "stapel_cdn"
+  },
+  {
     "code": "error.400.invalid_ad_id",
     "status": 400,
     "params": [],

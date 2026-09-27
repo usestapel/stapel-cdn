@@ -181,7 +181,7 @@ class TestRegisteredUsersAreUnaffected:
     def test_image(self, registered_client):
         resp = registered_client.post(
             "/cdn/api/v1/upload/image/",
-            {"file": make_image_upload()},
+            {"type": "product", "file": make_image_upload()},
             format="multipart",
         )
         assert resp.status_code == status.HTTP_201_CREATED, resp.content

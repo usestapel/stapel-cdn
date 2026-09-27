@@ -138,23 +138,22 @@ def get_image_type_choices():
 
 
 def get_default_upload_type():
-    """The type ``POST /upload/image/`` stores, read fresh from conf.
+    """The type ``POST /upload/image/`` stores when the caller names none.
 
     ``STAPEL_CDN["DEFAULT_UPLOAD_TYPE"]`` when a deployment names one, else
-    the FIRST ``ASSET_TYPES`` entry. Never a literal: whatever this returns
-    has to be a member of the choices ``get_image_type_choices()`` builds
-    from the same setting, or the row stored would not be a member of its own
-    model's choices and the emitted ``TypeEnum`` would not admit it — which
-    is exactly the defect this function exists to make impossible (0.23.0).
+    the ONLY ``ASSET_TYPES`` entry when there is exactly one. With two or more
+    types and nothing named there is no default: guessing the first entry
+    stored listing photos as avatars (0.28.0), so the caller must name the
+    type (the request's ``type`` field) and the endpoint answers
+    ``error.400.image_type_required`` otherwise.
 
-    Returns ``None`` when ``ASSET_TYPES`` is empty and nothing is named, so
-    the caller answers 400 rather than storing something unvalidated.
+    Returns ``None`` when there is no unambiguous default.
     """
     named = cdn_settings.DEFAULT_UPLOAD_TYPE
     if named:
         return named
     choices = get_image_type_choices()
-    return choices[0][0] if choices else None
+    return choices[0][0] if len(choices) == 1 else None
 
 
 class Image(models.Model):

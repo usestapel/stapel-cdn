@@ -703,8 +703,9 @@ def check_default_upload_type(app_configs=None, **kwargs):
                 hint=(
                     f"Add {named!r} to ASSET_TYPES, or point "
                     "DEFAULT_UPLOAD_TYPE at a type that is already there. "
-                    "Leaving DEFAULT_UPLOAD_TYPE unset selects the first "
-                    "ASSET_TYPES entry, which is always valid."
+                    "Leaving DEFAULT_UPLOAD_TYPE unset makes callers name "
+                    "the type (the request's `type` field) whenever "
+                    "ASSET_TYPES has more than one entry."
                 ),
                 id=W014_UPLOAD_TYPE_NOT_CONFIGURED,
             )
@@ -713,7 +714,7 @@ def check_default_upload_type(app_configs=None, **kwargs):
     # Belt: the resolver must answer something storable whenever the two
     # settings agree. A future edit that reintroduces a literal fails here.
     resolved = get_default_upload_type()
-    if resolved not in valid:
+    if resolved is not None and resolved not in valid:
         return [
             checks.Warning(
                 f"the type POST /upload/image/ would store ({resolved!r}) is "

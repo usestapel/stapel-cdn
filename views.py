@@ -70,6 +70,7 @@ from stapel_cdn.errors import (
     ERR_400_FILE_HASH_REQUIRED,
     ERR_400_FILE_TYPE_NOT_ALLOWED,
     ERR_400_INVALID_FORMAT,
+    ERR_400_IMAGE_TYPE_REQUIRED,
     ERR_400_INVALID_IMAGE_TYPE,
     ERR_400_MISSING_FIELDS,
     ERR_400_NO_FILE,
@@ -116,6 +117,7 @@ from .serializers import (
     FileModelSerializer,
     FileUploadResponseSerializer,
     FileUploadSerializer,
+    ImageUploadRequestSerializer,
     ImageSerializer,
     ImageUploadResponseSerializer,
     RefSyncRequestSerializer,
@@ -257,7 +259,7 @@ class ImageUploadView(SerializerSeamMixin, APIView):
     # free-to-mint anonymous identity this is open image hosting.
     permission_classes = [IsNotAnonymousUser]
     parser_classes = [MultiPartParser, FormParser]
-    request_serializer_class = FileUploadSerializer
+    request_serializer_class = ImageUploadRequestSerializer
     response_serializer_class = ImageUploadResponseSerializer
 
     @extend_schema(
@@ -293,15 +295,16 @@ A row that stays `pending` is a broken pipeline, not a slow one — see
 **Maximum file size:** `STAPEL_CDN["MAX_IMAGE_SIZE"]`, 20MB by default.
 Enforced before the body is hashed; over it the answer is 413.
 
-**Stored type:** `STAPEL_CDN["DEFAULT_UPLOAD_TYPE"]` when a deployment names
-one, otherwise the FIRST entry of `STAPEL_CDN["ASSET_TYPES"]` — read from the
-setting, never a literal, so the stored type is always a member of the
-`TypeEnum` this document generates from that same setting. On the zero-infra
-default (`ASSET_TYPES = ("avatar",)`) that is `"avatar"`. A `DEFAULT_UPLOAD_TYPE`
-naming a value absent from `ASSET_TYPES` is a misconfiguration: this endpoint
-answers 400 and `stapel_cdn.assets.W014` reports it at boot.
+**Stored type:** the `type` form field, validated against
+`STAPEL_CDN["ASSET_TYPES"]` (400 `error.400.invalid_image_type` otherwise).
+Without it: `STAPEL_CDN["DEFAULT_UPLOAD_TYPE"]` when a deployment names one,
+else the sole `ASSET_TYPES` entry. A deployment with several asset types and
+no `DEFAULT_UPLOAD_TYPE` has no default: the request answers
+400 `error.400.image_type_required`. A `DEFAULT_UPLOAD_TYPE` naming a value
+absent from `ASSET_TYPES` is a misconfiguration: this endpoint answers 400 and
+`stapel_cdn.assets.W014` reports it at boot.
 """,
-        request=FileUploadSerializer,
+        request=ImageUploadRequestSerializer,
         responses={
             201: ImageUploadResponseSerializer,
             200: ImageUploadResponseSerializer,
@@ -349,18 +352,18 @@ answers 400 and `stapel_cdn.assets.W014` reports it at boot.
         Upload an image file.
         Variants are automatically generated via Django signals.
         """
-        # This endpoint's type is fixed rather than caller-chosen (see
-        # TypedImageUploadView for that), but it is READ from conf, never a
-        # literal: `get_default_upload_type()` answers
-        # STAPEL_CDN["DEFAULT_UPLOAD_TYPE"] or the first ASSET_TYPES entry, so
-        # the value stored is a member of the same setting the model's choices
-        # and the emitted TypeEnum are generated from, under every
-        # configuration. It is still validated — an explicitly configured
-        # DEFAULT_UPLOAD_TYPE that is not in ASSET_TYPES is a misconfiguration
-        # this endpoint must refuse rather than store (checks.W010 reports it
-        # at boot), and an empty ASSET_TYPES leaves nothing to store at all.
-        upload_type = get_default_upload_type()
+        # The caller names the type (`type` field). Without it the stored type
+        # is DEFAULT_UPLOAD_TYPE, or the sole ASSET_TYPES entry; with several
+        # types and nothing named there is no safe guess (the first entry
+        # stored listing photos as avatars), so the request is refused.
         valid_types = [choice[0] for choice in get_image_type_choices()]
+        requested = str(request.data.get("type") or "").strip()
+        if requested:
+            upload_type = requested
+        else:
+            upload_type = get_default_upload_type()
+            if upload_type is None and len(valid_types) > 1:
+                return StapelErrorResponse(400, ERR_400_IMAGE_TYPE_REQUIRED)
         if upload_type not in valid_types:
             return StapelErrorResponse(400, ERR_400_INVALID_IMAGE_TYPE)
 

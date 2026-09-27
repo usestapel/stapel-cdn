@@ -13,6 +13,7 @@ from stapel_cdn.serializers import (
     FileExistsSerializer,
     FileUploadResponseSerializer,
     FileUploadSerializer,
+    ImageUploadRequestSerializer,
     ImageSerializer,
     ImageUploadResponseSerializer,
     RefSyncRequestSerializer,
@@ -22,7 +23,7 @@ from stapel_cdn.serializers import (
 from stapel_core.django.users.models import User
 
 EXPECTED_SEAMS = {
-    views.ImageUploadView: (FileUploadSerializer, ImageUploadResponseSerializer),
+    views.ImageUploadView: (ImageUploadRequestSerializer, ImageUploadResponseSerializer),
     views.VideoUploadView: (FileUploadSerializer, VideoUploadResponseSerializer),
     views.AudioUploadView: (AudioUploadSerializer, AudioUploadResponseSerializer),
     views.FileExistsView: (FileExistsSerializer, FileExistsResponseSerializer),

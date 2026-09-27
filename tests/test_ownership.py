@@ -81,9 +81,7 @@ class TestCollidingUploadRevealsNothing:
     @pytest.mark.parametrize(
         "url,image_type",
         [
-            # The generic endpoint stores the FIRST ASSET_TYPES entry since
-            # 0.23.0 (conftest configures ("avatar", "product")), not the
-            # literal "product" it used to.
+            # The generic endpoint stores the type the caller names.
             ("/cdn/api/v1/upload/image/", "avatar"),
             ("/cdn/api/v1/upload/avatar/", "avatar"),
             ("/cdn/api/v1/images/product/upload/", "product"),
@@ -93,13 +91,14 @@ class TestCollidingUploadRevealsNothing:
         content = make_image_bytes()
 
         first = client_for(tenant_a).post(
-            url, {"file": upload_of(content)}, format="multipart"
+            url, {"type": image_type, "file": upload_of(content)}, format="multipart"
         )
         assert first.status_code == status.HTTP_201_CREATED
         a_image = Image.objects.get(uploaded_by=tenant_a, type=image_type)
 
         second = client_for(tenant_b).post(
-            url, {"file": upload_of(content, name="whatever-b-called-it.jpg")},
+            url,
+            {"type": image_type, "file": upload_of(content, name="whatever-b-called-it.jpg")},
             format="multipart",
         )
 
@@ -342,11 +341,11 @@ class TestPerOwnerQuota:
         url = "/cdn/api/v1/upload/image/"
 
         first = client.post(
-            url, {"file": upload_of(make_image_bytes(color="red"), "1.jpg")},
+            url, {"type": "product", "file": upload_of(make_image_bytes(color="red"), "1.jpg")},
             format="multipart",
         )
         second = client.post(
-            url, {"file": upload_of(make_image_bytes(color="blue"), "2.jpg")},
+            url, {"type": "product", "file": upload_of(make_image_bytes(color="blue"), "2.jpg")},
             format="multipart",
         )
 
@@ -371,11 +370,11 @@ class TestPerOwnerQuota:
         """A's usage must not spend B's quota."""
         url = "/cdn/api/v1/upload/image/"
         client_for(tenant_a).post(
-            url, {"file": upload_of(make_image_bytes(color="red"), "a.jpg")},
+            url, {"type": "product", "file": upload_of(make_image_bytes(color="red"), "a.jpg")},
             format="multipart",
         )
         response = client_for(tenant_b).post(
-            url, {"file": upload_of(make_image_bytes(color="blue"), "b.jpg")},
+            url, {"type": "product", "file": upload_of(make_image_bytes(color="blue"), "b.jpg")},
             format="multipart",
         )
         assert response.status_code == status.HTTP_201_CREATED

@@ -42,10 +42,10 @@ DEFAULT_ASSET_TYPES = ("avatar",)
 #: generated from ``ASSET_TYPES``) did not admit. Wrong under both, in
 #: opposite directions.
 #:
-#: ``None`` means "the first configured ``ASSET_TYPES`` entry", which is true
-#: under every configuration by construction: the value stored is always a
-#: member of the enum generated from the same setting. A deployment that
-#: needs a specific one names it here.
+#: The request's ``type`` field wins. ``None`` means the sole ``ASSET_TYPES``
+#: entry; with several entries there is no default and a request that names
+#: no type is refused (``error.400.image_type_required``) — guessing the first
+#: entry stored listing photos as avatars.
 DEFAULT_UPLOAD_TYPE = None
 
 #: Media submodules with an optional system-binary dependency, enabled by

@@ -381,7 +381,7 @@ class TestRecordingsCountTowardsTheQuota:
         PILImage.new("RGB", (16, 16), color="red").save(buffer, format="JPEG")
         image_response = client.post(
             "/cdn/api/v1/upload/image/",
-            {"file": SimpleUploadedFile("photo.jpg", buffer.getvalue(),
+            {"type": "product", "file": SimpleUploadedFile("photo.jpg", buffer.getvalue(),
                                         content_type="image/jpeg")},
             format="multipart",
         )

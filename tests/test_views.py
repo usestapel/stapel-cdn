@@ -100,7 +100,7 @@ class TestImageUploadView:
         """Test that unauthenticated users cannot upload images."""
         response = api_client.post(
             '/cdn/api/v1/upload/image/',
-            {'file': sample_image_file},
+            {'type': 'product', 'file': sample_image_file},
             format='multipart'
         )
         assert response.status_code == status.HTTP_401_UNAUTHORIZED
@@ -110,7 +110,7 @@ class TestImageUploadView:
         """Test successful image upload."""
         response = authenticated_client.post(
             '/cdn/api/v1/upload/image/',
-            {'file': sample_image_file},
+            {'type': 'product', 'file': sample_image_file},
             format='multipart'
         )
         assert response.status_code == status.HTTP_201_CREATED
@@ -135,7 +135,7 @@ class TestImageUploadView:
 
         response1 = authenticated_client.post(
             '/cdn/api/v1/upload/image/',
-            {'file': file1},
+            {'type': 'product', 'file': file1},
             format='multipart'
         )
         assert response1.status_code == status.HTTP_201_CREATED
@@ -150,7 +150,7 @@ class TestImageUploadView:
 
         response2 = authenticated_client.post(
             '/cdn/api/v1/upload/image/',
-            {'file': file2},
+            {'type': 'product', 'file': file2},
             format='multipart'
         )
         assert response2.status_code == status.HTTP_200_OK
@@ -161,7 +161,7 @@ class TestImageUploadView:
         """Test uploading an invalid file type returns error."""
         response = authenticated_client.post(
             '/cdn/api/v1/upload/image/',
-            {'file': invalid_file},
+            {'type': 'product', 'file': invalid_file},
             format='multipart'
         )
         assert response.status_code == status.HTTP_400_BAD_REQUEST

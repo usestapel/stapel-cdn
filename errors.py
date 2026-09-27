@@ -7,6 +7,9 @@ ERR_400_INVALID_FORMAT = 'error.400.invalid_format'
 ERR_413_FILE_TOO_LARGE = 'error.413.file_too_large'
 ERR_400_INVALID_HASH = 'error.400.invalid_hash'
 ERR_400_INVALID_IMAGE_TYPE = 'error.400.invalid_image_type'
+#: `POST /upload/image/` on a deployment with several asset types and no
+#: DEFAULT_UPLOAD_TYPE: the caller must name the type (`type` field).
+ERR_400_IMAGE_TYPE_REQUIRED = 'error.400.image_type_required'
 ERR_404_NO_IMAGES = 'error.404.no_images'
 #: A protected-media link that is expired, forged or names nothing, or an
 #: original the caller did not upload. One answer for all, on purpose.
@@ -51,6 +54,7 @@ CDN_ERRORS = {
     ERR_413_FILE_TOO_LARGE: 'File is too large',
     ERR_400_INVALID_HASH: 'Invalid file hash',
     ERR_400_INVALID_IMAGE_TYPE: 'Invalid image type',
+    ERR_400_IMAGE_TYPE_REQUIRED: 'Image type is required',
     ERR_404_NO_IMAGES: 'No processed images found',
     ERR_404_MEDIA_NOT_FOUND: 'Media not found or link expired',
     ERR_400_FILE_HASH_REQUIRED: 'file_hash parameter is required',

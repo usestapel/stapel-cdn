@@ -258,7 +258,7 @@ class TestImageStorageRequiresADecoder:
         """Without a decoder the pixel-bomb cap and the decode never run at all."""
         response = client.post(
             self.url,
-            {"file": SimpleUploadedFile("photo.jpg", image_bytes(), "image/jpeg")},
+            {"type": "product", "file": SimpleUploadedFile("photo.jpg", image_bytes(), "image/jpeg")},
             format="multipart",
         )
 
@@ -271,7 +271,7 @@ class TestImageStorageRequiresADecoder:
         """The documented passthrough posture stays reachable — explicitly."""
         response = client.post(
             self.url,
-            {"file": SimpleUploadedFile("photo.jpg", image_bytes(), "image/jpeg")},
+            {"type": "product", "file": SimpleUploadedFile("photo.jpg", image_bytes(), "image/jpeg")},
             format="multipart",
         )
         assert response.status_code == status.HTTP_201_CREATED
@@ -279,7 +279,7 @@ class TestImageStorageRequiresADecoder:
     def test_a_decoder_present_is_unaffected(self, client):
         response = client.post(
             self.url,
-            {"file": SimpleUploadedFile("photo.jpg", image_bytes("blue"), "image/jpeg")},
+            {"type": "product", "file": SimpleUploadedFile("photo.jpg", image_bytes("blue"), "image/jpeg")},
             format="multipart",
         )
         assert response.status_code == status.HTTP_201_CREATED

@@ -1,5 +1,22 @@
 # Changelog
 
+## [0.28.0] — 2026-09-27
+
+Minor: the generic image intake no longer guesses the asset type.
+
+* `POST /upload/image/` takes a `type` form field, validated against
+  `ASSET_TYPES`. Without it the stored type is `DEFAULT_UPLOAD_TYPE`, or the
+  sole `ASSET_TYPES` entry. With several types and neither, the request is
+  refused with the new `error.400.image_type_required` instead of silently
+  storing the first entry — which filed a consumer's photos under `avatar`,
+  where avatar policies and no watermark applied.
+* `manage.py retype_images --from A --to B --claimed-by <service>/<entity>`
+  moves the images a consumer claims to the right type: retyped in place
+  (original copied to the new path, protected when the new type is
+  watermarked, renditions rendered again), copied when another consumer also
+  claims the row, merged into an existing row of the target type otherwise.
+  `--site-key` stamps rows with no recorded site; `--dry-run` prints counts.
+
 ## [0.27.0] — 2026-09-25
 
 Minor: with a watermark configured, only marked renditions are public.

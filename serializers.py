@@ -595,6 +595,19 @@ class FileUploadSerializer(serializers.Serializer):
         return value
 
 
+
+class ImageUploadRequestSerializer(FileUploadSerializer):
+    """``POST /upload/image/``: the file plus the asset type to store it as."""
+
+    type = serializers.CharField(
+        required=False,
+        max_length=10,
+        help_text=(
+            "Asset type, one of STAPEL_CDN['ASSET_TYPES']. Required when the "
+            "deployment has several types and no DEFAULT_UPLOAD_TYPE."
+        ),
+    )
+
 class AudioUploadSerializer(serializers.Serializer):
     """Shape only: ``multipart/form-data`` with a ``file`` part.
 

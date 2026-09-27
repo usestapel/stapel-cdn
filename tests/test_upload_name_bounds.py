@@ -142,7 +142,7 @@ class TestALongNameIsStoredNotRefused:
 
         response = client.post(
             IMAGE_URL,
-            {"file": SimpleUploadedFile(name, _png_bytes(), content_type="image/png")},
+            {"type": "product", "file": SimpleUploadedFile(name, _png_bytes(), content_type="image/png")},
             format="multipart",
         )
 
