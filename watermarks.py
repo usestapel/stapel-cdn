@@ -53,7 +53,29 @@ SPEC_DEFAULTS = {
     "MAX_HEIGHT": 0.10,
     "MARGIN": 0.028,
     "OPACITY": 1.0,
+    "SAFE_ASPECT": None,
 }
+
+
+def _safe_box(width: int, height: int, aspect) -> tuple[int, int, int, int]:
+    """The centred box a cover-cropped thumbnail of *aspect* keeps.
+
+    Cards crop to a fixed aspect; a mark placed against the full frame's
+    corner is cut off there (a portrait phone photo loses ~22% top and
+    bottom at 4:3). ``None`` means the whole frame.
+    """
+    if aspect in (None, "", 0):
+        return 0, 0, width, height
+    if isinstance(aspect, str):
+        sep = ":" if ":" in aspect else "/"
+        num, den = (float(part) for part in aspect.split(sep))
+        aspect = num / den
+    ratio = float(aspect)
+    if width / height > ratio:
+        box_w = round(height * ratio)
+        return (width - box_w) // 2, 0, box_w, height
+    box_h = round(width / ratio)
+    return 0, (height - box_h) // 2, width, box_h
 
 
 def text_watermark(img: "pyvips.Image", text: str | None = None) -> "pyvips.Image":
@@ -150,7 +172,9 @@ def overlay_watermark(img: "pyvips.Image", spec: dict) -> "pyvips.Image":
     """Composite the spec's PNG onto *img*, scaled to the rendition.
 
     Width is ``SCALE`` of the image width, capped so the mark is never taller
-    than ``MAX_HEIGHT`` of the image height (panoramas). Returns *img*
+    than ``MAX_HEIGHT`` of the image height (panoramas). With ``SAFE_ASPECT``
+    both are measured against, and the mark placed inside, the centred box a
+    cover crop of that aspect keeps. Returns *img*
     unchanged when the mark cannot be read — the failure is logged at ERROR,
     because an unreadable asset must not stop photos from being published.
     """
@@ -162,7 +186,7 @@ def overlay_watermark(img: "pyvips.Image", spec: dict) -> "pyvips.Image":
         logger.error("stapel-cdn: watermark %r cannot be read: %s", path, exc)
         return img
 
-    width, height = img.width, img.height
+    left, top, width, height = _safe_box(img.width, img.height, spec["SAFE_ASPECT"])
     target = min(
         float(spec["SCALE"]) * width,
         float(spec["MAX_HEIGHT"]) * height * mark.width / mark.height,
@@ -172,10 +196,10 @@ def overlay_watermark(img: "pyvips.Image", spec: dict) -> "pyvips.Image":
     # Premultiplied resize: no dark fringe where the alpha falls off.
     scaled = mark.premultiply().resize(target / mark.width).unpremultiply()
     scaled = scaled.cast("uchar")
-    opacity = float(spec["OPACITY"])
-    if opacity < 1.0:
-        scaled = scaled * [1, 1, 1, max(0.0, opacity)]
-        scaled = scaled.cast("uchar")
+    # Above 1.0 boosts the asset's own alpha (clipped at opaque).
+    opacity = max(0.0, float(spec["OPACITY"]))
+    if opacity != 1.0:
+        scaled = (scaled * [1, 1, 1, opacity]).cast("uchar")
 
     inset = round(float(spec["MARGIN"]) * min(width, height))
     position = spec["POSITION"] if spec["POSITION"] in POSITIONS else "bottom-right"
@@ -185,7 +209,7 @@ def overlay_watermark(img: "pyvips.Image", spec: dict) -> "pyvips.Image":
         vertical, horizontal = position.split("-")
         x = inset if horizontal == "left" else width - scaled.width - inset
         y = inset if vertical == "top" else height - scaled.height - inset
-    x, y = max(0, x), max(0, y)
+    x, y = left + max(0, x), top + max(0, y)
 
     base = _as_srgb(img)
     had_alpha = base.hasalpha()

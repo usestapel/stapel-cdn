@@ -94,6 +94,27 @@ class TestOverlay:
         assert out.getpoint(1000 - 6 - 40, 200 - 6 - 10)[0] > 100
         assert out.getpoint(1000 - 6 - 150, 200 - 6 - 10)[0] == 0
 
+    def test_safe_aspect_keeps_the_mark_inside_a_4_3_crop(self, mark_png):
+        # Portrait 600x1000: a 4:3 cover crop keeps y 387..837 (h = 450).
+        spec = {"PATH": mark_png, "SAFE_ASPECT": "4:3"}
+        out = overlay_watermark(_black(600, 1000), spec)
+        top, box_h = (1000 - 450) // 2, 450
+        inset = round(0.028 * 450)
+        mark_w = 0.24 * 600
+        # Inside the kept box, bottom-right.
+        assert out.getpoint(600 - inset - int(mark_w / 2), top + box_h - inset - 10)[0] > 100
+        # Nothing in the strip the crop throws away.
+        assert out.crop(0, top + box_h, 600, 1000 - top - box_h).max() == 0
+        # Without it the mark sits in that strip.
+        plain = overlay_watermark(_black(600, 1000), {"PATH": mark_png})
+        assert plain.crop(0, top + box_h, 600, 1000 - top - box_h).max() > 100
+
+    def test_opacity_above_one_makes_the_mark_denser(self, mark_png):
+        weak = overlay_watermark(_black(1000, 800), {"PATH": mark_png})
+        strong = overlay_watermark(_black(1000, 800), {"PATH": mark_png, "OPACITY": 1.6})
+        point = (1000 - 22 - 120, 800 - 22 - 20)
+        assert strong.getpoint(*point)[0] > weak.getpoint(*point)[0]
+
     def test_unreadable_mark_leaves_the_image(self, tmp_path):
         img = _black(500, 500)
         assert overlay_watermark(img, {"PATH": str(tmp_path / "missing.png")}) is img

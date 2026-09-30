@@ -1,5 +1,16 @@
 # Changelog
 
+## [0.28.1] — 2026-10-01
+
+### Added — a watermark that survives the thumbnail crop
+
+`WATERMARKS[<site>]["SAFE_ASPECT"]` (e.g. `"4:3"`): the mark is sized and
+placed against the centred box a cover crop of that aspect keeps, instead
+of the full frame's corner. A portrait phone photo shown in a 4:3 card
+loses about 22% top and bottom, and a corner mark there was cut off.
+`OPACITY` above 1.0 now boosts the asset's own alpha (clipped at opaque),
+so a mark can be made denser without re-exporting the PNG.
+
 ## [0.28.0] — 2026-09-27
 
 Minor: the generic image intake no longer guesses the asset type.
