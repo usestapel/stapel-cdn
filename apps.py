@@ -44,6 +44,14 @@ class CdnConfig(AppConfig):
         # is cached and re-registering the same handler object is a no-op.
         from . import functions  # noqa: F401
 
+        # The ref-sync consumer: on an in-process bus no consume_cdn_events
+        # process can run, so the same function subscribes in-process (inert
+        # on a broker). Without it a claimed photo stays unclaimed and is
+        # swept.
+        from .intake import ensure_in_process_consumer
+
+        ensure_in_process_consumer()
+
         # Submodule system checks (tag "stapel_cdn"): images/video/recordings
         # binary probes (cdn-modularity.md §2.2/§3) — catches "enabled but
         # missing binary" at manage.py check / boot-smoke time.

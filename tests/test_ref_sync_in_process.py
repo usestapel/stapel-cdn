@@ -82,3 +82,40 @@ def test_the_consumer_listens_on_the_configured_topic():
     from stapel_cdn.management.commands.consume_cdn_events import Command
 
     assert Command().get_topics() == ["acme.cdn.refs"]
+
+
+@pytest.fixture
+def function_path_forbidden(monkeypatch):
+    """The comm Function fallback must not be what lands the claim."""
+    from stapel_core.comm.registry import function_registry
+
+    def refuse(payload):  # pragma: no cover - must not run
+        raise AssertionError("claim went through cdn.refs_sync, not the bus")
+
+    monkeypatch.setitem(function_registry._providers, "cdn.refs_sync", refuse)
+
+
+@pytest.mark.django_db
+@pytest.mark.parametrize("reset", ["none", "reset_bus", "clear"])
+def test_the_bus_subscription_lands_the_claim(reset, function_path_forbidden):
+    """apps.ready() subscribed the consumer in-process; it outlives a reset."""
+    from stapel_core.bus import reset_bus
+
+    if reset == "reset_bus":
+        reset_bus()
+    elif reset == "clear":
+        get_bus().clear()
+    image = _image()
+
+    result = sync_cdn_refs("listings", "listing", 42, [], [f"product/{HASH}"])
+
+    assert result.ok is True
+    image.refresh_from_db()
+    assert image.refs == ["listings/listing/42"]
+
+
+@pytest.mark.django_db
+def test_the_lifecycle_pair_check_is_green_for_cdn():
+    from stapel_core.comm.lifecycle_checks import check_lifecycle_pairs
+
+    assert [e for e in check_lifecycle_pairs() if "stapel_cdn" in e.msg] == []

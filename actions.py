@@ -67,6 +67,17 @@ def handle_user_deletion_initiated(event):
     )
 
 
+@on_action("user.deletion_cancelled")
+def handle_user_deletion_cancelled(event):
+    """Nothing to restore: the grace period purged only unreferenced media.
+
+    Media with ``refs == []`` is served by nothing, so its purge at grace
+    start is irreversible and invisible; referenced media was never touched.
+    The answer is stated here so the lifecycle pair check
+    (``stapel_core.lifecycle.E001``) sees a decision, not a silence.
+    """
+
+
 # ── Merge: the other half of the account life cycle ───────────────────
 
 

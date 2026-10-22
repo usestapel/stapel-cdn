@@ -1,5 +1,24 @@
 # Changelog
 
+## [0.30.0] — 2026-10-22
+
+### Changed — the ref-sync claim is consumed in-process by the bus
+
+On an in-process bus `apps.ready()` subscribes the `consume_cdn_events`
+handler (now `intake.apply_ref_sync_event`, one function for both
+transports) with stapel-core 0.94.0's `subscribe_in_process`; core's
+`sync_cdn_refs` no longer goes through `cdn.refs_sync` when a subscriber is
+there. The subscription survives `reset_bus()` and `MemoryBus.clear()`, and a
+routing bus with a `memory` route for the topic now claims too (0.29.0 lost
+it: the router itself is not in-process). Floor: `stapel-core>=0.94.0`.
+
+### Added — `user.deletion_cancelled` is answered
+
+An explicit no-op handler: the grace period purges only unreferenced media,
+so a cancelled closure has nothing to restore. stapel-core 0.94.0's
+`stapel_core.lifecycle.E001` reports a `user.deletion_initiated` subscriber
+without one.
+
 ## [0.29.0] — 2026-10-22
 
 ### Fixed — photos claimed on the default bus were swept after 48 hours

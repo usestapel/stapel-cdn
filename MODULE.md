@@ -74,7 +74,7 @@ extra needed — passthrough), `s3` (boto3, reserved). See the submodule table b
   when resolving a ref; `describe_many` and `POST /describe/` are one function
   behind two transports) and `cdn.refs_sync`
   (`stapel_cdn.functions`, called via `stapel_core.comm.call` — no import of this package
-  needed); subscribes to actions `user.deleted` / `user.deletion_initiated` / `user.merged` (`stapel_cdn.actions`); Kafka consumer
+  needed); subscribes to actions `user.deleted` / `user.deletion_initiated` / `user.deletion_cancelled` / `user.merged` (`stapel_cdn.actions`); Kafka consumer
   `manage.py consume_cdn_events` for `cdn.ref.sync` events (topic
   `stapel.cdn.ref-sync`, overridable via `STAPEL_TOPIC_CDN_REF_SYNC` in stapel-core).
 - **GDPR** (`stapel_cdn.gdpr.CDNGDPRProvider`, section `media`): export / staged export /
@@ -348,7 +348,8 @@ class MyImageUpload(ImageUploadView):
 | `user.deleted` | subscribes (action) | The pre-0.5.0 account path, routed through `erasure.erase("account", …)` by the same registration; when the payload carries a `correlation_id` it confirms with `gdpr.section.erased` — the owner protocol's payload, plus `user_id` for the account-only form (0.25.0; stapel-gdpr reads the section from `owner` or from the older `service`, so both orchestrators land it on the same part). Deprecated in stapel-gdpr 0.5.0, removed there in 0.6.0. Schema: `schemas/consumes/user.deleted.json`. Idempotent. |
 | `user.deletion_initiated` | subscribes (action) | Grace period started: purges the user's *unreferenced* media (`refs == []`) via `CDNGDPRProvider.purge_unreferenced()`; referenced media keeps serving (and its ownership link) until `user.deleted` — grace is cancellable. Schema: `schemas/consumes/user.deletion_initiated.json`. Idempotent. |
 | `user.merged` | subscribes (action) | The opposite instruction to `user.deleted`: a guest account was folded into an existing one, so `uploaded_by` is re-pointed on `Image`, `Video`, `File` and `Audio` — nothing is erased. Dedup is owner-scoped, so a guest object whose bytes the survivor already holds is folded into the survivor's row (refs unioned, duplicate row dropped, blob never unlinked). A survivor with no user row here yet raises `MergeTargetNotReady` so the outbox redelivers rather than marking the uploads delivered-and-lost. Schema: `schemas/consumes/user.merged.json`. Idempotent. |
-| `cdn.ref.sync` | consumes (bus) | `manage.py consume_cdn_events` (Kafka topic `stapel.cdn.ref-sync`); the producer-side helper `sync_cdn_refs()` lives in `stapel_core.django.cdn.ref_sync`, so other modules publish without importing this package. |
+| `user.deletion_cancelled` | subscribes (action) | Explicit no-op: the grace period purged only media nothing references, so there is nothing to restore (answers `stapel_core.lifecycle.E001`). |
+| `cdn.ref.sync` | consumes (bus) | `manage.py consume_cdn_events` (Kafka topic `stapel.cdn.ref-sync`); on an in-process bus `apps.ready()` subscribes the same function (`intake.apply_ref_sync_event`) with core's `subscribe_in_process`, which survives `reset_bus()`/`clear()`; the producer-side helper `sync_cdn_refs()` lives in `stapel_core.django.cdn.ref_sync`, so other modules publish without importing this package. |
 
 Registration happens in `CdnConfig.ready()`; transport (in-process vs bus) is chosen by
 `STAPEL_COMM` in stapel-core — the same handlers serve monolith and microservices.

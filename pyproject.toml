@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "stapel-cdn"
-version = "0.29.0"
+version = "0.30.0"
 description = "Media/CDN management Django app for the Stapel framework"
 readme = "README.md"
 license = { text = "MIT" }
@@ -44,7 +44,7 @@ dependencies = [
     # 0.93.0: claims from sync_cdn_refs reach this module on the in-process
     # bus, env scalars arrive typed (env_raw for the quotas), and CONFIG.MD's
     # `settings` rows parse (0.92.1+).
-    "stapel-core>=0.93.0,<1.0",
+    "stapel-core>=0.94.0,<1.0",
     "celery>=5",
 ]
 
