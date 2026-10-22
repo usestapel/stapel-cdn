@@ -122,3 +122,36 @@ class TestOverrides:
             assert values == ["product", "banner"]
         # back to the package's own test-settings override (conftest.py)
         assert set(c[0] for c in get_image_type_choices()) == {"avatar", "product"}
+
+
+# --- env values arrive in the default's type (stapel-core 0.93) -------------
+
+
+def test_env_scalars_are_typed(monkeypatch):
+    """MAX_IMAGE_SIZE from the environment compared as a str against an int
+    (TypeError, a 500 on every upload); REQUIRE_DECODER=False stayed truthy."""
+    from stapel_cdn.conf import cdn_settings
+
+    monkeypatch.setenv("MAX_IMAGE_SIZE", "5242880")
+    monkeypatch.setenv("REQUIRE_DECODER", "False")
+    monkeypatch.setenv("UNCLAIMED_TTL_HOURS", "72")
+    cdn_settings.reload()
+    try:
+        assert cdn_settings.MAX_IMAGE_SIZE == 5242880
+        assert cdn_settings.REQUIRE_DECODER is False
+        assert cdn_settings.UNCLAIMED_TTL_HOURS == 72
+    finally:
+        monkeypatch.undo()
+        cdn_settings.reload()
+
+
+def test_quota_word_unlimited_still_reaches_ownership(monkeypatch):
+    from stapel_cdn.conf import cdn_settings
+
+    monkeypatch.setenv("MAX_OBJECTS_PER_OWNER", "unlimited")
+    cdn_settings.reload()
+    try:
+        assert cdn_settings.MAX_OBJECTS_PER_OWNER == "unlimited"
+    finally:
+        monkeypatch.undo()
+        cdn_settings.reload()

@@ -1,5 +1,31 @@
 # Changelog
 
+## [0.29.0] — 2026-10-22
+
+### Fixed — photos claimed on the default bus were swept after 48 hours
+
+Listings, profiles and chat claim media through stapel-core's
+`sync_cdn_refs`, which only published on the bus; on the shipped in-process
+bus nothing here consumed it, so `refs` stayed empty and `sweep_unclaimed`
+deleted the photos of published listings once `UNCLAIMED_TTL_HOURS` passed.
+stapel-core 0.93.0 applies the claim through `cdn.refs_sync` on an in-process
+bus (floor raised to `stapel-core>=0.93.0`). `consume_cdn_events` listens on
+`STAPEL_TOPIC_CDN_REF_SYNC`, the setting the producer reads, instead of the
+default topic only.
+
+### Fixed — CONFIG.MD told operators to set container keys from the environment
+
+Fifteen rows said source `env` for keys core never reads from the environment
+(the size ladders, extension and MIME allowlists, `ASSET_TYPES`,
+`ENABLED_SUBMODULES`, `MEDIA_KINDS`, `DESCRIBE_PERMISSIONS`, the beat
+schedules: core refuses a bare string for a container, `conf.E002`; and the
+`WATERMARK` import string, `conf.W001`). They now say `settings`.
+Scalar keys from the environment arrive in their default's type (stapel-core
+0.93.0), so `MAX_IMAGE_SIZE=5242880` compares as a number and
+`REQUIRE_DECODER=False` is false; `MAX_OBJECTS_PER_OWNER` and
+`MAX_BYTES_PER_OWNER` are `env_raw`, so the word `unlimited` still reaches
+the quota parser.
+
 ## [0.28.1] — 2026-10-01
 
 ### Added — a watermark that survives the thumbnail crop

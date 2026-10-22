@@ -11,7 +11,7 @@ in order when the consumer restarts — no data loss.
 import logging
 
 from stapel_core.bus import BaseBusConsumerCommand, Event
-from stapel_core.django.cdn.ref_sync import TOPIC_CDN_REF_SYNC
+from stapel_core.django.cdn.ref_sync import TOPIC_CDN_REF_SYNC, get_ref_sync_topic
 
 logger = logging.getLogger(__name__)
 
@@ -21,6 +21,10 @@ class Command(BaseBusConsumerCommand):
 
     topics = [TOPIC_CDN_REF_SYNC]
     consumer_group = "cdn-ref-sync"
+
+    def get_topics(self) -> list[str]:
+        # The producer reads STAPEL_TOPIC_CDN_REF_SYNC; so does the consumer.
+        return [get_ref_sync_topic()]
 
     def handle_event(self, event: Event) -> None:
         if event.event_type != "cdn.ref.sync":

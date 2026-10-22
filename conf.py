@@ -396,7 +396,12 @@ DEFAULTS = {
 }
 
 cdn_settings = AppSettings(
-    "STAPEL_CDN", defaults=DEFAULTS, import_strings=("WATERMARK",)
+    "STAPEL_CDN",
+    defaults=DEFAULTS,
+    import_strings=("WATERMARK",),
+    # The quotas take the word "unlimited" as well as a number; ownership.py
+    # parses the string itself.
+    env_raw=("MAX_OBJECTS_PER_OWNER", "MAX_BYTES_PER_OWNER"),
 )
 
 __all__ = [
