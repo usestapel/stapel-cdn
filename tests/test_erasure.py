@@ -279,6 +279,7 @@ class TestEntitySubjects:
             "refs_removed": 0,
             "refs_stranded": 0,
             "objects_kept_referenced": 0,
+            "renditions_removed": 0,
         }
 
 

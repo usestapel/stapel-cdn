@@ -14,7 +14,7 @@ from django.db.models.signals import post_save
 from django.dispatch import receiver
 from django.utils import timezone
 
-from . import bounds, decoders
+from . import bounds, decoders, renditions
 from .conf import DEFAULT_VARIANT_SIZES, cdn_settings
 from .storage import cdn_storage
 
@@ -347,7 +347,10 @@ class Image(models.Model):
         tier = int(size)
         thumbnails = {int(s) for s in cdn_settings.THUMBNAIL_SIZES}
         suffix = "" if tier in thumbnails else (branch or "w")
-        return f"{settings.MEDIA_URL}{self.type}/{self.file_hash}/{tier}{suffix}.webp"
+        from .renditions import image_public_dir, preview_name, thumbnail_name
+
+        name = thumbnail_name(tier) if not suffix else preview_name(tier, suffix)
+        return f"{settings.MEDIA_URL}{image_public_dir(self)}/{name}"
 
     @property
     def variant_urls(self):
@@ -675,7 +678,7 @@ class Video(models.Model):
         return f"Video: {self.file_hash[:8]}... ({self.original_filename})"
 
     #: Filename of the derived poster frame, under the video's hash dir.
-    POSTER_FILENAME = "poster.webp"
+    POSTER_FILENAME = renditions.POSTER_FILENAME
 
     @property
     def poster_path(self):

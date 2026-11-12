@@ -383,8 +383,8 @@ to it matches.
 
 | Subject | `subject_key` | What is erased | Counts |
 |---|---|---|---|
-| `file` | a media ref, `<prefix>/<hash>` | **the bytes**: every row over that content (identical bytes held by two principals are two rows over one blob) and the blob itself. References still attached are counted as `refs_stranded` and logged — the host is expected to have released its own first; leaving the bytes because a stale reference exists would be the wrong failure | `objects_removed`, `blobs_unlinked`, `refs_stranded` |
-| `recording` | the recording id | **the entity's reference**: dropped from every object carrying `*/recording/<id>`; an object left with no references at all is destroyed with its blob, an object another entity still uses keeps serving | `refs_removed`, `objects_removed`, `blobs_unlinked`, `objects_kept_referenced` |
+| `file` | a media ref, `<prefix>/<hash>` | **the bytes**: every row over that content (identical bytes held by two principals are two rows over one blob) and the blob itself. References still attached are counted as `refs_stranded` and logged — the host is expected to have released its own first; leaving the bytes because a stale reference exists would be the wrong failure | `objects_removed`, `blobs_unlinked`, `renditions_removed`, `refs_stranded` |
+| `recording` | the recording id | **the entity's reference**: dropped from every object carrying `*/recording/<id>`; an object left with no references at all is destroyed with its blob, an object another entity still uses keeps serving | `refs_removed`, `objects_removed`, `blobs_unlinked`, `renditions_removed`, `objects_kept_referenced` |
 | `workspace` | the workspace id | the same, for `*/workspace/<id>`. Media attached to *entities inside* the workspace is erased through those entities' own subjects — each owner library requests its own | same as `recording` |
 | `account` | the user id | the policy of record (`CDNGDPRProvider.delete`): the user's unreferenced media is destroyed (rows + bytes), media other content still references keeps serving with `uploaded_by` nulled | `objects_removed`, `objects_anonymized` |
 

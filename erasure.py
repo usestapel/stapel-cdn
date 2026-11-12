@@ -36,8 +36,6 @@ request finds nothing left to remove and receipts zeros.
 """
 from __future__ import annotations
 
-import os
-
 import logging
 
 logger = logging.getLogger(__name__)
@@ -168,6 +166,7 @@ def _zero_counts() -> dict:
         "refs_removed": 0,
         "refs_stranded": 0,
         "objects_kept_referenced": 0,
+        "renditions_removed": 0,
     }
 
 
@@ -226,6 +225,7 @@ def _destroy(row, counts: dict) -> None:
     """
     from .gdpr import MediaErasureIncomplete
     from .ownership import shared_binary_exists
+    from .renditions import RenditionRemovalFailed, remove_derived
 
     if not shared_binary_exists(row):
         try:
@@ -242,25 +242,21 @@ def _destroy(row, counts: dict) -> None:
                 f"is NOT erased."
             ) from exc
         counts["blobs_unlinked"] += 1
-        _remove_clean_copies(row)
+        # Every derived file goes with the original: thumbnails, preview
+        # branches, clean copies, the poster (stapel_cdn.renditions).
+        try:
+            counts["renditions_removed"] += remove_derived(row)
+        except RenditionRemovalFailed as exc:
+            logger.error(
+                "erasure incomplete: %s — the row is kept so the files stay "
+                "findable", exc,
+            )
+            raise MediaErasureIncomplete(
+                f"{type(row).__name__} {row.pk} still has derived files on "
+                f"disk; its row was kept. This subject is NOT erased."
+            ) from exc
     row.delete()
     counts["objects_removed"] += 1
-
-
-def _remove_clean_copies(row) -> None:
-    """The unwatermarked renditions of an image go with its original."""
-    import shutil
-
-    from django.conf import settings
-
-    from .models import Image
-    from .protected import CLEAN_DIR, protected_rel_dir
-
-    if isinstance(row, Image):
-        shutil.rmtree(
-            os.path.join(settings.MEDIA_ROOT, protected_rel_dir(row), CLEAN_DIR),
-            ignore_errors=True,
-        )
 
 
 __all__ = [

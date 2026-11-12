@@ -17,7 +17,6 @@ try:
 except ImportError:  # pragma: no cover
     pyvips = None  # type: ignore[assignment]
 
-from django.conf import settings
 from django.db import transaction
 from django.utils import timezone
 from stapel_core.signals import media_processed
@@ -25,6 +24,7 @@ from stapel_core.signals import media_processed
 from .conf import cdn_settings
 from .metadata import DESCRIBE_MANY_LIMIT
 from .metadata import build_render_metadata as build_render_metadata  # re-export
+from . import renditions
 from .metadata import encode_preview, preview_budget
 from .protected import clean_rel_path
 
@@ -218,9 +218,7 @@ class ImageProcessingService:
         )
 
         file_path = image_model.original.path
-        output_dir = os.path.join(
-            settings.MEDIA_ROOT, image_model.type, image_model.file_hash
-        )
+        output_dir = renditions.absolute(renditions.image_public_dir(image_model))
         os.makedirs(output_dir, exist_ok=True)
 
         thumbnail_sizes = cls.get_thumbnail_sizes()
@@ -277,7 +275,9 @@ class ImageProcessingService:
             # the file just written (SERVICE-BACKLOG §35 item 9а: the
             # micro-preview is generated in the SAME libvips pass).
             buffer = current.webpsave_buffer(Q=cls.WEBP_QUALITY)
-            with open(os.path.join(output_dir, f"{name}.webp"), "wb") as handle:
+            with open(
+                os.path.join(output_dir, renditions.thumbnail_name(name)), "wb"
+            ) as handle:
                 handle.write(buffer)
             if size == micro_tier:
                 micro_buffer = buffer
@@ -335,9 +335,7 @@ class ImageProcessingService:
         log_lines.append(f"[{datetime.now().isoformat()}] Starting preview generation")
 
         file_path = image_model.original.path
-        output_dir = os.path.join(
-            settings.MEDIA_ROOT, image_model.type, image_model.file_hash
-        )
+        output_dir = renditions.absolute(renditions.image_public_dir(image_model))
         os.makedirs(output_dir, exist_ok=True)
 
         preview_sizes = cls.get_preview_sizes()
@@ -398,14 +396,12 @@ class ImageProcessingService:
                     if apply_watermark
                     else current
                 )
+                rendition = renditions.preview_name(name, axis)
                 output.webpsave(
-                    os.path.join(output_dir, f"{name}{axis}.webp"), Q=cls.WEBP_QUALITY
+                    os.path.join(output_dir, rendition), Q=cls.WEBP_QUALITY
                 )
                 watermarked = output is not current
-                clean_name = f"{name}{axis}.webp"
-                clean_path = os.path.join(
-                    settings.MEDIA_ROOT, clean_rel_path(image_model, clean_name)
-                )
+                clean_path = renditions.absolute(clean_rel_path(image_model, rendition))
                 if watermarked and cdn_settings.WATERMARK_KEEP_CLEAN:
                     os.makedirs(os.path.dirname(clean_path), exist_ok=True)
                     current.webpsave(clean_path, Q=cls.WEBP_QUALITY)
@@ -598,7 +594,7 @@ class VideoProcessingService:
         decoded once: the same in-memory image is downscaled for the poster
         file and again for the inline preview.
         """
-        from .metadata import REASON_DECODER_MISSING, derived_dir, encode_preview
+        from .metadata import REASON_DECODER_MISSING, encode_preview
 
         # Imported here, not read off the module global, so "this deployment
         # has no decoder" is evaluated at call time — the same way
@@ -630,13 +626,13 @@ class VideoProcessingService:
 
             return REASON_ENCODE_FAILED
 
-        output_dir = derived_dir("video", video_model.file_hash)
+        output_dir = renditions.absolute(renditions.video_dir(video_model.file_hash))
         os.makedirs(output_dir, exist_ok=True)
         poster = ImageProcessingService._resize(
             frame, int(cdn_settings.POSTER_MAX_WIDTH), axis="w"
         )
         poster.webpsave(
-            os.path.join(output_dir, video_model.POSTER_FILENAME),
+            os.path.join(output_dir, renditions.POSTER_FILENAME),
             Q=ImageProcessingService.WEBP_QUALITY,
         )
         video_model.has_poster = True

@@ -1,5 +1,20 @@
 # Changelog
 
+## Unreleased (proposed 0.31.0)
+
+### Fixed — erasure removes every derived file, not only the original
+
+A destroyed object (file/recording/workspace/account erasure, the unclaimed
+sweep) unlinked its original and the clean copies only; the public thumbnails
+(`120.webp` …), preview branches (`720w.webp` …) and a video's `poster.webp`
+stayed on disk and kept serving. `_destroy` now removes the object's whole
+content-addressed derived directories (`stapel_cdn.renditions.derived_dirs`)
+once no other row holds the bytes, so a tier added to `THUMBNAIL_SIZES` /
+`PREVIEW_SIZES` later is covered without a list to update. A derived file that
+cannot be removed raises `MediaErasureIncomplete` and keeps the row, like the
+original. Receipts carry a new `renditions_removed` count. The writers and the
+remover share one module (`renditions`) for directory and file names.
+
 ## [0.30.0] — 2026-10-22
 
 ### Changed — the ref-sync claim is consumed in-process by the bus
