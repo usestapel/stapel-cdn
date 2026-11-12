@@ -88,6 +88,14 @@ both own the ref), the uploader of the row `describe` resolves to, and
 refs), service-to-service. A consumer uses it to refuse a ref a sender does
 not own (stapel-chat 0.12.0).
 
+### Fixed — re-populating the app registry no longer fails on the GDPR provider
+
+`ready()` registered `CDNGDPRProvider` unconditionally, so a second
+`apps.populate()` (a test harness, a tool that rebuilds the registry) raised
+`GDPRProvider with section 'media' is already registered`. Our own provider
+already in place is now left alone (`apps.register_gdpr_provider`); a
+different provider holding the section still raises.
+
 ## [0.30.0] — 2026-10-22
 
 ### Changed — the ref-sync claim is consumed in-process by the bus

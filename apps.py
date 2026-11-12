@@ -2,6 +2,27 @@
 from django.apps import AppConfig
 
 
+def register_gdpr_provider() -> bool:
+    """Register this app's GDPR provider once. True when it registered now.
+
+    ``ready()`` runs again whenever the app registry is re-populated (a test
+    harness, a management command that resets apps), and the core registry
+    refuses a second provider for a section. Our own provider already in
+    place is that same registration and is left alone; a *different*
+    provider holding the section is a real conflict and still raises.
+    """
+    from stapel_core.gdpr import gdpr_registry
+
+    from .gdpr import CDNGDPRProvider
+
+    provider = CDNGDPRProvider()
+    for existing in gdpr_registry.providers:
+        if existing.section == provider.section and isinstance(existing, CDNGDPRProvider):
+            return False
+    gdpr_registry.register(provider)
+    return True
+
+
 class CdnConfig(AppConfig):
     """CDN app configuration."""
     default_auto_field = 'django.db.models.BigAutoField'
@@ -19,9 +40,7 @@ class CdnConfig(AppConfig):
         The image path decodes with libvips now, which needs no registration and
         whose absence is reported by checks.E001 instead of being passed over.
         """
-        from stapel_core.gdpr import gdpr_registry
-        from .gdpr import CDNGDPRProvider
-        gdpr_registry.register(CDNGDPRProvider())
+        register_gdpr_provider()
 
         # Action subscriptions (in-process in a monolith, bus consumer in
         # microservices — same code, transport chosen by STAPEL_COMM).
