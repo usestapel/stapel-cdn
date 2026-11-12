@@ -23,8 +23,9 @@ exact file at the bottom of its ladder, and now keeps the encoded buffer —
 the same bytes are written to disk *and* base64'd onto the row. Video pays
 one ffmpeg frame extraction that produces the poster and its micro preview
 together; audio pays one ffmpeg render for the waveform. Nothing in the
-snapshot is recomputed per render — a consumer denormalizes it once when it
-resolves the ref (SERVICE-BACKLOG §35 item 9а).
+snapshot is recomputed per render. A consumer may keep its non-expiring facts
+with the ref; URLs to private bytes are signed and expire, so they are
+resolved on every read (``stapel_cdn.access``).
 
 The byte budget
 ---------------
@@ -485,9 +486,10 @@ def build_render_metadata(obj, clean: bool = False) -> dict:
           "variants": [{tier, branch, url, width, height}, ...]
         }
 
-    Consumers denormalize this ONCE when they resolve a ref (a chat
-    attachment, a catalog card) — it is not meant to be recomputed per
-    render.
+    The geometry, size, duration, preview and ``meta_*`` do not expire and a
+    consumer may keep them with the ref. URLs do: a private or protected
+    object's are signed (``SIGNED_MEDIA_TTL_SECONDS``), so a consumer
+    resolves them on every read, after deciding the reader may see them.
     """
     from .models import Audio, File, Image, Video
 

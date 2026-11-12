@@ -159,8 +159,12 @@ def describe(payload: dict) -> dict:
     ``stapel_cdn.metadata.REASONS``) — there is no path that returns an
     unexplained null.
 
-    Consumers denormalize this ONCE when resolving a ref (chat attachment,
-    catalog card) — it is not meant to be recomputed per render.
+    A consumer may keep the facts that do not expire (geometry, size,
+    duration, preview, ``meta_*``) with the ref it stores, but never a URL:
+    a URL to a private or protected object is a signed link that expires
+    after ``SIGNED_MEDIA_TTL_SECONDS``, so URLs are resolved again on every
+    read. This Function answers a service caller, and the consuming service
+    decides which of its readers may receive what it returns.
 
     ``{"clean": true}`` is for machine readers (moderation, vision models):
     watermarked variants gain a signed ``clean_url`` and a protected original

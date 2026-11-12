@@ -96,6 +96,13 @@ not own (stapel-chat 0.12.0).
 already in place is now left alone (`apps.register_gdpr_provider`); a
 different provider holding the section still raises.
 
+### Fixed — describe's documentation no longer says to store URLs
+
+`cdn.describe`, `build_render_metadata`, the `POST /describe/` schema text and
+MODULE.md said to denormalize the snapshot once. Its facts (geometry, size,
+duration, preview, `meta_*`) may be kept with the ref; its URLs to private
+bytes are signed and expire, so they are resolved on every read.
+
 ## [0.30.0] — 2026-10-22
 
 ### Changed — the ref-sync claim is consumed in-process by the bus

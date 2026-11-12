@@ -201,8 +201,10 @@ call), `checks.W012` for an *empty* `DESCRIBE_PERMISSIONS` — DRF reads no
 permission classes as "everyone passes", so a blank publishes the endpoint.
 `AllowAny` says the same thing deliberately and is silent.
 
-**Denormalize the result once**, when the ref is resolved — it is an immutable
-snapshot, not something to recompute per render.
+**Keep the facts, resolve the URLs.** Geometry, size, duration, the preview and
+`meta_*` do not expire and may be stored with the ref. A URL to a private or
+protected object is a signed link that expires (`SIGNED_MEDIA_TTL_SECONDS`), so
+it is resolved again on every read.
 
 ### Media kinds — an open registry, not an enum
 
