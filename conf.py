@@ -401,6 +401,13 @@ DEFAULTS = {
     # deployment that means its private objects to be world-readable
     # (checks.W016). Any other value is "signed".
     "PRIVATE_MEDIA_URLS": "signed",
+    # Who an HTTP path of this library hands a URL to a private or protected
+    # object's bytes to (stapel_cdn.access): "owner" — the principal holding
+    # the ref, or a service caller; "owner_and_staff" — staff as well;
+    # "any" — whoever the endpoint's guard admits (checks.W017). Any other
+    # value is "owner". The comm Functions answer services and are not
+    # affected.
+    "PRIVATE_URL_AUDIENCE": "owner",
 }
 
 cdn_settings = AppSettings(

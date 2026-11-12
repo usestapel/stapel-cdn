@@ -775,7 +775,7 @@ class DescribeBatchTooLarge(ValueError):
         )
 
 
-def describe_refs(refs) -> dict:
+def describe_refs(refs, viewer=None) -> dict:
     """``{"items": {ref: snapshot}, "missing": [ref, ...]}`` for a page of refs.
 
     THE batch describe body — the comm Function ``cdn.describe_many`` and the
@@ -791,14 +791,30 @@ def describe_refs(refs) -> dict:
     thirty-nine. Raises :class:`DescribeBatchTooLarge` above
     :data:`~stapel_cdn.metadata.DESCRIBE_MANY_LIMIT`; every snapshot may
     inline a preview, so batch size IS response size.
+
+    ``viewer`` (:class:`stapel_cdn.access.Viewer`) is who the snapshots are
+    for; ``None`` is a service caller (the comm Function). For any other
+    viewer a private or protected object it does not own comes back without
+    URLs and with ``meta_reason: "not_authorized"`` (:mod:`stapel_cdn.access`)
+    — never a refusal of the batch, so the public items still describe.
     """
+    from .access import SERVICE, held_refs, is_restricted, snapshot_for
+
+    viewer = SERVICE if viewer is None else viewer
     deduped = list(dict.fromkeys(refs or []))
     if len(deduped) > DESCRIBE_MANY_LIMIT:
         raise DescribeBatchTooLarge(len(deduped), DESCRIBE_MANY_LIMIT)
     resolved = _batch_resolve_media(deduped)
+    held = None
+    if not viewer.service:
+        restricted = [ref for ref, obj in resolved.items() if is_restricted(obj)]
+        held = held_refs(restricted, viewer.user) if restricted else set()
     return {
         "items": {
-            ref: build_render_metadata(obj) for ref, obj in resolved.items()
+            ref: snapshot_for(
+                obj, viewer, holds=None if held is None else ref in held
+            )
+            for ref, obj in resolved.items()
         },
         "missing": [ref for ref in deduped if ref not in resolved],
     }

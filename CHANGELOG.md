@@ -44,6 +44,32 @@ lists exactly the rows the run would process (one selection function,
 `select_images`). A filter that names nothing (`--ids ,`) is refused instead
 of widening to every image.
 
+### Fixed — a private object's URL goes to its owner or a service only (behaviour change)
+
+`POST /describe/` handed signed links to private and protected objects to any
+signed-in caller holding the ref, which let a reader bypass the consuming
+service's own access decision (a former member of a conversation still holds
+its refs). One decision now covers every path of this library that turns a
+stored object into a URL — `POST /describe/`, the serializers behind upload
+and `file/exists` answers and `images/<type>/random`, and the admin's original
+link: `stapel_cdn.access.may_receive_urls`. A private or protected object's
+URLs go to the principal holding a row for the ref, or to a service caller;
+anyone else gets the item's metadata with `variants: []` (a watermarked image
+keeps its public marked renditions), `meta_reason: "not_authorized"` (new in
+`metadata.REASONS`) and a `meta_status` that is never `ok`. A mixed batch still
+describes its public items. The comm Functions answer services unchanged.
+
+New setting `PRIVATE_URL_AUDIENCE`: `"owner"` (default), `"owner_and_staff"`
+(staff are not owners by default), `"any"` (the previous behaviour;
+`checks.W017` warns, and names an unknown value, which counts as `"owner"`).
+A serializer rendered with neither `context["request"]` nor
+`context["cdn_viewer"]` renders for nobody in particular and carries no
+private URL. **Deployments:** a front end that called `POST /describe/` to draw
+someone else's private media must read it through the service that decides
+who may see it (stapel-chat's attachment link); set `"any"` only as a
+temporary bridge. `tests/test_private_url_access.py` walks every mounted route
+as a non-owner.
+
 ## [0.30.0] — 2026-10-22
 
 ### Changed — the ref-sync claim is consumed in-process by the bus

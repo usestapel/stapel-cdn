@@ -173,13 +173,19 @@ POST /cdn/api/v1/describe/
 | Over the ceiling | `400 error.400.too_many_refs`, `params: {count, max}` — page the batch. |
 | Over the rate | `429 error.429.too_many_requests`, `params: {retry_after}`, plus a `Retry-After` header carrying the same number. Core's exception handler dresses it, the way it dresses every DRF refusal — the view does not convert it itself. |
 | Guard | `STAPEL_CDN["DESCRIBE_PERMISSIONS"]`, read at request time; default `stapel_cdn.permissions.IsAuthenticatedOrService` — the seam `FileExistsView` uses. Pinning `permission_classes` on a subclass still wins. |
+| Private / protected objects | URLs to their bytes go only to the caller holding the ref or a service caller (`stapel_cdn.access`, `PRIVATE_URL_AUDIENCE`). Anyone else gets the item with its metadata, `variants: []` (a watermarked image keeps its public marked renditions), `meta_reason: "not_authorized"` and `meta_status` never `ok`. The batch is never refused for it. |
 | Throttle | `STAPEL_CDN["DESCRIBE_THROTTLE"]` (60/min) and `DESCRIBE_ANON_THROTTLE` (10/min). Checked **before** the guard, so the anonymous rate brakes under every `DESCRIBE_PERMISSIONS`, not only an opened one. Batch size is response size, so the rate bounds bytes, not just queries. |
 
 **What it discloses, and why the guard can be that wide.** Describe answers
 for refs the caller did **not** upload — that is the case it exists for. A ref
 is `<prefix>/<sha256>`, so naming one is already evidence the caller was given
 it, and the snapshot is geometry, duration and a ≤4 KB inline preview: it
-carries **no uploader identity, no filename, no `refs[]`**. That is the whole
+carries **no uploader identity, no filename, no `refs[]`**. Holding a ref is
+not holding the right to a private object's bytes, though: a former member of
+a conversation, or anyone a ref was ever shown to, still holds it. So for a
+private or protected object the URLs go only to its owner or a service; a
+front end draws someone else's private media through the service that decided
+the reader may see it (stapel-chat's attachment link). That is the whole
 difference from `FileExistsView`, which returns the entire row and therefore
 stays scoped to `uploaded_by=request.user`. A deployment that will not accept
 even that sets `DESCRIBE_PERMISSIONS` to `IsServiceRequest` and keeps describe
@@ -280,6 +286,7 @@ See `CONFIG.MD` for the complete registry (source/required/default per key). Hig
 | `WATERMARK_KEEP_CLEAN` | `True` | Keep a clean copy of each watermarked rendition in the protected tree, for machine readers (`cdn.describe` `{"clean": true}` → signed `clean_url`). |
 | `PROTECTED_MEDIA_PREFIX` | `"protected"` | Stored-but-not-public image bytes: a watermarked image's original and clean copies. The operator denies it on the public media route. |
 | `SIGNED_MEDIA_TTL_SECONDS` | `900` | Lifetime of a signed protected- or private-media link. |
+| `PRIVATE_URL_AUDIENCE` | `"owner"` | Who an HTTP path of this library hands a URL to a private or protected object: `"owner"` (the principal holding the ref, or a service caller), `"owner_and_staff"`, `"any"` (up to 0.30.0; `checks.W017`). See **Who gets a signed link**. |
 | `PRIVATE_MEDIA_URLS` | `"signed"` | The URL handed out for an object under `PRIVATE_MEDIA_PREFIX` (documents, archives, voice notes). `"signed"`: a short-lived app-served link; `"public"`: `MEDIA_URL` + path, world-readable (`checks.W016`). See **Private and protected media on the public route**. |
 
 ### Media submodules — extras, opt-in, and system checks (tag `stapel_cdn`)
@@ -566,11 +573,42 @@ URL, deletes it, and exits non-zero unless every tree answered something other
 than the canary (`EXPOSED` = served, `UNMEASURED` = the fetch failed — neither
 is a pass).
 
+**Who gets a signed link — one decision (`stapel_cdn.access`).** Minting the
+link is the capability; `access.may_receive_urls(obj, viewer)` decides who gets
+one, and every path of this library that turns a stored object into a URL for
+a caller asks it:
+
+| Path | Who gets a URL to a private/protected object |
+|---|---|
+| `POST /describe/` (`services.describe_refs` with the request's viewer) | owner, service caller (`X-API-KEY`) |
+| upload responses, `GET/POST file/exists/` — `original_url`, `render_meta` (serializers, via `context["request"]`) | owner (these answer the uploader's own rows); a host rendering a serializer with no `request`/`cdn_viewer` in its context gets none |
+| `GET images/<type>/random/` (staff) | owner, service — staff only with `owner_and_staff` |
+| admin original link | owner, or staff with `owner_and_staff`; otherwise "private (link withheld)" |
+| `cdn.describe` / `cdn.describe_many` (comm, with or without `clean`) | the calling service — it owns the access decision for its own readers |
+| `images/<type>/<hash>/original/` | streams bytes (no URL) to the owner or a service |
+
+"Owner" means a principal holding a row for the ref: identical bytes uploaded
+by two principals are two rows over one blob and each owns the ref. Under
+`DEDUP_SCOPE = "global"` a second uploader of the same bytes gets no row and so
+is not an owner (`checks.W006` says so). `PRIVATE_URL_AUDIENCE`: `"owner"`
+(default), `"owner_and_staff"` (staff are owners-by-role — off by default,
+because a support desk reading customers' documents is a decision, not a
+side-effect of `is_staff`), or `"any"` (the behaviour up to 0.30.0: whoever the
+endpoint guard admits; `checks.W017`). An unknown value is `"owner"`.
+
+A watermarked image's marked renditions are public by design (they live on the
+public route at paths derived from the ref), so they stay in every snapshot;
+its original and clean copies are never in an HTTP snapshot.
+`tests/test_private_url_access.py::test_no_route_hands_a_non_owner_a_private_url`
+walks every mounted route with every method as a non-owner (plain and staff)
+and fails on a signed link, a public private-tree path or the bytes in any
+answer; its inversions see the owner's URLs and a stranger's under `"any"`.
+
 **What remains with the consumer.** A signed link expires. A service that
 stores a `cdn.describe` snapshot (chat attachments) and serves it later must
-re-describe at read time instead of replaying stored URLs; `describe` itself
-answers whoever may call it, so who may *see* a private ref stays the
-consuming service's authorisation decision.
+re-describe at read time instead of replaying stored URLs. The comm Functions
+answer services, so who may *see* a private ref is the consuming service's
+decision.
 
 ## App-layer override vs upstream contribution — rule of thumb
 

@@ -93,6 +93,9 @@ REASON_PREVIEW_OVER_BUDGET = "preview_over_budget"
 REASON_SOURCE_MISSING = "source_missing"
 #: The preview encoder itself failed on readable input.
 REASON_ENCODE_FAILED = "encode_failed"
+#: The object is private or protected and this caller is neither its owner
+#: nor a service: metadata only, no URL to its bytes (``stapel_cdn.access``).
+REASON_NOT_AUTHORIZED = "not_authorized"
 
 #: Every value ``meta_reason`` can take. Part of the ``cdn.describe``
 #: contract — consumers may branch on these strings.
@@ -102,6 +105,7 @@ REASONS = (
     REASON_PREVIEW_OVER_BUDGET,
     REASON_SOURCE_MISSING,
     REASON_ENCODE_FAILED,
+    REASON_NOT_AUTHORIZED,
     REASON_FFPROBE_MISSING,
     REASON_FFMPEG_MISSING,
     REASON_PROBE_FAILED,
@@ -517,6 +521,7 @@ __all__ = [
     "REASONS",
     "REASON_DECODER_MISSING",
     "REASON_ENCODE_FAILED",
+    "REASON_NOT_AUTHORIZED",
     "REASON_NOT_GENERATED",
     "REASON_PREVIEW_OVER_BUDGET",
     "REASON_SOURCE_MISSING",

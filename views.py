@@ -39,6 +39,7 @@ consumer; leaving it open would hand unmetered storage to an identity that
 costs nothing to create.
 """
 
+import functools
 import logging
 import os
 
@@ -251,6 +252,12 @@ def _validate_audio_upload(uploaded_file):
     return None
 
 
+def _for_caller(serializer_class, request):
+    """``serializer_class`` bound to the request it answers, so every URL it
+    renders goes through :mod:`stapel_cdn.access` for that caller."""
+    return functools.partial(serializer_class, context={"request": request})
+
+
 @extend_schema(tags=["Images"])
 class ImageUploadView(SerializerSeamMixin, APIView):
     """API endpoint for uploading images."""
@@ -379,7 +386,7 @@ absent from `ASSET_TYPES` is a misconfiguration: this endpoint answers 400 and
         # Calculate file hash
         file_hash = Image.calculate_file_hash(uploaded_file)
 
-        response_serializer_class = self.get_response_serializer_class()
+        response_serializer_class = _for_caller(self.get_response_serializer_class(), request)
 
         # Owner-scoped dedup (CDN-02): "have these bytes been seen before?"
         # is answered only about objects this caller already owns.
@@ -503,7 +510,7 @@ Enforced before the body is hashed; over it the answer is 413.
         file_hash = Video.calculate_file_hash(uploaded_file)
         file_extension = os.path.splitext(uploaded_file.name)[1].lower()
 
-        response_serializer_class = self.get_response_serializer_class()
+        response_serializer_class = _for_caller(self.get_response_serializer_class(), request)
 
         # Owner-scoped dedup (CDN-02) — see ImageUploadView.
         existing_video = Video.objects.filter(
@@ -671,7 +678,7 @@ object; over them the answer is 403.
         file_hash = Audio.calculate_file_hash(uploaded_file)
         file_extension = os.path.splitext(uploaded_file.name)[1].lower()
 
-        response_serializer_class = self.get_response_serializer_class()
+        response_serializer_class = _for_caller(self.get_response_serializer_class(), request)
 
         # Owner-scoped dedup (CDN-02) — see ImageUploadView.
         existing_audio = Audio.objects.filter(
@@ -748,7 +755,7 @@ class FileExistsView(SerializerSeamMixin, APIView):
 
     def _exists_response(self, request, file_hash):
         """Resolve ``file_hash`` for the requesting user and build the response."""
-        response_serializer_class = self.get_response_serializer_class()
+        response_serializer_class = _for_caller(self.get_response_serializer_class(), request)
 
         # Check if image exists
         image = Image.objects.filter(file_hash=file_hash, uploaded_by=request.user).first()
@@ -756,7 +763,7 @@ class FileExistsView(SerializerSeamMixin, APIView):
             return StapelResponse(
                 response_serializer_class(
                     FileExistsResponse(
-                        exists=True, type="image", file=ImageSerializer(image).data
+                        exists=True, type="image", file=ImageSerializer(image, context={"request": request}).data
                     )
                 ),
                 status=status.HTTP_200_OK,
@@ -768,7 +775,7 @@ class FileExistsView(SerializerSeamMixin, APIView):
             return StapelResponse(
                 response_serializer_class(
                     FileExistsResponse(
-                        exists=True, type="video", file=VideoSerializer(video).data
+                        exists=True, type="video", file=VideoSerializer(video, context={"request": request}).data
                     )
                 ),
                 status=status.HTTP_200_OK,
@@ -784,7 +791,7 @@ class FileExistsView(SerializerSeamMixin, APIView):
             return StapelResponse(
                 response_serializer_class(
                     FileExistsResponse(
-                        exists=True, type="audio", file=AudioSerializer(audio).data
+                        exists=True, type="audio", file=AudioSerializer(audio, context={"request": request}).data
                     )
                 ),
                 status=status.HTTP_200_OK,
@@ -798,7 +805,7 @@ class FileExistsView(SerializerSeamMixin, APIView):
                     FileExistsResponse(
                         exists=True,
                         type="file",
-                        file=FileModelSerializer(file_obj).data,
+                        file=FileModelSerializer(file_obj, context={"request": request}).data,
                     )
                 ),
                 status=status.HTTP_200_OK,
@@ -978,7 +985,7 @@ Enforced before the body is hashed; over it the answer is 413.
 
         file_hash = Image.calculate_file_hash(uploaded_file)
 
-        response_serializer_class = self.get_response_serializer_class()
+        response_serializer_class = _for_caller(self.get_response_serializer_class(), request)
 
         # Owner-scoped dedup (CDN-02) — see ImageUploadView.
         existing_image = Image.objects.filter(
@@ -1091,7 +1098,7 @@ Enforced before the body is hashed; over it the answer is 413.
 
         file_hash = Image.calculate_file_hash(uploaded_file)
 
-        response_serializer_class = self.get_response_serializer_class()
+        response_serializer_class = _for_caller(self.get_response_serializer_class(), request)
 
         # Owner-scoped dedup (CDN-02) — see ImageUploadView.
         existing_image = Image.objects.filter(
@@ -1184,7 +1191,8 @@ default is `("avatar",)`; anything else answers
             return StapelErrorResponse(404, ERR_404_NO_IMAGES)
 
         return StapelResponse(
-            self.get_response_serializer_class()(image), status=status.HTTP_200_OK
+            self.get_response_serializer_class()(image, context={"request": request}),
+            status=status.HTTP_200_OK,
         )
 
 
@@ -1400,7 +1408,7 @@ class GenericFileUploadView(SerializerSeamMixin, APIView):
 
         file_hash = File.calculate_file_hash(uploaded_file)
 
-        response_serializer_class = self.get_response_serializer_class()
+        response_serializer_class = _for_caller(self.get_response_serializer_class(), request)
 
         # Owner-scoped dedup (CDN-02) — see ImageUploadView.
         existing = File.objects.filter(
@@ -1480,11 +1488,13 @@ class DescribeMediaView(SerializerSeamMixin, APIView):
     cannot reach the comm bus. Without this endpoint a client could only ever
     see ``render_meta`` for something it had just uploaded itself (inline in
     the upload response) or for whatever a consuming module chose to
-    denormalize into its own serializer — which is why a chat bubble holding
+    put into its own serializer — which is why a chat bubble holding
     somebody else's ``<prefix>/<hash>`` had nothing to draw. Same batch body
     (:func:`stapel_cdn.services.describe_refs`), same ceiling, same
-    ``missing``-as-data posture as the comm Function; the transport is the
-    only difference.
+    ``missing``-as-data posture as the comm Function. One difference: this
+    door answers a browser, so a private or protected object's URLs reach
+    only its owner or a service caller (:mod:`stapel_cdn.access`); anyone
+    else gets its metadata with ``meta_reason: "not_authorized"``.
 
     **Guard.** ``STAPEL_CDN["DESCRIBE_PERMISSIONS"]`` at request time rather
     than pinned at import, defaulting to the seam the read endpoints use
@@ -1563,8 +1573,15 @@ applied. Over the ceiling the answer is `error.400.too_many_refs` with `count`
 and `max` in the params — page the batch. The ceiling exists because every
 snapshot may inline a preview, so batch size is response size.
 
-**Denormalize the result once**, when the ref is resolved. It is an immutable
-snapshot, not something to recompute per render.
+**Private and protected objects.** URLs to their bytes are returned only to
+the caller holding the ref (its uploader) or a service caller
+(`STAPEL_CDN["PRIVATE_URL_AUDIENCE"]`). Anyone else gets the snapshot's
+metadata with `meta_reason: "not_authorized"` and no URL — the batch is not
+refused, so public items in it still describe. A front end draws someone
+else's private media through the service that decides who may see it.
+
+**Keep the facts, not the URLs.** Geometry, size, duration and the preview do
+not expire; a URL to a private object is signed and does.
 """,
         request=DescribeManyRequestSerializer,
         responses={
@@ -1618,13 +1635,17 @@ snapshot, not something to recompute per render.
         ],
     )
     def post(self, request):
+        from .access import viewer_from_request
         from .services import DescribeBatchTooLarge, describe_refs
 
         serializer = self.get_request_serializer_class()(data=request.data)
         serializer.is_valid(raise_exception=True)
 
         try:
-            result = describe_refs(serializer.validated_data["refs"])
+            result = describe_refs(
+                serializer.validated_data["refs"],
+                viewer=viewer_from_request(request),
+            )
         except DescribeBatchTooLarge as exc:
             return StapelErrorResponse(
                 400,

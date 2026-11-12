@@ -74,9 +74,11 @@ def _file(user):
 
 
 def _urls_handed_out(row):
-    """Every URL this library gives a client for ``row``."""
+    """Every URL this library gives the row's owner for ``row``."""
+    from stapel_cdn.access import Viewer
+
     serializer = AudioSerializer if isinstance(row, Audio) else FileModelSerializer
-    data = serializer(row).data
+    data = serializer(row, context={"cdn_viewer": Viewer(user=row.uploaded_by)}).data
     urls = [row.original.url, data["original_url"]]
     snapshot = build_render_metadata(row)
     urls += [v["url"] for v in snapshot.get("variants") or [] if v.get("url")]

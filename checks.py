@@ -96,6 +96,7 @@ W012_DESCRIBE_GUARD_EMPTY = "stapel_cdn.describe.W012"
 W014_UPLOAD_TYPE_NOT_CONFIGURED = "stapel_cdn.assets.W014"
 W015_WATERMARK_UNUSABLE = "stapel_cdn.watermark.W015"
 W016_PRIVATE_MEDIA_PUBLIC = "stapel_cdn.private.W016"
+W017_PRIVATE_URL_AUDIENCE = "stapel_cdn.private.W017"
 
 
 @checks.register("stapel_cdn")
@@ -231,7 +232,9 @@ def check_dedup_scope(app_configs=None, **kwargs):
                 "matches objects uploaded by anyone. Every upload endpoint "
                 "then answers 'does this deployment already hold exactly these "
                 "bytes?' for any caller, and returns the holder's row — "
-                "identifier, original filename and reference list included.",
+                "identifier, original filename and reference list included. "
+                "A second uploader of identical bytes gets no row of their own, "
+                "so they do not own the ref and get no URL to a private object.",
                 hint="Keep 'global' only where every principal is entitled to "
                      "every other principal's media (a single-tenant "
                      "deployment, or a deliberately shared public asset pool). "
@@ -823,3 +826,42 @@ def check_private_media_urls(app_configs=None, **kwargs):
             )
         )
     return found
+
+
+@checks.register("stapel_cdn")
+def check_private_url_audience(app_configs=None, **kwargs):
+    """W017 — private URLs go to callers who do not own the object.
+
+    ``PRIVATE_URL_AUDIENCE = "any"`` hands a signed link to a private or
+    protected object to every caller an endpoint's guard admits, so the
+    consuming service's own access decision (who may read a chat attachment)
+    can be stepped around by asking ``POST /describe/`` directly. An unknown
+    value is named here and treated as ``"owner"``.
+    """
+    from .access import AUDIENCE_ANY, AUDIENCES, audience
+    from .conf import cdn_settings
+
+    raw = str(cdn_settings.PRIVATE_URL_AUDIENCE or "").strip().lower()
+    if raw not in AUDIENCES:
+        return [
+            checks.Warning(
+                f'STAPEL_CDN["PRIVATE_URL_AUDIENCE"] is '
+                f"{cdn_settings.PRIVATE_URL_AUDIENCE!r}; expected one of "
+                f"{', '.join(AUDIENCES)}. Treated as \"owner\".",
+                id=W017_PRIVATE_URL_AUDIENCE,
+            )
+        ]
+    if audience() == AUDIENCE_ANY:
+        return [
+            checks.Warning(
+                'STAPEL_CDN["PRIVATE_URL_AUDIENCE"] is "any": POST /describe/ '
+                "and the other HTTP answers hand a signed link to a private "
+                "object to any caller that passes the endpoint guard, not only "
+                "to its owner.",
+                hint='Use "owner" (the default); a front end that draws other '
+                "people's private media reads it through the service that "
+                "decides who may see it (e.g. a chat attachment link).",
+                id=W017_PRIVATE_URL_AUDIENCE,
+            )
+        ]
+    return []

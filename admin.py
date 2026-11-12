@@ -2,6 +2,7 @@
 Admin configuration for stapel-cdn service.
 """
 
+import contextvars
 import logging
 import os
 
@@ -13,6 +14,47 @@ from .forms import ImageAdminForm
 from .models import Audio, File, Image, Video
 
 logger = logging.getLogger(__name__)
+
+#: The admin request being rendered, so a display column can ask
+#: ``stapel_cdn.access`` whether this staff member may get an object's URL.
+_admin_request = contextvars.ContextVar("stapel_cdn_admin_request", default=None)
+
+
+class ViewerAdminMixin:
+    """Keeps the rendering request in :data:`_admin_request` for the length
+    of the changelist and change-form views (reset afterwards)."""
+
+    def changelist_view(self, request, extra_context=None):
+        token = _admin_request.set(request)
+        try:
+            return super().changelist_view(request, extra_context)
+        finally:
+            _admin_request.reset(token)
+
+    def changeform_view(self, request, object_id=None, form_url="", extra_context=None):
+        token = _admin_request.set(request)
+        try:
+            return super().changeform_view(request, object_id, form_url, extra_context)
+        finally:
+            _admin_request.reset(token)
+
+
+def original_link_html(obj):
+    """The admin's original-file link, or why there is none.
+
+    A private or protected object is linked only for a viewer
+    ``stapel_cdn.access`` admits — its owner, or staff when
+    ``PRIVATE_URL_AUDIENCE`` is ``"owner_and_staff"``.
+    """
+    from .access import may_receive_urls, viewer_from_request
+
+    if not obj.original:
+        return "-"
+    size_str = f" ({format_file_size(obj.original_size)})"
+    if not may_receive_urls(obj, viewer_from_request(_admin_request.get())):
+        return format_html("private (link withheld){}", size_str)
+    url = obj.original.url
+    return format_html('<a href="{}" target="_blank">{}</a>{}', url, url, size_str)
 
 
 def format_file_size(size_bytes):
@@ -44,7 +86,7 @@ class OrphanFilter(admin.SimpleListFilter):
 
 
 @admin.register(Image)
-class ImageAdmin(admin.ModelAdmin):
+class ImageAdmin(ViewerAdminMixin, admin.ModelAdmin):
     """Admin interface for Image model."""
 
     form = ImageAdminForm
@@ -192,13 +234,7 @@ class ImageAdmin(admin.ModelAdmin):
     @admin.display(description="Original URL")
     def original_link(self, obj):
         """Display original file URL with size."""
-        if obj.original:
-            url = obj.original.url
-            size_str = f" ({format_file_size(obj.original_size)})"
-            return format_html(
-                '<a href="{}" target="_blank">{}</a>{}', url, url, size_str
-            )
-        return "-"
+        return original_link_html(obj)
 
     @admin.display(description="16px")
     def variant_16_link(self, obj):
@@ -312,7 +348,7 @@ class ImageAdmin(admin.ModelAdmin):
 
 
 @admin.register(Video)
-class VideoAdmin(admin.ModelAdmin):
+class VideoAdmin(ViewerAdminMixin, admin.ModelAdmin):
     """Admin interface for Video model."""
 
     list_display = [
@@ -435,7 +471,7 @@ class VideoAdmin(admin.ModelAdmin):
 
 
 @admin.register(File)
-class FileAdmin(admin.ModelAdmin):
+class FileAdmin(ViewerAdminMixin, admin.ModelAdmin):
     """Admin interface for File model."""
 
     list_display = [
@@ -506,17 +542,11 @@ class FileAdmin(admin.ModelAdmin):
 
     @admin.display(description="Original URL")
     def original_link(self, obj):
-        if obj.original:
-            url = obj.original.url
-            size_str = f" ({format_file_size(obj.original_size)})"
-            return format_html(
-                '<a href="{}" target="_blank">{}</a>{}', url, url, size_str
-            )
-        return "-"
+        return original_link_html(obj)
 
 
 @admin.register(Audio)
-class AudioAdmin(admin.ModelAdmin):
+class AudioAdmin(ViewerAdminMixin, admin.ModelAdmin):
     """Admin interface for the Audio model ("recordings" submodule).
 
     Passthrough storage, like FileAdmin — ``is_compressed`` reflects the
@@ -604,10 +634,4 @@ class AudioAdmin(admin.ModelAdmin):
 
     @admin.display(description="Original URL")
     def original_link(self, obj):
-        if obj.original:
-            url = obj.original.url
-            size_str = f" ({format_file_size(obj.original_size)})"
-            return format_html(
-                '<a href="{}" target="_blank">{}</a>{}', url, url, size_str
-            )
-        return "-"
+        return original_link_html(obj)

@@ -343,8 +343,11 @@ class ImageSerializer(serializers.ModelSerializer):
     def get_original_url(self, obj):
         if not obj.original:
             return None
+        from .access import may_receive_urls, viewer_from_context
         from .protected import original_is_protected
 
+        if not may_receive_urls(obj, viewer_from_context(self.context)):
+            return None
         if original_is_protected(obj):
             # The owner's authenticated download, never the protected path.
             from django.urls import reverse
@@ -354,9 +357,9 @@ class ImageSerializer(serializers.ModelSerializer):
 
     @extend_schema_field(RenderMetaField)
     def get_render_meta(self, obj):
-        from .metadata import build_render_metadata
+        from .access import snapshot_for, viewer_from_context
 
-        return build_render_metadata(obj)
+        return snapshot_for(obj, viewer_from_context(self.context))
 
     @extend_schema_field(OpenApiTypes.URI)
     def get_variant_1440_url(self, obj):
@@ -443,13 +446,19 @@ class VideoSerializer(serializers.ModelSerializer):
 
     @extend_schema_field(OpenApiTypes.URI)
     def get_original_url(self, obj):
-        return obj.original.url if obj.original else None
+        if not obj.original:
+            return None
+        from .access import may_receive_urls, viewer_from_context
+
+        if not may_receive_urls(obj, viewer_from_context(self.context)):
+            return None
+        return obj.original.url
 
     @extend_schema_field(RenderMetaField)
     def get_render_meta(self, obj):
-        from .metadata import build_render_metadata
+        from .access import snapshot_for, viewer_from_context
 
-        return build_render_metadata(obj)
+        return snapshot_for(obj, viewer_from_context(self.context))
 
     @extend_schema_field(NULLABLE_URI)
     def get_poster_url(self, obj):
@@ -557,13 +566,19 @@ class AudioSerializer(serializers.ModelSerializer):
 
     @extend_schema_field(OpenApiTypes.URI)
     def get_original_url(self, obj):
-        return obj.original.url if obj.original else None
+        if not obj.original:
+            return None
+        from .access import may_receive_urls, viewer_from_context
+
+        if not may_receive_urls(obj, viewer_from_context(self.context)):
+            return None
+        return obj.original.url
 
     @extend_schema_field(RenderMetaField)
     def get_render_meta(self, obj):
-        from .metadata import build_render_metadata
+        from .access import snapshot_for, viewer_from_context
 
-        return build_render_metadata(obj)
+        return snapshot_for(obj, viewer_from_context(self.context))
 
 
 class FileUploadSerializer(serializers.Serializer):
@@ -795,13 +810,19 @@ class FileModelSerializer(serializers.ModelSerializer):
 
     @extend_schema_field(RenderMetaField)
     def get_render_meta(self, obj):
-        from .metadata import build_render_metadata
+        from .access import snapshot_for, viewer_from_context
 
-        return build_render_metadata(obj)
+        return snapshot_for(obj, viewer_from_context(self.context))
 
     @extend_schema_field(OpenApiTypes.URI)
     def get_original_url(self, obj):
-        return obj.original.url if obj.original else None
+        if not obj.original:
+            return None
+        from .access import may_receive_urls, viewer_from_context
+
+        if not may_receive_urls(obj, viewer_from_context(self.context)):
+            return None
+        return obj.original.url
 
 
 class RefSyncRequestSerializer(StapelDataclassSerializer):

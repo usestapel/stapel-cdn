@@ -22,6 +22,9 @@ for a private or protected name and never the public media path. Only
 ``PRIVATE_MEDIA_URLS = "public"`` (a deliberate opt-out, ``checks.W016``)
 hands out the public path for private names; protected names are signed
 whatever it says.
+
+This module decides what a URL looks like; :mod:`stapel_cdn.access` decides
+who is handed one.
 """
 from __future__ import annotations
 
