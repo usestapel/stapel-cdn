@@ -18,12 +18,19 @@ original of every watermarked image off the public route
 with no recorded site first, so photos uploaded before sites were recorded
 get that site's watermark. Counts of watermarked renditions are printed
 before and after.
+
+Selection narrows by the model's own fields: ``--ids`` (primary keys,
+repeatable or comma-separated), ``--uploaded-by`` (owner user id) and
+``--ref`` (an entry of ``Image.refs``, ``<service>/<entity_type>/<entity_id>``;
+a value ending in ``/`` matches every entry under that prefix). Filters
+combine with AND. ``--dry-run`` prints the selection the run would process,
+computed by the same function the run uses.
 """
 import os
 import re
 
 from django.conf import settings
-from django.core.management.base import BaseCommand
+from django.core.management.base import BaseCommand, CommandError
 
 # Anything the pipeline has ever generated: "<digits>.webp", "<digits>w.webp",
 # "<digits>h.webp", legacy "<digits>.jpg".
@@ -45,6 +52,31 @@ class Command(BaseCommand):
             dest="image_type",
             default=None,
             help="Only regenerate images of this type (e.g. product, avatar).",
+        )
+        parser.add_argument(
+            "--ids",
+            action="append",
+            default=[],
+            metavar="ID[,ID...]",
+            help="Only these Image primary keys (repeatable, or comma-separated).",
+        )
+        parser.add_argument(
+            "--uploaded-by",
+            dest="uploaded_by",
+            default=None,
+            metavar="USER_ID",
+            help="Only images uploaded by this user id (Image.uploaded_by).",
+        )
+        parser.add_argument(
+            "--ref",
+            action="append",
+            default=[],
+            metavar="SERVICE/ENTITY_TYPE/ENTITY_ID",
+            help=(
+                "Only images whose refs carry this key (repeatable; any match). "
+                "A value ending in '/' matches every key under that prefix, "
+                "e.g. 'listings/listing/'."
+            ),
         )
         parser.add_argument(
             "--previews-only",
@@ -71,14 +103,19 @@ class Command(BaseCommand):
         )
 
     def handle(self, *args, **options):
-        from stapel_cdn.models import Image
         from stapel_cdn.protected import protect_original
         from stapel_cdn.services import ImageProcessingService
         from stapel_cdn.watermarks import watermark_spec_for
 
-        qs = Image.objects.all().order_by("pk")
-        if options["image_type"]:
-            qs = qs.filter(type=options["image_type"])
+        try:
+            qs = select_images(
+                image_type=options["image_type"],
+                ids=options["ids"],
+                uploaded_by=options["uploaded_by"],
+                refs=options["ref"],
+            )
+        except ValueError as exc:
+            raise CommandError(str(exc)) from exc
 
         total = qs.count()
         self.stdout.write(f"regenerate_media: {total} image(s) to process")
@@ -139,8 +176,9 @@ class Command(BaseCommand):
     def _remove_variant_files(self, image) -> int:
         """Delete generated variant files, keeping the original upload."""
         from stapel_cdn.protected import CLEAN_DIR, protected_rel_dir
+        from stapel_cdn.renditions import image_public_dir
 
-        output_dir = os.path.join(settings.MEDIA_ROOT, image.type, image.file_hash)
+        output_dir = os.path.join(settings.MEDIA_ROOT, image_public_dir(image))
         if not os.path.isdir(output_dir):
             return 0
         try:
@@ -163,6 +201,62 @@ class Command(BaseCommand):
                     os.unlink(os.path.join(clean_dir, name))
                     removed += 1
         return removed
+
+
+def _parse_ids(values) -> list[int]:
+    ids = []
+    for value in values or ():
+        for part in str(value).split(","):
+            part = part.strip()
+            if not part:
+                continue
+            try:
+                ids.append(int(part))
+            except ValueError:
+                raise ValueError(f"--ids: {part!r} is not an integer id") from None
+    return ids
+
+
+def _ref_matches(entries, wanted) -> bool:
+    for entry in entries if isinstance(entries, list) else ():
+        entry = str(entry)
+        for key in wanted:
+            if entry == key or (key.endswith("/") and entry.startswith(key)):
+                return True
+    return False
+
+
+def select_images(*, image_type=None, ids=(), uploaded_by=None, refs=()):
+    """The Image queryset a run processes — the one selection dry-run and the
+    real run both print and walk.
+
+    ``refs`` is matched in Python over the rows that carry any reference at
+    all: JSON containment is not portable across the database backends this
+    library supports (the same choice ``erasure.erase_entity`` makes).
+    """
+    from stapel_cdn.models import Image
+
+    qs = Image.objects.all().order_by("pk")
+    if image_type:
+        qs = qs.filter(type=image_type)
+    pks = _parse_ids(ids)
+    if ids and not pks:
+        raise ValueError("--ids was given but names no id")
+    if pks:
+        qs = qs.filter(pk__in=pks)
+    if uploaded_by not in (None, ""):
+        qs = qs.filter(uploaded_by_id=uploaded_by)
+    wanted = [str(r).strip() for r in refs or () if str(r).strip()]
+    if refs and not wanted:
+        raise ValueError("--ref was given but names no key")
+    if wanted:
+        matching = [
+            pk
+            for pk, entries in qs.exclude(refs=[]).values_list("pk", "refs")
+            if _ref_matches(entries, wanted)
+        ]
+        qs = qs.filter(pk__in=matching)
+    return qs
 
 
 def _watermark_counts(qs) -> tuple[int, int]:

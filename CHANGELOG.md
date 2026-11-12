@@ -15,6 +15,16 @@ cannot be removed raises `MediaErasureIncomplete` and keeps the row, like the
 original. Receipts carry a new `renditions_removed` count. The writers and the
 remover share one module (`renditions`) for directory and file names.
 
+### Added — `regenerate_media` selects by id, owner and reference
+
+`--ids` (repeatable or comma-separated primary keys), `--uploaded-by <user
+id>` (`Image.uploaded_by`) and `--ref <service>/<entity_type>/<entity_id>`
+(an `Image.refs` entry; a trailing `/` matches every key under that prefix,
+e.g. `listings/listing/`), combined with AND and with `--type`. `--dry-run`
+lists exactly the rows the run would process (one selection function,
+`select_images`). A filter that names nothing (`--ids ,`) is refused instead
+of widening to every image.
+
 ## [0.30.0] — 2026-10-22
 
 ### Changed — the ref-sync claim is consumed in-process by the bus

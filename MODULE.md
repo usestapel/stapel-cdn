@@ -49,6 +49,9 @@ extra needed — passthrough), `s3` (boto3, reserved). See the submodule table b
   `sweep_unclaimed` reaps media left zero-ref past its TTL (see *Background work*).
   `manage.py regenerate_media` wipes generated variants and re-runs the pipeline
   (the operational relaunch step — no compatibility file layouts are kept);
+  narrow it with `--type`, `--ids 1,2 --ids 3`, `--uploaded-by <user id>` and
+  `--ref <service>/<entity_type>/<entity_id>` (a trailing `/` matches a prefix);
+  `--dry-run` prints the exact selection;
   `manage.py cdn_backfill_media_meta` stamps render metadata on objects stored
   before the metadata pipeline existed (idempotent, resumable — see
   **Backfilling render metadata** below).
