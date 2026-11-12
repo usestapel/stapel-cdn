@@ -279,7 +279,8 @@ See `CONFIG.MD` for the complete registry (source/required/default per key). Hig
 | `WATERMARK_ASSET_TYPES` | `()` | Types that get the per-site mark; empty = all. |
 | `WATERMARK_KEEP_CLEAN` | `True` | Keep a clean copy of each watermarked rendition in the protected tree, for machine readers (`cdn.describe` `{"clean": true}` → signed `clean_url`). |
 | `PROTECTED_MEDIA_PREFIX` | `"protected"` | Stored-but-not-public image bytes: a watermarked image's original and clean copies. The operator denies it on the public media route. |
-| `SIGNED_MEDIA_TTL_SECONDS` | `900` | Lifetime of a signed protected-media link. |
+| `SIGNED_MEDIA_TTL_SECONDS` | `900` | Lifetime of a signed protected- or private-media link. |
+| `PRIVATE_MEDIA_URLS` | `"signed"` | The URL handed out for an object under `PRIVATE_MEDIA_PREFIX` (documents, archives, voice notes). `"signed"`: a short-lived app-served link; `"public"`: `MEDIA_URL` + path, world-readable (`checks.W016`). See **Private and protected media on the public route**. |
 
 ### Media submodules — extras, opt-in, and system checks (tag `stapel_cdn`)
 
@@ -513,11 +514,63 @@ zero decorators added.
   needs (`variants_meta`, `prefix`, dimensions) into its own API response —
   the same pattern `RefSyncView` already uses for reference bookkeeping. The
   original bytes/variants are still fetched directly off the public media
-  route by URL (`Image.variant_urls` / `get_variant_url`), subject only to
-  `PRIVATE_MEDIA_PREFIX`; nothing about that requires an authenticated
-  lookup. Do not invent a `GET /media/<ref>/` metadata endpoint or widen
+  route by URL (`Image.variant_urls` / `get_variant_url`); a private or
+  protected object's URL is a signed link instead (see **Private and
+  protected media on the public route**). Do not invent a `GET /media/<ref>/` metadata endpoint or widen
   `file/exists/`'s scope to work around this — route the resolution through
   the owning service's own API instead.
+
+## Private and protected media on the public route
+
+Two trees under `MEDIA_ROOT` hold bytes that must not be world-readable:
+`PRIVATE_MEDIA_PREFIX` (default `private/`: every `File` and `Audio` original —
+documents, archives, voice notes) and `PROTECTED_MEDIA_PREFIX` (default
+`protected/`: a watermarked image's original and clean copies).
+
+**What the library guarantees.** It never hands out a public URL for an object
+in either tree. `storage.OverwriteStorage.url()` asks
+`protected.stored_url()`, so every `<field>.url` — upload responses,
+`cdn.describe` / `POST /describe/` snapshots, admin — is a signed link
+(`<cdn urls>/v1/media/signed/<token>/`, valid `SIGNED_MEDIA_TTL_SECONDS`,
+served by `SignedMediaView` with `Cache-Control: private, no-store`). The token
+names one path and resolves only inside the two trees. Protected names are
+always signed; private names unless `PRIVATE_MEDIA_URLS = "public"`
+(`checks.W016` warns, and also warns when `PRIVATE_MEDIA_PREFIX` is empty).
+
+**What the deployment must do.** The web server that serves `MEDIA_ROOT` at
+`MEDIA_URL` must deny both prefixes — the library cannot see that
+configuration. The reference block (what the stapel-tools scaffold
+generates; adjust the `/media/` part to your `MEDIA_URL`):
+
+```nginx
+# Before the general /media/ location: regex locations win over prefixes.
+location ~ ^/media/(protected|private)/ {
+    return 404;
+}
+location /media/ {
+    alias /media/;
+}
+```
+
+With a per-project slug in `MEDIA_URL` (`/media/<slug>/`), the pattern is
+`^/media/[^/]+/(protected|private)/`. An object store serving the same tree
+needs the equivalent deny in its bucket policy. Prove it from the outside, on
+the host or from CI:
+
+```bash
+manage.py cdn_probe_private_media --base-url https://<public media host>
+```
+
+It writes a random canary under each tree, fetches it through the public media
+URL, deletes it, and exits non-zero unless every tree answered something other
+than the canary (`EXPOSED` = served, `UNMEASURED` = the fetch failed — neither
+is a pass).
+
+**What remains with the consumer.** A signed link expires. A service that
+stores a `cdn.describe` snapshot (chat attachments) and serves it later must
+re-describe at read time instead of replaying stored URLs; `describe` itself
+answers whoever may call it, so who may *see* a private ref stays the
+consuming service's authorisation decision.
 
 ## App-layer override vs upstream contribution — rule of thumb
 

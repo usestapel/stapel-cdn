@@ -95,6 +95,7 @@ W013_SWEEP_NOT_SCHEDULED = "stapel_cdn.tasks.W013"
 W012_DESCRIBE_GUARD_EMPTY = "stapel_cdn.describe.W012"
 W014_UPLOAD_TYPE_NOT_CONFIGURED = "stapel_cdn.assets.W014"
 W015_WATERMARK_UNUSABLE = "stapel_cdn.watermark.W015"
+W016_PRIVATE_MEDIA_PUBLIC = "stapel_cdn.private.W016"
 
 
 @checks.register("stapel_cdn")
@@ -773,6 +774,52 @@ def check_watermarks(app_configs=None, **kwargs):
                 f'STAPEL_CDN["WATERMARK_DEFAULT_SITE"] is {default!r}, which has no '
                 "WATERMARKS entry.",
                 id=W015_WATERMARK_UNUSABLE,
+            )
+        )
+    return found
+
+
+@checks.register("stapel_cdn")
+def check_private_media_urls(app_configs=None, **kwargs):
+    """W016 — private objects are handed out on the public media route.
+
+    What this cannot see: whether the web server in front actually denies the
+    private and protected prefixes. That is measured from outside by
+    ``manage.py cdn_probe_private_media``, which fetches a canary through
+    the public media URL.
+    """
+    from .conf import cdn_settings
+    from .protected import PRIVATE_URLS_PUBLIC, private_prefix, private_urls_mode
+
+    found = []
+    raw = str(cdn_settings.PRIVATE_MEDIA_URLS or "").strip().lower()
+    if private_urls_mode() == PRIVATE_URLS_PUBLIC and private_prefix():
+        found.append(
+            checks.Warning(
+                'STAPEL_CDN["PRIVATE_MEDIA_URLS"] is "public": documents, archives '
+                f"and voice notes under {private_prefix()!r} are handed out as "
+                "public media URLs, readable by anyone who learns one.",
+                hint='Use "signed" (the default) and deny the prefix on the public '
+                "media route; verify with manage.py cdn_probe_private_media.",
+                id=W016_PRIVATE_MEDIA_PUBLIC,
+            )
+        )
+    elif raw not in ("signed", "public"):
+        found.append(
+            checks.Warning(
+                f'STAPEL_CDN["PRIVATE_MEDIA_URLS"] is {cdn_settings.PRIVATE_MEDIA_URLS!r}; '
+                'expected "signed" or "public". Treated as "signed".',
+                id=W016_PRIVATE_MEDIA_PUBLIC,
+            )
+        )
+    if not private_prefix():
+        found.append(
+            checks.Warning(
+                'STAPEL_CDN["PRIVATE_MEDIA_PREFIX"] is empty: documents, archives '
+                "and voice notes are stored beside public media and their URLs "
+                "are public.",
+                hint='Set it (default "private") and deny it on the public media route.',
+                id=W016_PRIVATE_MEDIA_PUBLIC,
             )
         )
     return found

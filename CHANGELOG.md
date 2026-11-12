@@ -15,6 +15,25 @@ cannot be removed raises `MediaErasureIncomplete` and keeps the row, like the
 original. Receipts carry a new `renditions_removed` count. The writers and the
 remover share one module (`renditions`) for directory and file names.
 
+### Fixed — private media never gets a public URL (behaviour change)
+
+`File` and `Audio` originals live under `PRIVATE_MEDIA_PREFIX` so the prefix
+can be denied on the public media route, but every URL the library handed out
+for them was `MEDIA_URL + private/...`: a deployment that denied the prefix
+broke voice notes and documents, one that did not served them to anyone with
+the URL. `storage.OverwriteStorage.url()` now returns a signed, expiring link
+(`media/signed/<token>/`, `SIGNED_MEDIA_TTL_SECONDS`) for every private and
+protected name — upload responses, describe snapshots and admin included —
+and `SignedMediaView` serves the private tree as well as the protected one.
+
+New setting `PRIVATE_MEDIA_URLS`: `"signed"` (default) or `"public"` (the
+previous URLs; `checks.W016` warns, also for an empty `PRIVATE_MEDIA_PREFIX`).
+New command `cdn_probe_private_media --base-url <host>` fetches a canary
+under each prefix through the public media route and fails unless both are
+denied. **Deployments:** deny `private/` and `protected/` on the media route
+(MODULE.md has the block) and run the probe; a consumer that stores describe
+snapshots must re-describe at read time, because signed links expire.
+
 ### Added — `regenerate_media` selects by id, owner and reference
 
 `--ids` (repeatable or comma-separated primary keys), `--uploaded-by <user

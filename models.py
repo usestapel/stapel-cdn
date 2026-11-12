@@ -53,8 +53,9 @@ def _private_prefix() -> str:
     One prefix an operator can deny on the public media route, instead of
     having to enumerate every non-image type that must not be world-readable.
     """
-    prefix = str(cdn_settings.PRIVATE_MEDIA_PREFIX or "").strip().strip("/")
-    return f"{prefix}/" if prefix else ""
+    from .protected import private_prefix
+
+    return private_prefix()
 
 
 # THE FILENAME IS PART OF THE STORED PATH, AND THE STORED PATH IS A COLUMN.

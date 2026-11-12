@@ -1,4 +1,5 @@
-"""Protected media: bytes that are stored but never on the public media route.
+"""Protected and private media: bytes that are stored but never on the public
+media route.
 
 When a watermark applies to an image, what the public may fetch is the marked
 renditions only. The stored original and the clean copy of each rendition live
@@ -11,6 +12,16 @@ doors only:
   service can ask for one; the URL itself is fetchable by whoever holds it
   (a vision provider) until it expires;
 * the uploader's own original download (``images/<type>/<hash>/original/``).
+
+Private media (``STAPEL_CDN["PRIVATE_MEDIA_PREFIX"]``, default ``private/``:
+documents, archives, voice notes) follows the same rule for the URL this
+library hands out. :func:`stored_url` is the one decision, and
+``storage.OverwriteStorage.url`` calls it, so every ``<field>.url`` of a
+stored object — serializers, describe snapshots, admin — gets a signed link
+for a private or protected name and never the public media path. Only
+``PRIVATE_MEDIA_URLS = "public"`` (a deliberate opt-out, ``checks.W016``)
+hands out the public path for private names; protected names are signed
+whatever it says.
 """
 from __future__ import annotations
 
@@ -30,6 +41,47 @@ def protected_prefix() -> str:
     """``PROTECTED_MEDIA_PREFIX`` normalised to ``"x/"``; never empty."""
     prefix = str(cdn_settings.PROTECTED_MEDIA_PREFIX or "").strip().strip("/")
     return f"{prefix or 'protected'}/"
+
+
+def private_prefix() -> str:
+    """``PRIVATE_MEDIA_PREFIX`` normalised to ``""`` (flat layout) or ``"x/"``."""
+    prefix = str(cdn_settings.PRIVATE_MEDIA_PREFIX or "").strip().strip("/")
+    return f"{prefix}/" if prefix else ""
+
+
+def is_private_name(name: str) -> bool:
+    prefix = private_prefix()
+    return bool(prefix) and str(name or "").startswith(prefix)
+
+
+#: ``PRIVATE_MEDIA_URLS`` values. Anything else is treated as ``signed``.
+PRIVATE_URLS_SIGNED = "signed"
+PRIVATE_URLS_PUBLIC = "public"
+
+
+def private_urls_mode() -> str:
+    """``"public"`` only when said exactly; everything else fails closed."""
+    value = str(cdn_settings.PRIVATE_MEDIA_URLS or "").strip().lower()
+    return PRIVATE_URLS_PUBLIC if value == PRIVATE_URLS_PUBLIC else PRIVATE_URLS_SIGNED
+
+
+def stored_url(name: str, public_url: str) -> str:
+    """The URL handed out for the stored object ``name``.
+
+    ``public_url`` is what the storage would answer (``MEDIA_URL + name``);
+    it is returned only for a name outside the protected and private trees,
+    or for a private name when the deployment opted out with
+    ``PRIVATE_MEDIA_URLS = "public"``. A signed link is relative to the app
+    (``.../media/signed/<token>/``) and expires after
+    ``SIGNED_MEDIA_TTL_SECONDS``; with the app's URLs not mounted it is
+    ``""`` — no link rather than a public one.
+    """
+    rel = str(name or "").replace("\\", "/")
+    if is_protected_name(rel):
+        return signed_url(rel)
+    if is_private_name(rel) and private_urls_mode() == PRIVATE_URLS_SIGNED:
+        return signed_url(rel)
+    return public_url
 
 
 def protected_rel_dir(image) -> str:
@@ -53,7 +105,9 @@ def original_is_protected(image) -> bool:
 
 
 def signed_url(rel_path: str) -> str:
-    """A URL that serves ``MEDIA_ROOT/<rel_path>`` for SIGNED_MEDIA_TTL_SECONDS."""
+    """A URL that serves ``MEDIA_ROOT/<rel_path>`` for SIGNED_MEDIA_TTL_SECONDS.
+
+    Only a protected or private path resolves (:func:`resolve_token`)."""
     token = signing.dumps({"p": rel_path}, salt=SIGNING_SALT, compress=True)
     try:
         return reverse("cdn-signed-media", args=[token])
@@ -65,7 +119,7 @@ def resolve_token(token: str) -> str | None:
     """Absolute path a valid, unexpired token names, or ``None``.
 
     The path comes only from the signed payload and must stay inside the
-    protected tree under MEDIA_ROOT.
+    protected or the private tree under MEDIA_ROOT.
     """
     try:
         payload = signing.loads(
@@ -76,9 +130,13 @@ def resolve_token(token: str) -> str | None:
     except (signing.BadSignature, ValueError, TypeError):
         return None
     rel = str((payload or {}).get("p") or "")
-    if not is_protected_name(rel):
+    if is_protected_name(rel):
+        tree = protected_prefix()
+    elif is_private_name(rel):
+        tree = private_prefix()
+    else:
         return None
-    root = os.path.realpath(os.path.join(settings.MEDIA_ROOT, protected_prefix()))
+    root = os.path.realpath(os.path.join(settings.MEDIA_ROOT, tree))
     path = os.path.realpath(os.path.join(settings.MEDIA_ROOT, rel))
     if not path.startswith(root + os.sep) or not os.path.isfile(path):
         return None
@@ -110,6 +168,12 @@ def protect_original(image) -> bool:
 
 __all__ = [
     "CLEAN_DIR",
+    "PRIVATE_URLS_PUBLIC",
+    "PRIVATE_URLS_SIGNED",
+    "is_private_name",
+    "private_prefix",
+    "private_urls_mode",
+    "stored_url",
     "clean_rel_path",
     "is_protected_name",
     "original_is_protected",

@@ -393,6 +393,14 @@ DEFAULTS = {
     # Empty keeps the historical flat layout; only NEW uploads move, stored
     # rows keep the path recorded in the database.
     "PRIVATE_MEDIA_PREFIX": "private",
+    # The URL this library hands out for an object under PRIVATE_MEDIA_PREFIX
+    # (serializers, describe snapshots, admin). "signed": a short-lived signed
+    # link served by the app (media/signed/<token>/, SIGNED_MEDIA_TTL_SECONDS),
+    # so the operator can deny the prefix on the public media route. "public":
+    # MEDIA_URL + path, readable by anyone who learns it — only for a
+    # deployment that means its private objects to be world-readable
+    # (checks.W016). Any other value is "signed".
+    "PRIVATE_MEDIA_URLS": "signed",
 }
 
 cdn_settings = AppSettings(

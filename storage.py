@@ -56,6 +56,14 @@ class OverwriteStorage(FileSystemStorage):
             self.delete(name)
         return name
 
+    def url(self, name):
+        """The URL handed out for a stored name — never the public media path
+        for a private or protected object (:func:`stapel_cdn.protected.stored_url`).
+        """
+        from .protected import stored_url
+
+        return stored_url(name, super().url(name))
+
     def _save(self, name, content):
         """
         Save the file, overwriting if it exists.
