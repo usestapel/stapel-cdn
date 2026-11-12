@@ -604,6 +604,19 @@ walks every mounted route with every method as a non-owner (plain and staff)
 and fails on a signed link, a public private-tree path or the bytes in any
 answer; its inversions see the owner's URLs and a stranger's under `"any"`.
 
+**The signed link is a bearer token.** `signing.dumps({"p": <path>})` with
+`SECRET_KEY` and the salt `stapel_cdn.protected`, HMAC-SHA256 over the payload
+and a timestamp: it cannot be forged without `SECRET_KEY`, it names exactly one
+path (changing the path breaks the signature), it resolves only inside the
+private and protected trees, and it is refused after
+`SIGNED_MEDIA_TTL_SECONDS` (expired, forged and unknown tokens all answer the
+same 404). Whoever holds an unexpired link can fetch it — that is what lets a
+vision provider fetch a clean copy by URL — so the protection is who it is
+handed to (above) and how long it lives. Keep the TTL as short as the slowest
+legitimate fetch (default 900 s); a consumer that caches resolved snapshots
+keeps its cache well under it (stapel-chat: `ATTACHMENT_URL_CACHE_S` 60 s).
+Rotating `SECRET_KEY` invalidates every outstanding link.
+
 **What remains with the consumer.** A signed link expires. A service that
 stores a `cdn.describe` snapshot (chat attachments) and serves it later must
 re-describe at read time instead of replaying stored URLs. The comm Functions

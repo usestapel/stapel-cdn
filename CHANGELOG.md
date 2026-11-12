@@ -70,6 +70,14 @@ who may see it (stapel-chat's attachment link); set `"any"` only as a
 temporary bridge. `tests/test_private_url_access.py` walks every mounted route
 as a non-owner.
 
+### Documented — the signed media link is a bearer token
+
+MODULE.md states what the link guarantees (HMAC-SHA256 under `SECRET_KEY` and
+a fixed salt, one path per token, only inside the private and protected trees,
+refused after `SIGNED_MEDIA_TTL_SECONDS`) and what it does not (whoever holds
+an unexpired link can fetch it), with TTL guidance. Tests pin a tampered,
+re-targeted, foreign-key, foreign-salt and expired token to 404.
+
 ## [0.30.0] — 2026-10-22
 
 ### Changed — the ref-sync claim is consumed in-process by the bus
