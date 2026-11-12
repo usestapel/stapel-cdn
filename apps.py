@@ -39,7 +39,7 @@ class CdnConfig(AppConfig):
         register_gdpr_owner(OWNER, SUBJECT_TYPES, erase)
 
         # comm Function providers (cdn.media_exists, cdn.describe,
-        # cdn.describe_many, cdn.import_from_url, cdn.refs_sync).
+        # cdn.describe_many, cdn.ownership, cdn.import_from_url, cdn.refs_sync).
         # Idempotent even if ready() runs more than once: the module import
         # is cached and re-registering the same handler object is a no-op.
         from . import functions  # noqa: F401

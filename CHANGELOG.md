@@ -78,6 +78,16 @@ refused after `SIGNED_MEDIA_TTL_SECONDS`) and what it does not (whoever holds
 an unexpired link can fetch it), with TTL guidance. Tests pin a tampered,
 re-targeted, foreign-key, foreign-salt and expired token to 404.
 
+### Added — `cdn.ownership` comm Function
+
+`{"refs": [...], "owner_id": "<principal>"}` →
+`{"items": [{ref, exists, owner_id, owned, visibility}]}`: whether a principal
+holds each ref (identical bytes uploaded by two principals are two rows and
+both own the ref), the uploader of the row `describe` resolves to, and
+`public` / `private` / `protected`. Batched (one query per model, at most 100
+refs), service-to-service. A consumer uses it to refuse a ref a sender does
+not own (stapel-chat 0.12.0).
+
 ## [0.30.0] — 2026-10-22
 
 ### Changed — the ref-sync claim is consumed in-process by the bus

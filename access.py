@@ -55,7 +55,7 @@ AUDIENCE_OWNER_AND_STAFF = "owner_and_staff"
 AUDIENCE_ANY = "any"
 AUDIENCES = (AUDIENCE_OWNER, AUDIENCE_OWNER_AND_STAFF, AUDIENCE_ANY)
 
-#: Visibility of a stored object.
+#: Visibility of a stored object, as ``cdn.ownership`` reports it.
 VISIBILITY_PUBLIC = "public"
 VISIBILITY_PRIVATE = "private"
 VISIBILITY_PROTECTED = "protected"

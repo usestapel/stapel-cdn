@@ -73,9 +73,11 @@ extra needed — passthrough), `s3` (boto3, reserved). See the submodule table b
   (`meta_status`/`meta_reason`). See **The render-metadata contract** below.
 - **Comm surface**: provides functions `cdn.media_exists`, `cdn.describe`,
   `cdn.describe_many` (the render-metadata snapshot for one ref / a page of
-  refs — see the contract table below; consumers denormalize the snapshot once
-  when resolving a ref; `describe_many` and `POST /describe/` are one function
-  behind two transports) and `cdn.refs_sync`
+  refs — see the contract table below; consumers keep the non-expiring facts
+  with the ref and resolve URLs on every read; `describe_many` and
+  `POST /describe/` share one body, and the HTTP form withholds private URLs
+  from non-owners), `cdn.ownership` (who holds each ref, and its visibility —
+  the write-side check of a consumer) and `cdn.refs_sync`
   (`stapel_cdn.functions`, called via `stapel_core.comm.call` — no import of this package
   needed); subscribes to actions `user.deleted` / `user.deletion_initiated` / `user.deletion_cancelled` / `user.merged` (`stapel_cdn.actions`); Kafka consumer
   `manage.py consume_cdn_events` for `cdn.ref.sync` events (topic
@@ -352,6 +354,7 @@ class MyImageUpload(ImageUploadView):
 | `cdn.media_exists` | provides (function) | `call("cdn.media_exists", {"ref": "<type>/<hash>"})` → `{"exists": bool}`. Ref prefixes: any configured `STAPEL_CDN["ASSET_TYPES"]` value (default `avatar`), `video`, `file`, `audio`. |
 | `cdn.describe` | provides (function) | `call("cdn.describe", {"ref": "<type>/<hash>"})` → the render-metadata snapshot (table above). `LookupError` (surfaced as `FunctionCallError`) for an unknown ref — a missing asset is the caller's placeholder case, not an empty snapshot. |
 | `cdn.describe_many` | provides (function) | `call("cdn.describe_many", {"refs": [...]})` → `{"items": {ref: snapshot}, "missing": [ref, ...]}`. One query per model for a whole page of attachments; an unknown ref is data, not an error. Max 50 refs per call. |
+| `cdn.ownership` | provides (function) | `call("cdn.ownership", {"refs": [...], "owner_id": "<principal>"})` → `{"items": [{ref, exists, owner_id, owned, visibility}]}`, one item per distinct ref in the order asked, one query per model, at most `functions.OWNERSHIP_LIMIT` (100) refs. `owned` — the principal holds a row for the ref (identical bytes uploaded by two principals are two rows, each owns the ref; `null` when no `owner_id` is given); `owner_id` — the uploader of the row `describe` resolves to (`null` for the service-owned pool); `visibility` — `public` / `private` / `protected` (`null` for an unknown ref). Service-to-service: the write-side check a consumer runs before accepting a ref from a sender (stapel-chat refuses a private ref the sender does not own). |
 | `cdn.refs_sync` | provides (function) | `call("cdn.refs_sync", {"service", "entity_type", "entity_id", "old_hashes", "new_hashes"})` → `{"added", "removed", "errors"}`. Same logic as `RefSyncView` / `services.apply_ref_sync`. |
 | `gdpr.erasure.requested` | subscribes (action) | Subject-scoped erasure — `account` \| `workspace` \| `file` \| `recording` (see **Erasure** below), confirmed with `gdpr.section.erased` carrying `{owner: "media", subject_type, subject_key, receipt_id, counts}` in the same transaction. Subscribed by `stapel_core.gdpr.register_gdpr_owner` from `apps.ready()` over `erasure.erase`. Schema: `schemas/consumes/gdpr.erasure.requested.json`. Idempotent. |
 | `gdpr.owner.probe` | subscribes (action) | Answered with `gdpr.owner.alive {owner: "media", subject_types}` from the *same* subscriber that erases (same registration). Schema: `schemas/consumes/gdpr.owner.probe.json`. |
@@ -621,7 +624,7 @@ Rotating `SECRET_KEY` invalidates every outstanding link.
 stores a `cdn.describe` snapshot (chat attachments) and serves it later must
 re-describe at read time instead of replaying stored URLs. The comm Functions
 answer services, so who may *see* a private ref is the consuming service's
-decision.
+decision, and whether a sender may *share* one is answered by `cdn.ownership`.
 
 ## App-layer override vs upstream contribution — rule of thumb
 

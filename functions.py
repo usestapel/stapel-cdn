@@ -11,6 +11,7 @@ idempotent). Other modules call these by name via
     call("cdn.media_exists", {"ref": "product/<hash>"})
     call("cdn.describe", {"ref": "product/<hash>"})
     call("cdn.describe_many", {"refs": ["product/<hash>", "audio/<hash>"]})
+    call("cdn.ownership", {"refs": ["file/<hash>"], "owner_id": "42"})
     call("cdn.refs_sync", {"service": "shop", "entity_type": "product",
                            "entity_id": "42", "new_hashes": [...]})
 """
@@ -91,6 +92,30 @@ DESCRIBE_MANY_SCHEMA = {
     },
     "required": ["refs"],
 }
+
+#: Most refs one ``cdn.ownership`` call answers for.
+OWNERSHIP_LIMIT = 100
+
+OWNERSHIP_SCHEMA = {
+    "type": "object",
+    "properties": {
+        "refs": {
+            "type": "array",
+            "items": {"type": "string"},
+            "maxItems": OWNERSHIP_LIMIT,
+            "description": "Media references in <type>/<id> form.",
+        },
+        "owner_id": {
+            "type": ["string", "integer", "null"],
+            "description": (
+                "A principal to test: each item's `owned` says whether this "
+                "principal holds a row for the ref."
+            ),
+        },
+    },
+    "required": ["refs"],
+}
+
 
 def __getattr__(name):
     """``DESCRIBE_MANY_LIMIT`` lives in :mod:`stapel_cdn.metadata` now.
@@ -182,6 +207,65 @@ def describe_many(payload: dict) -> dict:
     from .services import describe_refs
 
     return describe_refs(payload["refs"])
+
+
+@function("cdn.ownership", schema=OWNERSHIP_SCHEMA)
+def ownership(payload: dict) -> dict:
+    """Who holds each ref, and how it is stored — the write-side check.
+
+    Payload: ``{"refs": [...], "owner_id": <principal or null>}``. Returns
+    ``{"items": [{ref, exists, owner_id, owned, visibility}, ...]}``, one
+    item per distinct ref, in the order asked:
+
+    * ``exists`` — the ref resolves to a stored object;
+    * ``owner_id`` — the uploader of the row ``cdn.describe`` resolves the
+      ref to, as a string; ``null`` for the service-owned pool or an unknown
+      ref. Identical bytes uploaded by two principals are two rows over one
+      blob, so this is one holder, not the only one;
+    * ``owned`` — whether the principal named by ``owner_id`` in the payload
+      holds a row for the ref (``null`` when the payload names nobody). This
+      is the field a consumer checks before accepting a ref from a sender;
+    * ``visibility`` — ``public``, ``private`` (stored under
+      ``PRIVATE_MEDIA_PREFIX``) or ``protected`` (a watermarked original);
+      ``null`` for an unknown ref.
+
+    Service-to-service only (a comm Function); at most
+    :data:`OWNERSHIP_LIMIT` distinct refs per call, more raises
+    ``ValueError``. One query per model.
+    """
+    from .access import owners_by_ref, visibility
+    from .services import _batch_resolve_media
+
+    refs = [str(r) for r in dict.fromkeys(payload.get("refs") or [])]
+    if len(refs) > OWNERSHIP_LIMIT:
+        raise ValueError(
+            f"cdn.ownership: {len(refs)} refs exceeds the per-call limit of "
+            f"{OWNERSHIP_LIMIT}"
+        )
+    principal = payload.get("owner_id")
+    principal = None if principal in (None, "") else str(principal)
+    resolved = _batch_resolve_media(refs)
+    holders = owners_by_ref(list(resolved))
+    items = []
+    for ref in refs:
+        obj = resolved.get(ref)
+        if obj is None:
+            items.append({
+                "ref": ref, "exists": False, "owner_id": None,
+                "owned": None if principal is None else False,
+                "visibility": None,
+            })
+            continue
+        owner = getattr(obj, "uploaded_by_id", None)
+        held = {str(o) for o in holders.get(ref, set()) if o is not None}
+        items.append({
+            "ref": ref,
+            "exists": True,
+            "owner_id": None if owner is None else str(owner),
+            "owned": None if principal is None else principal in held,
+            "visibility": visibility(obj),
+        })
+    return {"items": items}
 
 
 @function("cdn.media_exists", schema=MEDIA_EXISTS_SCHEMA)

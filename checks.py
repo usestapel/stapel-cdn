@@ -234,7 +234,8 @@ def check_dedup_scope(app_configs=None, **kwargs):
                 "bytes?' for any caller, and returns the holder's row — "
                 "identifier, original filename and reference list included. "
                 "A second uploader of identical bytes gets no row of their own, "
-                "so they do not own the ref and get no URL to a private object.",
+                "so they do not own the ref: no URL to a private object and "
+                "cdn.ownership answers owned=false for them.",
                 hint="Keep 'global' only where every principal is entitled to "
                      "every other principal's media (a single-tenant "
                      "deployment, or a deliberately shared public asset pool). "
