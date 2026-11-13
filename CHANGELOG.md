@@ -1,6 +1,16 @@
 # Changelog
 
-## Unreleased (proposed 0.31.0)
+## [0.31.0] — 2026-11-13
+
+Minor (pre-1.0: breaking). No migration.
+
+**Breaking:** private and protected objects (`File`, `Audio`, …) no longer get
+`MEDIA_URL` links; every URL of one is a signed, expiring link
+(`PRIVATE_MEDIA_URLS = "signed"` by default, `"public"` restores the old
+URLs), and `POST /describe/` hands those URLs only to the owner or a service
+caller. A consumer that stores describe snapshots must resolve URLs at read
+time. Deny `private/` and `protected/` on the public media route and run
+`cdn_probe_private_media`.
 
 ### Fixed — erasure removes every derived file, not only the original
 
