@@ -1,5 +1,24 @@
 # Changelog
 
+## [0.31.3] — 2026-11-20
+
+Patch. No migration. Contract only; the wire is unchanged.
+
+### Fixed — what a generated client reads
+
+- `POST upload/image/`: the `file` part is `string/binary`. It was
+  `string/uri` (drf-spectacular types a `FileField` by its response face), so
+  a generated client took `file: String`. The other upload endpoints already
+  declared binary; `tests/test_contract_profile2.py` now checks every
+  multipart `file` part in both documents.
+- `Image.prefix` / `FileModel.prefix` carry their documented format as a
+  `pattern` (`<type>/<sha256 hex>`, `file/<sha256 hex>`), and the examples
+  show it: they said `"avatar"` / `"file"`, which the example gate could not
+  refuse while the format lived only in prose.
+- `variants_meta[].tier` says it is the px tier (always a number here);
+  core's `StapelImage` carries the same value as a string because its tier
+  can also be `"original"`.
+
 ## [0.31.2] — 2026-11-20
 
 Patch. No migration.

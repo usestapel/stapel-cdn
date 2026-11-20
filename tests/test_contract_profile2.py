@@ -82,3 +82,31 @@ def test_no_action_declares_what_its_mount_ignores():
     seen = {cls.__name__ for _r, _c, cls, _a in viewset_routes()}
     assert seen == VIEWSETS, f"roster saw {sorted(seen)}"
     assert dead_action_declarations() == []
+
+
+def _resolve(schema, node):
+    while "$ref" in node:
+        node = schema["components"]["schemas"][node["$ref"].rsplit("/", 1)[-1]]
+    return node
+
+
+@pytest.mark.parametrize("artifact", ["schema.json", "schema.v2.json"])
+def test_every_multipart_file_part_is_binary(artifact):
+    """An upload part is bytes: ``string/binary``. Typed ``string/uri`` (the
+    FileField's response face), a generated client takes ``file: String``."""
+    schema = _doc(artifact)
+    wrong, seen = [], 0
+    for path, item in schema["paths"].items():
+        for method, op in item.items():
+            body = op.get("requestBody", {}) if isinstance(op, dict) else {}
+            media = body.get("content", {}).get("multipart/form-data")
+            if not media:
+                continue
+            part = _resolve(schema, media["schema"]).get("properties", {}).get("file")
+            if part is None:
+                continue
+            seen += 1
+            if part.get("format") != "binary":
+                wrong.append(f"{method.upper()} {path}: file is {part}")
+    assert seen >= 6, f"checked {seen} upload operations"
+    assert wrong == []

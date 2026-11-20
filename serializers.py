@@ -23,6 +23,11 @@ from .errors import ERR_400_FILE_TYPE_NOT_ALLOWED
 from .metadata import DESCRIBE_MANY_LIMIT
 from .models import VARIANTS_STATUSES, Audio, File, Image, Video
 
+#: ``Image.prefix``: ``<type>/<sha256 hex>``.
+IMAGE_PREFIX_PATTERN = r"^[^/]+/[0-9a-f]{64}$"
+#: ``File.prefix``: ``file/<sha256 hex>``.
+FILE_PREFIX_PATTERN = r"^file/[0-9a-f]{64}$"
+
 
 class VariantsMetaField(serializers.JSONField):
     """``[{tier, branch, url, width, height}]`` — fixed-shape per-variant geometry.
@@ -44,7 +49,15 @@ class VariantsMetaFieldExtension(OpenApiSerializerFieldExtension):
             "items": {
                 "type": "object",
                 "properties": {
-                    "tier": {"type": "integer"},
+                    "tier": {
+                        "type": "integer",
+                        "description": (
+                            "Ladder tier in px. Generated variants only, so always "
+                            "a number here; core's StapelImage render descriptor "
+                            "carries the same value as a string, because its tier "
+                            "can also be \"original\"."
+                        ),
+                    },
                     "branch": {
                         "type": "string",
                         "enum": ["w", "h"],
@@ -335,7 +348,7 @@ class ImageSerializer(serializers.ModelSerializer):
             "updated_at",
         ]
 
-    @extend_schema_field(OpenApiTypes.STR)
+    @extend_schema_field({"type": "string", "pattern": IMAGE_PREFIX_PATTERN})
     def get_prefix(self, obj):
         return f"{obj.type}/{obj.file_hash}"
 
@@ -611,8 +624,22 @@ class FileUploadSerializer(serializers.Serializer):
 
 
 
+@extend_schema_field(OpenApiTypes.BINARY)
+class UploadedFileField(serializers.FileField):
+    """A file part of a multipart request: ``string/binary`` in the schema.
+
+    drf-spectacular types a ``FileField`` by its RESPONSE face (a URL) unless
+    request components are split, so a generated client took the upload part
+    for a string.
+    """
+
+
 class ImageUploadRequestSerializer(FileUploadSerializer):
     """``POST /upload/image/``: the file plus the asset type to store it as."""
+
+    file = UploadedFileField(
+        help_text=FileUploadSerializer._declared_fields["file"].help_text
+    )
 
     type = serializers.CharField(
         required=False,
@@ -804,7 +831,7 @@ class FileModelSerializer(serializers.ModelSerializer):
             "updated_at",
         ]
 
-    @extend_schema_field(OpenApiTypes.STR)
+    @extend_schema_field({"type": "string", "pattern": FILE_PREFIX_PATTERN})
     def get_prefix(self, obj):
         return f"file/{obj.file_hash}"
 

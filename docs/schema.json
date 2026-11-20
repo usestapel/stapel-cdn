@@ -183,7 +183,7 @@
                         "original_filename": "photo.jpg",
                         "file_extension": ".jpg",
                         "type": "avatar",
-                        "prefix": "avatar",
+                        "prefix": "avatar/9f86d081884c7d659a2feaa0c55ad015a3bf4f1b2b0b822cd15d6c15b0f00a08",
                         "original_width": 1920,
                         "original_height": 1080,
                         "original_size": 2048576,
@@ -318,7 +318,7 @@
                         "original_filename": "photo.jpg",
                         "file_extension": ".jpg",
                         "type": "avatar",
-                        "prefix": "avatar",
+                        "prefix": "avatar/9f86d081884c7d659a2feaa0c55ad015a3bf4f1b2b0b822cd15d6c15b0f00a08",
                         "original_width": 1920,
                         "original_height": 1080,
                         "original_size": 2048576,
@@ -606,7 +606,7 @@
                         "original_filename": "photo.jpg",
                         "file_extension": ".jpg",
                         "type": "avatar",
-                        "prefix": "avatar",
+                        "prefix": "avatar/9f86d081884c7d659a2feaa0c55ad015a3bf4f1b2b0b822cd15d6c15b0f00a08",
                         "original_width": 1920,
                         "original_height": 1080,
                         "original_size": 2048576,
@@ -677,7 +677,7 @@
                         "original_filename": "photo.jpg",
                         "file_extension": ".jpg",
                         "type": "avatar",
-                        "prefix": "avatar",
+                        "prefix": "avatar/9f86d081884c7d659a2feaa0c55ad015a3bf4f1b2b0b822cd15d6c15b0f00a08",
                         "original_width": 1920,
                         "original_height": 1080,
                         "original_size": 2048576,
@@ -1103,7 +1103,7 @@
                         "original_filename": "photo.jpg",
                         "file_extension": ".jpg",
                         "type": "avatar",
-                        "prefix": "avatar",
+                        "prefix": "avatar/9f86d081884c7d659a2feaa0c55ad015a3bf4f1b2b0b822cd15d6c15b0f00a08",
                         "original_width": 1920,
                         "original_height": 1080,
                         "original_size": 2048576,
@@ -1174,7 +1174,7 @@
                         "original_filename": "photo.jpg",
                         "file_extension": ".jpg",
                         "type": "avatar",
-                        "prefix": "avatar",
+                        "prefix": "avatar/9f86d081884c7d659a2feaa0c55ad015a3bf4f1b2b0b822cd15d6c15b0f00a08",
                         "original_width": 1920,
                         "original_height": 1080,
                         "original_size": 2048576,
@@ -1322,7 +1322,7 @@
                         "file_extension": ".pdf",
                         "mime_type": "application/pdf",
                         "original_size": 184320,
-                        "prefix": "file",
+                        "prefix": "file/9f86d081884c7d659a2feaa0c55ad015a3bf4f1b2b0b822cd15d6c15b0f00a08",
                         "original_url": "/media/cdn/files/9f86d081884c7d659a2feaa0c55ad015a3bf4f1b2b0b822cd15d6c15b0f00a08.pdf",
                         "render_meta": {
                           "ref": "file/9f86d081884c7d659a2feaa0c55ad015a3bf4f1b2b0b822cd15d6c15b0f00a08",
@@ -1363,7 +1363,7 @@
                         "file_extension": ".pdf",
                         "mime_type": "application/pdf",
                         "original_size": 184320,
-                        "prefix": "file",
+                        "prefix": "file/9f86d081884c7d659a2feaa0c55ad015a3bf4f1b2b0b822cd15d6c15b0f00a08",
                         "original_url": "/media/cdn/files/9f86d081884c7d659a2feaa0c55ad015a3bf4f1b2b0b822cd15d6c15b0f00a08.pdf",
                         "render_meta": {
                           "ref": "file/9f86d081884c7d659a2feaa0c55ad015a3bf4f1b2b0b822cd15d6c15b0f00a08",
@@ -1445,7 +1445,7 @@
                         "original_filename": "photo.jpg",
                         "file_extension": ".jpg",
                         "type": "avatar",
-                        "prefix": "avatar",
+                        "prefix": "avatar/9f86d081884c7d659a2feaa0c55ad015a3bf4f1b2b0b822cd15d6c15b0f00a08",
                         "original_width": 1920,
                         "original_height": 1080,
                         "original_size": 2048576,
@@ -1516,7 +1516,7 @@
                         "original_filename": "photo.jpg",
                         "file_extension": ".jpg",
                         "type": "avatar",
-                        "prefix": "avatar",
+                        "prefix": "avatar/9f86d081884c7d659a2feaa0c55ad015a3bf4f1b2b0b822cd15d6c15b0f00a08",
                         "original_width": 1920,
                         "original_height": 1080,
                         "original_size": 2048576,
@@ -2246,6 +2246,7 @@
           },
           "prefix": {
             "type": "string",
+            "pattern": "^file/[0-9a-f]{64}$",
             "readOnly": true,
             "description": "URL prefix: file/<hash>"
           },
@@ -2447,6 +2448,7 @@
           },
           "prefix": {
             "type": "string",
+            "pattern": "^[^/]+/[0-9a-f]{64}$",
             "readOnly": true,
             "description": "URL prefix: <type>/<hash>"
           },
@@ -2547,7 +2549,8 @@
               "type": "object",
               "properties": {
                 "tier": {
-                  "type": "integer"
+                  "type": "integer",
+                  "description": "Ladder tier in px. Generated variants only, so always a number here; core's StapelImage render descriptor carries the same value as a string, because its tier can also be \"original\"."
                 },
                 "branch": {
                   "type": "string",
@@ -2761,7 +2764,7 @@
         "properties": {
           "file": {
             "type": "string",
-            "format": "uri",
+            "format": "binary",
             "description": "The file to upload. Images: jpg, jpeg, png, gif, webp, avif, heic, heif. Videos: mp4, webm, mov, avi, mkv."
           },
           "type": {
