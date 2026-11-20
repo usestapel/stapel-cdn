@@ -104,7 +104,7 @@ all = ["stapel-cdn[s3,images,video,recordings,celery]"]
 # undeclared sibling import is a collection error waiting for the first clean
 # environment — which is what stapel-sibling-lint SIB001 flags, and why CI now
 # runs it with --strict.
-test = ["Pillow>=9.0", "stapel-tools>=0.84.0,<1", "celery>=5"]
+test = ["Pillow>=9.0", "stapel-tools>=0.86.0,<1", "celery>=5"]
 
 [tool.setuptools]
 package-dir = {"stapel_cdn" = "."}
