@@ -178,10 +178,57 @@
                       "exists": true,
                       "type": "image",
                       "file": {
-                        "id": "550e8400-e29b-41d4-a716-446655440000",
-                        "file_hash": "e3b0c44298fc1c14...",
+                        "id": 42,
+                        "file_hash": "9f86d081884c7d659a2feaa0c55ad015a3bf4f1b2b0b822cd15d6c15b0f00a08",
                         "original_filename": "photo.jpg",
-                        "variant_720_url": "/media/cdn/images/720/e3b0c442.webp"
+                        "file_extension": ".jpg",
+                        "type": "avatar",
+                        "prefix": "avatar",
+                        "original_width": 1920,
+                        "original_height": 1080,
+                        "original_size": 2048576,
+                        "original_url": "/media/cdn/images/original/9f86d081884c7d659a2feaa0c55ad015a3bf4f1b2b0b822cd15d6c15b0f00a08.jpg",
+                        "variant_16_url": "/media/cdn/images/16/9f86d081884c7d659a2feaa0c55ad015a3bf4f1b2b0b822cd15d6c15b0f00a08.webp",
+                        "variant_32_url": "/media/cdn/images/32/9f86d081884c7d659a2feaa0c55ad015a3bf4f1b2b0b822cd15d6c15b0f00a08.webp",
+                        "variant_64_url": "/media/cdn/images/64/9f86d081884c7d659a2feaa0c55ad015a3bf4f1b2b0b822cd15d6c15b0f00a08.webp",
+                        "variant_120_url": "/media/cdn/images/120/9f86d081884c7d659a2feaa0c55ad015a3bf4f1b2b0b822cd15d6c15b0f00a08.webp",
+                        "variant_160_url": "/media/cdn/images/160/9f86d081884c7d659a2feaa0c55ad015a3bf4f1b2b0b822cd15d6c15b0f00a08.webp",
+                        "variant_240_url": "/media/cdn/images/240/9f86d081884c7d659a2feaa0c55ad015a3bf4f1b2b0b822cd15d6c15b0f00a08.webp",
+                        "variant_480_url": "/media/cdn/images/480/9f86d081884c7d659a2feaa0c55ad015a3bf4f1b2b0b822cd15d6c15b0f00a08.webp",
+                        "variant_560_url": "/media/cdn/images/560/9f86d081884c7d659a2feaa0c55ad015a3bf4f1b2b0b822cd15d6c15b0f00a08.webp",
+                        "variant_720_url": "/media/cdn/images/720/9f86d081884c7d659a2feaa0c55ad015a3bf4f1b2b0b822cd15d6c15b0f00a08.webp",
+                        "variant_1080_url": "/media/cdn/images/1080/9f86d081884c7d659a2feaa0c55ad015a3bf4f1b2b0b822cd15d6c15b0f00a08.webp",
+                        "variant_1440_url": "/media/cdn/images/1440/9f86d081884c7d659a2feaa0c55ad015a3bf4f1b2b0b822cd15d6c15b0f00a08.webp",
+                        "variant_2160_url": "/media/cdn/images/2160/9f86d081884c7d659a2feaa0c55ad015a3bf4f1b2b0b822cd15d6c15b0f00a08.webp",
+                        "variants_meta": [
+                          {
+                            "tier": 720,
+                            "branch": "w",
+                            "url": "/media/cdn/images/720/9f86d081884c7d659a2feaa0c55ad015a3bf4f1b2b0b822cd15d6c15b0f00a08.webp",
+                            "width": 720,
+                            "height": 405
+                          }
+                        ],
+                        "variants_status": "pending",
+                        "variants_ready_at": null,
+                        "render_meta": {
+                          "ref": "avatar/9f86d081884c7d659a2feaa0c55ad015a3bf4f1b2b0b822cd15d6c15b0f00a08",
+                          "kind": "image",
+                          "mime": "image/jpeg",
+                          "ext": ".jpg",
+                          "bytes": 2048576,
+                          "meta_status": "ok",
+                          "width": 1920,
+                          "height": 1080,
+                          "aspect": 1.7778,
+                          "square": false,
+                          "animated": false
+                        },
+                        "is_processed": false,
+                        "uploaded_by": "3f2b1c4d-5e6f-4a7b-8c9d-0e1f2a3b4c5d",
+                        "uploaded_by_username": "alice",
+                        "created_at": "2026-03-17T10:30:00Z",
+                        "updated_at": "2026-03-17T10:30:00Z"
                       }
                     },
                     "summary": "File found (image)"
@@ -261,11 +308,73 @@
                   "$ref": "#/components/schemas/FileExistsResponse"
                 },
                 "examples": {
-                  "FileExistsResponse": {
+                  "FileFound(image)": {
                     "value": {
                       "exists": true,
-                      "type": "image"
-                    }
+                      "type": "image",
+                      "file": {
+                        "id": 42,
+                        "file_hash": "9f86d081884c7d659a2feaa0c55ad015a3bf4f1b2b0b822cd15d6c15b0f00a08",
+                        "original_filename": "photo.jpg",
+                        "file_extension": ".jpg",
+                        "type": "avatar",
+                        "prefix": "avatar",
+                        "original_width": 1920,
+                        "original_height": 1080,
+                        "original_size": 2048576,
+                        "original_url": "/media/cdn/images/original/9f86d081884c7d659a2feaa0c55ad015a3bf4f1b2b0b822cd15d6c15b0f00a08.jpg",
+                        "variant_16_url": "/media/cdn/images/16/9f86d081884c7d659a2feaa0c55ad015a3bf4f1b2b0b822cd15d6c15b0f00a08.webp",
+                        "variant_32_url": "/media/cdn/images/32/9f86d081884c7d659a2feaa0c55ad015a3bf4f1b2b0b822cd15d6c15b0f00a08.webp",
+                        "variant_64_url": "/media/cdn/images/64/9f86d081884c7d659a2feaa0c55ad015a3bf4f1b2b0b822cd15d6c15b0f00a08.webp",
+                        "variant_120_url": "/media/cdn/images/120/9f86d081884c7d659a2feaa0c55ad015a3bf4f1b2b0b822cd15d6c15b0f00a08.webp",
+                        "variant_160_url": "/media/cdn/images/160/9f86d081884c7d659a2feaa0c55ad015a3bf4f1b2b0b822cd15d6c15b0f00a08.webp",
+                        "variant_240_url": "/media/cdn/images/240/9f86d081884c7d659a2feaa0c55ad015a3bf4f1b2b0b822cd15d6c15b0f00a08.webp",
+                        "variant_480_url": "/media/cdn/images/480/9f86d081884c7d659a2feaa0c55ad015a3bf4f1b2b0b822cd15d6c15b0f00a08.webp",
+                        "variant_560_url": "/media/cdn/images/560/9f86d081884c7d659a2feaa0c55ad015a3bf4f1b2b0b822cd15d6c15b0f00a08.webp",
+                        "variant_720_url": "/media/cdn/images/720/9f86d081884c7d659a2feaa0c55ad015a3bf4f1b2b0b822cd15d6c15b0f00a08.webp",
+                        "variant_1080_url": "/media/cdn/images/1080/9f86d081884c7d659a2feaa0c55ad015a3bf4f1b2b0b822cd15d6c15b0f00a08.webp",
+                        "variant_1440_url": "/media/cdn/images/1440/9f86d081884c7d659a2feaa0c55ad015a3bf4f1b2b0b822cd15d6c15b0f00a08.webp",
+                        "variant_2160_url": "/media/cdn/images/2160/9f86d081884c7d659a2feaa0c55ad015a3bf4f1b2b0b822cd15d6c15b0f00a08.webp",
+                        "variants_meta": [
+                          {
+                            "tier": 720,
+                            "branch": "w",
+                            "url": "/media/cdn/images/720/9f86d081884c7d659a2feaa0c55ad015a3bf4f1b2b0b822cd15d6c15b0f00a08.webp",
+                            "width": 720,
+                            "height": 405
+                          }
+                        ],
+                        "variants_status": "pending",
+                        "variants_ready_at": null,
+                        "render_meta": {
+                          "ref": "avatar/9f86d081884c7d659a2feaa0c55ad015a3bf4f1b2b0b822cd15d6c15b0f00a08",
+                          "kind": "image",
+                          "mime": "image/jpeg",
+                          "ext": ".jpg",
+                          "bytes": 2048576,
+                          "meta_status": "ok",
+                          "width": 1920,
+                          "height": 1080,
+                          "aspect": 1.7778,
+                          "square": false,
+                          "animated": false
+                        },
+                        "is_processed": false,
+                        "uploaded_by": "3f2b1c4d-5e6f-4a7b-8c9d-0e1f2a3b4c5d",
+                        "uploaded_by_username": "alice",
+                        "created_at": "2026-03-17T10:30:00Z",
+                        "updated_at": "2026-03-17T10:30:00Z"
+                      }
+                    },
+                    "summary": "File found (image)"
+                  },
+                  "FileNotFound": {
+                    "value": {
+                      "exists": false,
+                      "type": null,
+                      "file": null
+                    },
+                    "summary": "File not found"
                   }
                 }
               }
@@ -488,10 +597,64 @@
                   "$ref": "#/components/schemas/ImageUploadResponse"
                 },
                 "examples": {
-                  "ImageUploadResponse": {
+                  "ImageUploaded": {
                     "value": {
-                      "message": "Image uploaded successfully"
-                    }
+                      "message": "Image uploaded successfully",
+                      "image": {
+                        "id": 42,
+                        "file_hash": "9f86d081884c7d659a2feaa0c55ad015a3bf4f1b2b0b822cd15d6c15b0f00a08",
+                        "original_filename": "photo.jpg",
+                        "file_extension": ".jpg",
+                        "type": "avatar",
+                        "prefix": "avatar",
+                        "original_width": 1920,
+                        "original_height": 1080,
+                        "original_size": 2048576,
+                        "original_url": "/media/cdn/images/original/9f86d081884c7d659a2feaa0c55ad015a3bf4f1b2b0b822cd15d6c15b0f00a08.jpg",
+                        "variant_16_url": "/media/cdn/images/16/9f86d081884c7d659a2feaa0c55ad015a3bf4f1b2b0b822cd15d6c15b0f00a08.webp",
+                        "variant_32_url": "/media/cdn/images/32/9f86d081884c7d659a2feaa0c55ad015a3bf4f1b2b0b822cd15d6c15b0f00a08.webp",
+                        "variant_64_url": "/media/cdn/images/64/9f86d081884c7d659a2feaa0c55ad015a3bf4f1b2b0b822cd15d6c15b0f00a08.webp",
+                        "variant_120_url": "/media/cdn/images/120/9f86d081884c7d659a2feaa0c55ad015a3bf4f1b2b0b822cd15d6c15b0f00a08.webp",
+                        "variant_160_url": "/media/cdn/images/160/9f86d081884c7d659a2feaa0c55ad015a3bf4f1b2b0b822cd15d6c15b0f00a08.webp",
+                        "variant_240_url": "/media/cdn/images/240/9f86d081884c7d659a2feaa0c55ad015a3bf4f1b2b0b822cd15d6c15b0f00a08.webp",
+                        "variant_480_url": "/media/cdn/images/480/9f86d081884c7d659a2feaa0c55ad015a3bf4f1b2b0b822cd15d6c15b0f00a08.webp",
+                        "variant_560_url": "/media/cdn/images/560/9f86d081884c7d659a2feaa0c55ad015a3bf4f1b2b0b822cd15d6c15b0f00a08.webp",
+                        "variant_720_url": "/media/cdn/images/720/9f86d081884c7d659a2feaa0c55ad015a3bf4f1b2b0b822cd15d6c15b0f00a08.webp",
+                        "variant_1080_url": "/media/cdn/images/1080/9f86d081884c7d659a2feaa0c55ad015a3bf4f1b2b0b822cd15d6c15b0f00a08.webp",
+                        "variant_1440_url": "/media/cdn/images/1440/9f86d081884c7d659a2feaa0c55ad015a3bf4f1b2b0b822cd15d6c15b0f00a08.webp",
+                        "variant_2160_url": "/media/cdn/images/2160/9f86d081884c7d659a2feaa0c55ad015a3bf4f1b2b0b822cd15d6c15b0f00a08.webp",
+                        "variants_meta": [
+                          {
+                            "tier": 720,
+                            "branch": "w",
+                            "url": "/media/cdn/images/720/9f86d081884c7d659a2feaa0c55ad015a3bf4f1b2b0b822cd15d6c15b0f00a08.webp",
+                            "width": 720,
+                            "height": 405
+                          }
+                        ],
+                        "variants_status": "pending",
+                        "variants_ready_at": null,
+                        "render_meta": {
+                          "ref": "avatar/9f86d081884c7d659a2feaa0c55ad015a3bf4f1b2b0b822cd15d6c15b0f00a08",
+                          "kind": "image",
+                          "mime": "image/jpeg",
+                          "ext": ".jpg",
+                          "bytes": 2048576,
+                          "meta_status": "ok",
+                          "width": 1920,
+                          "height": 1080,
+                          "aspect": 1.7778,
+                          "square": false,
+                          "animated": false
+                        },
+                        "is_processed": false,
+                        "uploaded_by": "3f2b1c4d-5e6f-4a7b-8c9d-0e1f2a3b4c5d",
+                        "uploaded_by_username": "alice",
+                        "created_at": "2026-03-17T10:30:00Z",
+                        "updated_at": "2026-03-17T10:30:00Z"
+                      }
+                    },
+                    "summary": "Image uploaded"
                   }
                 }
               }
@@ -505,10 +668,64 @@
                   "$ref": "#/components/schemas/ImageUploadResponse"
                 },
                 "examples": {
-                  "ImageUploadResponse": {
+                  "ImageAlreadyExists": {
                     "value": {
-                      "message": "Image uploaded successfully"
-                    }
+                      "message": "Image already exists",
+                      "image": {
+                        "id": 42,
+                        "file_hash": "9f86d081884c7d659a2feaa0c55ad015a3bf4f1b2b0b822cd15d6c15b0f00a08",
+                        "original_filename": "photo.jpg",
+                        "file_extension": ".jpg",
+                        "type": "avatar",
+                        "prefix": "avatar",
+                        "original_width": 1920,
+                        "original_height": 1080,
+                        "original_size": 2048576,
+                        "original_url": "/media/cdn/images/original/9f86d081884c7d659a2feaa0c55ad015a3bf4f1b2b0b822cd15d6c15b0f00a08.jpg",
+                        "variant_16_url": "/media/cdn/images/16/9f86d081884c7d659a2feaa0c55ad015a3bf4f1b2b0b822cd15d6c15b0f00a08.webp",
+                        "variant_32_url": "/media/cdn/images/32/9f86d081884c7d659a2feaa0c55ad015a3bf4f1b2b0b822cd15d6c15b0f00a08.webp",
+                        "variant_64_url": "/media/cdn/images/64/9f86d081884c7d659a2feaa0c55ad015a3bf4f1b2b0b822cd15d6c15b0f00a08.webp",
+                        "variant_120_url": "/media/cdn/images/120/9f86d081884c7d659a2feaa0c55ad015a3bf4f1b2b0b822cd15d6c15b0f00a08.webp",
+                        "variant_160_url": "/media/cdn/images/160/9f86d081884c7d659a2feaa0c55ad015a3bf4f1b2b0b822cd15d6c15b0f00a08.webp",
+                        "variant_240_url": "/media/cdn/images/240/9f86d081884c7d659a2feaa0c55ad015a3bf4f1b2b0b822cd15d6c15b0f00a08.webp",
+                        "variant_480_url": "/media/cdn/images/480/9f86d081884c7d659a2feaa0c55ad015a3bf4f1b2b0b822cd15d6c15b0f00a08.webp",
+                        "variant_560_url": "/media/cdn/images/560/9f86d081884c7d659a2feaa0c55ad015a3bf4f1b2b0b822cd15d6c15b0f00a08.webp",
+                        "variant_720_url": "/media/cdn/images/720/9f86d081884c7d659a2feaa0c55ad015a3bf4f1b2b0b822cd15d6c15b0f00a08.webp",
+                        "variant_1080_url": "/media/cdn/images/1080/9f86d081884c7d659a2feaa0c55ad015a3bf4f1b2b0b822cd15d6c15b0f00a08.webp",
+                        "variant_1440_url": "/media/cdn/images/1440/9f86d081884c7d659a2feaa0c55ad015a3bf4f1b2b0b822cd15d6c15b0f00a08.webp",
+                        "variant_2160_url": "/media/cdn/images/2160/9f86d081884c7d659a2feaa0c55ad015a3bf4f1b2b0b822cd15d6c15b0f00a08.webp",
+                        "variants_meta": [
+                          {
+                            "tier": 720,
+                            "branch": "w",
+                            "url": "/media/cdn/images/720/9f86d081884c7d659a2feaa0c55ad015a3bf4f1b2b0b822cd15d6c15b0f00a08.webp",
+                            "width": 720,
+                            "height": 405
+                          }
+                        ],
+                        "variants_status": "pending",
+                        "variants_ready_at": null,
+                        "render_meta": {
+                          "ref": "avatar/9f86d081884c7d659a2feaa0c55ad015a3bf4f1b2b0b822cd15d6c15b0f00a08",
+                          "kind": "image",
+                          "mime": "image/jpeg",
+                          "ext": ".jpg",
+                          "bytes": 2048576,
+                          "meta_status": "ok",
+                          "width": 1920,
+                          "height": 1080,
+                          "aspect": 1.7778,
+                          "square": false,
+                          "animated": false
+                        },
+                        "is_processed": false,
+                        "uploaded_by": "3f2b1c4d-5e6f-4a7b-8c9d-0e1f2a3b4c5d",
+                        "uploaded_by_username": "alice",
+                        "created_at": "2026-03-17T10:30:00Z",
+                        "updated_at": "2026-03-17T10:30:00Z"
+                      }
+                    },
+                    "summary": "Image already exists"
                   }
                 }
               }
@@ -699,22 +916,39 @@
                   "$ref": "#/components/schemas/AudioUploadResponse"
                 },
                 "examples": {
-                  "RecordingStored": {
+                  "AudioUploaded": {
                     "value": {
                       "message": "Audio uploaded successfully",
                       "audio": {
-                        "id": 12,
-                        "ref": "audio/a1b2c3d4e5f6...",
-                        "file_hash": "a1b2c3d4e5f6...",
-                        "original_filename": "voice.webm",
-                        "file_extension": ".webm",
-                        "original_size": 18324,
-                        "duration": null,
+                        "id": 5,
+                        "ref": "audio/9f86d081884c7d659a2feaa0c55ad015a3bf4f1b2b0b822cd15d6c15b0f00a08",
+                        "file_hash": "9f86d081884c7d659a2feaa0c55ad015a3bf4f1b2b0b822cd15d6c15b0f00a08",
+                        "original_filename": "voice.ogg",
+                        "file_extension": ".ogg",
+                        "mime_type": "audio/ogg",
+                        "original_size": 48213,
+                        "duration": 3.9,
                         "preview_b64": "",
-                        "is_compressed": false
+                        "original_url": "/media/cdn/audio/9f86d081884c7d659a2feaa0c55ad015a3bf4f1b2b0b822cd15d6c15b0f00a08.ogg",
+                        "render_meta": {
+                          "ref": "audio/9f86d081884c7d659a2feaa0c55ad015a3bf4f1b2b0b822cd15d6c15b0f00a08",
+                          "kind": "audio",
+                          "mime": "audio/ogg",
+                          "ext": ".ogg",
+                          "bytes": 48213,
+                          "meta_status": "ok",
+                          "duration_ms": 3900,
+                          "preview_kind": "waveform"
+                        },
+                        "refs": [],
+                        "is_compressed": true,
+                        "uploaded_by": "3f2b1c4d-5e6f-4a7b-8c9d-0e1f2a3b4c5d",
+                        "uploaded_by_username": "alice",
+                        "created_at": "2026-03-17T10:30:00Z",
+                        "updated_at": "2026-03-17T10:30:00Z"
                       }
                     },
-                    "summary": "Recording stored"
+                    "summary": "Audio uploaded"
                   }
                 }
               }
@@ -732,8 +966,32 @@
                     "value": {
                       "message": "Audio already exists",
                       "audio": {
-                        "id": 12,
-                        "ref": "audio/a1b2c3d4e5f6..."
+                        "id": 5,
+                        "ref": "audio/9f86d081884c7d659a2feaa0c55ad015a3bf4f1b2b0b822cd15d6c15b0f00a08",
+                        "file_hash": "9f86d081884c7d659a2feaa0c55ad015a3bf4f1b2b0b822cd15d6c15b0f00a08",
+                        "original_filename": "voice.ogg",
+                        "file_extension": ".ogg",
+                        "mime_type": "audio/ogg",
+                        "original_size": 48213,
+                        "duration": 3.9,
+                        "preview_b64": "",
+                        "original_url": "/media/cdn/audio/9f86d081884c7d659a2feaa0c55ad015a3bf4f1b2b0b822cd15d6c15b0f00a08.ogg",
+                        "render_meta": {
+                          "ref": "audio/9f86d081884c7d659a2feaa0c55ad015a3bf4f1b2b0b822cd15d6c15b0f00a08",
+                          "kind": "audio",
+                          "mime": "audio/ogg",
+                          "ext": ".ogg",
+                          "bytes": 48213,
+                          "meta_status": "ok",
+                          "duration_ms": 3900,
+                          "preview_kind": "waveform"
+                        },
+                        "refs": [],
+                        "is_compressed": true,
+                        "uploaded_by": "3f2b1c4d-5e6f-4a7b-8c9d-0e1f2a3b4c5d",
+                        "uploaded_by_username": "alice",
+                        "created_at": "2026-03-17T10:30:00Z",
+                        "updated_at": "2026-03-17T10:30:00Z"
                       }
                     },
                     "summary": "Audio already exists"
@@ -836,10 +1094,64 @@
                   "$ref": "#/components/schemas/ImageUploadResponse"
                 },
                 "examples": {
-                  "ImageUploadResponse": {
+                  "AvatarUploaded": {
                     "value": {
-                      "message": "Image uploaded successfully"
-                    }
+                      "message": "Avatar uploaded successfully",
+                      "image": {
+                        "id": 42,
+                        "file_hash": "9f86d081884c7d659a2feaa0c55ad015a3bf4f1b2b0b822cd15d6c15b0f00a08",
+                        "original_filename": "photo.jpg",
+                        "file_extension": ".jpg",
+                        "type": "avatar",
+                        "prefix": "avatar",
+                        "original_width": 1920,
+                        "original_height": 1080,
+                        "original_size": 2048576,
+                        "original_url": "/media/cdn/images/original/9f86d081884c7d659a2feaa0c55ad015a3bf4f1b2b0b822cd15d6c15b0f00a08.jpg",
+                        "variant_16_url": "/media/cdn/images/16/9f86d081884c7d659a2feaa0c55ad015a3bf4f1b2b0b822cd15d6c15b0f00a08.webp",
+                        "variant_32_url": "/media/cdn/images/32/9f86d081884c7d659a2feaa0c55ad015a3bf4f1b2b0b822cd15d6c15b0f00a08.webp",
+                        "variant_64_url": "/media/cdn/images/64/9f86d081884c7d659a2feaa0c55ad015a3bf4f1b2b0b822cd15d6c15b0f00a08.webp",
+                        "variant_120_url": "/media/cdn/images/120/9f86d081884c7d659a2feaa0c55ad015a3bf4f1b2b0b822cd15d6c15b0f00a08.webp",
+                        "variant_160_url": "/media/cdn/images/160/9f86d081884c7d659a2feaa0c55ad015a3bf4f1b2b0b822cd15d6c15b0f00a08.webp",
+                        "variant_240_url": "/media/cdn/images/240/9f86d081884c7d659a2feaa0c55ad015a3bf4f1b2b0b822cd15d6c15b0f00a08.webp",
+                        "variant_480_url": "/media/cdn/images/480/9f86d081884c7d659a2feaa0c55ad015a3bf4f1b2b0b822cd15d6c15b0f00a08.webp",
+                        "variant_560_url": "/media/cdn/images/560/9f86d081884c7d659a2feaa0c55ad015a3bf4f1b2b0b822cd15d6c15b0f00a08.webp",
+                        "variant_720_url": "/media/cdn/images/720/9f86d081884c7d659a2feaa0c55ad015a3bf4f1b2b0b822cd15d6c15b0f00a08.webp",
+                        "variant_1080_url": "/media/cdn/images/1080/9f86d081884c7d659a2feaa0c55ad015a3bf4f1b2b0b822cd15d6c15b0f00a08.webp",
+                        "variant_1440_url": "/media/cdn/images/1440/9f86d081884c7d659a2feaa0c55ad015a3bf4f1b2b0b822cd15d6c15b0f00a08.webp",
+                        "variant_2160_url": "/media/cdn/images/2160/9f86d081884c7d659a2feaa0c55ad015a3bf4f1b2b0b822cd15d6c15b0f00a08.webp",
+                        "variants_meta": [
+                          {
+                            "tier": 720,
+                            "branch": "w",
+                            "url": "/media/cdn/images/720/9f86d081884c7d659a2feaa0c55ad015a3bf4f1b2b0b822cd15d6c15b0f00a08.webp",
+                            "width": 720,
+                            "height": 405
+                          }
+                        ],
+                        "variants_status": "pending",
+                        "variants_ready_at": null,
+                        "render_meta": {
+                          "ref": "avatar/9f86d081884c7d659a2feaa0c55ad015a3bf4f1b2b0b822cd15d6c15b0f00a08",
+                          "kind": "image",
+                          "mime": "image/jpeg",
+                          "ext": ".jpg",
+                          "bytes": 2048576,
+                          "meta_status": "ok",
+                          "width": 1920,
+                          "height": 1080,
+                          "aspect": 1.7778,
+                          "square": false,
+                          "animated": false
+                        },
+                        "is_processed": false,
+                        "uploaded_by": "3f2b1c4d-5e6f-4a7b-8c9d-0e1f2a3b4c5d",
+                        "uploaded_by_username": "alice",
+                        "created_at": "2026-03-17T10:30:00Z",
+                        "updated_at": "2026-03-17T10:30:00Z"
+                      }
+                    },
+                    "summary": "Avatar uploaded"
                   }
                 }
               }
@@ -853,10 +1165,64 @@
                   "$ref": "#/components/schemas/ImageUploadResponse"
                 },
                 "examples": {
-                  "ImageUploadResponse": {
+                  "AvatarAlreadyExists": {
                     "value": {
-                      "message": "Image uploaded successfully"
-                    }
+                      "message": "Avatar already exists",
+                      "image": {
+                        "id": 42,
+                        "file_hash": "9f86d081884c7d659a2feaa0c55ad015a3bf4f1b2b0b822cd15d6c15b0f00a08",
+                        "original_filename": "photo.jpg",
+                        "file_extension": ".jpg",
+                        "type": "avatar",
+                        "prefix": "avatar",
+                        "original_width": 1920,
+                        "original_height": 1080,
+                        "original_size": 2048576,
+                        "original_url": "/media/cdn/images/original/9f86d081884c7d659a2feaa0c55ad015a3bf4f1b2b0b822cd15d6c15b0f00a08.jpg",
+                        "variant_16_url": "/media/cdn/images/16/9f86d081884c7d659a2feaa0c55ad015a3bf4f1b2b0b822cd15d6c15b0f00a08.webp",
+                        "variant_32_url": "/media/cdn/images/32/9f86d081884c7d659a2feaa0c55ad015a3bf4f1b2b0b822cd15d6c15b0f00a08.webp",
+                        "variant_64_url": "/media/cdn/images/64/9f86d081884c7d659a2feaa0c55ad015a3bf4f1b2b0b822cd15d6c15b0f00a08.webp",
+                        "variant_120_url": "/media/cdn/images/120/9f86d081884c7d659a2feaa0c55ad015a3bf4f1b2b0b822cd15d6c15b0f00a08.webp",
+                        "variant_160_url": "/media/cdn/images/160/9f86d081884c7d659a2feaa0c55ad015a3bf4f1b2b0b822cd15d6c15b0f00a08.webp",
+                        "variant_240_url": "/media/cdn/images/240/9f86d081884c7d659a2feaa0c55ad015a3bf4f1b2b0b822cd15d6c15b0f00a08.webp",
+                        "variant_480_url": "/media/cdn/images/480/9f86d081884c7d659a2feaa0c55ad015a3bf4f1b2b0b822cd15d6c15b0f00a08.webp",
+                        "variant_560_url": "/media/cdn/images/560/9f86d081884c7d659a2feaa0c55ad015a3bf4f1b2b0b822cd15d6c15b0f00a08.webp",
+                        "variant_720_url": "/media/cdn/images/720/9f86d081884c7d659a2feaa0c55ad015a3bf4f1b2b0b822cd15d6c15b0f00a08.webp",
+                        "variant_1080_url": "/media/cdn/images/1080/9f86d081884c7d659a2feaa0c55ad015a3bf4f1b2b0b822cd15d6c15b0f00a08.webp",
+                        "variant_1440_url": "/media/cdn/images/1440/9f86d081884c7d659a2feaa0c55ad015a3bf4f1b2b0b822cd15d6c15b0f00a08.webp",
+                        "variant_2160_url": "/media/cdn/images/2160/9f86d081884c7d659a2feaa0c55ad015a3bf4f1b2b0b822cd15d6c15b0f00a08.webp",
+                        "variants_meta": [
+                          {
+                            "tier": 720,
+                            "branch": "w",
+                            "url": "/media/cdn/images/720/9f86d081884c7d659a2feaa0c55ad015a3bf4f1b2b0b822cd15d6c15b0f00a08.webp",
+                            "width": 720,
+                            "height": 405
+                          }
+                        ],
+                        "variants_status": "pending",
+                        "variants_ready_at": null,
+                        "render_meta": {
+                          "ref": "avatar/9f86d081884c7d659a2feaa0c55ad015a3bf4f1b2b0b822cd15d6c15b0f00a08",
+                          "kind": "image",
+                          "mime": "image/jpeg",
+                          "ext": ".jpg",
+                          "bytes": 2048576,
+                          "meta_status": "ok",
+                          "width": 1920,
+                          "height": 1080,
+                          "aspect": 1.7778,
+                          "square": false,
+                          "animated": false
+                        },
+                        "is_processed": false,
+                        "uploaded_by": "3f2b1c4d-5e6f-4a7b-8c9d-0e1f2a3b4c5d",
+                        "uploaded_by_username": "alice",
+                        "created_at": "2026-03-17T10:30:00Z",
+                        "updated_at": "2026-03-17T10:30:00Z"
+                      }
+                    },
+                    "summary": "Avatar already exists"
                   }
                 }
               }
@@ -946,10 +1312,34 @@
                   "$ref": "#/components/schemas/FileUploadResponse"
                 },
                 "examples": {
-                  "FileUploadResponse": {
+                  "FileUploaded": {
                     "value": {
-                      "message": "File uploaded successfully"
-                    }
+                      "message": "File uploaded successfully",
+                      "file": {
+                        "id": 11,
+                        "file_hash": "9f86d081884c7d659a2feaa0c55ad015a3bf4f1b2b0b822cd15d6c15b0f00a08",
+                        "original_filename": "invoice.pdf",
+                        "file_extension": ".pdf",
+                        "mime_type": "application/pdf",
+                        "original_size": 184320,
+                        "prefix": "file",
+                        "original_url": "/media/cdn/files/9f86d081884c7d659a2feaa0c55ad015a3bf4f1b2b0b822cd15d6c15b0f00a08.pdf",
+                        "render_meta": {
+                          "ref": "file/9f86d081884c7d659a2feaa0c55ad015a3bf4f1b2b0b822cd15d6c15b0f00a08",
+                          "kind": "file",
+                          "mime": "application/pdf",
+                          "ext": ".pdf",
+                          "bytes": 184320,
+                          "meta_status": "ok"
+                        },
+                        "refs": [],
+                        "uploaded_by": "3f2b1c4d-5e6f-4a7b-8c9d-0e1f2a3b4c5d",
+                        "uploaded_by_username": "alice",
+                        "created_at": "2026-03-17T10:30:00Z",
+                        "updated_at": "2026-03-17T10:30:00Z"
+                      }
+                    },
+                    "summary": "File uploaded"
                   }
                 }
               }
@@ -963,10 +1353,34 @@
                   "$ref": "#/components/schemas/FileUploadResponse"
                 },
                 "examples": {
-                  "FileUploadResponse": {
+                  "FileAlreadyExists": {
                     "value": {
-                      "message": "File uploaded successfully"
-                    }
+                      "message": "File already exists",
+                      "file": {
+                        "id": 11,
+                        "file_hash": "9f86d081884c7d659a2feaa0c55ad015a3bf4f1b2b0b822cd15d6c15b0f00a08",
+                        "original_filename": "invoice.pdf",
+                        "file_extension": ".pdf",
+                        "mime_type": "application/pdf",
+                        "original_size": 184320,
+                        "prefix": "file",
+                        "original_url": "/media/cdn/files/9f86d081884c7d659a2feaa0c55ad015a3bf4f1b2b0b822cd15d6c15b0f00a08.pdf",
+                        "render_meta": {
+                          "ref": "file/9f86d081884c7d659a2feaa0c55ad015a3bf4f1b2b0b822cd15d6c15b0f00a08",
+                          "kind": "file",
+                          "mime": "application/pdf",
+                          "ext": ".pdf",
+                          "bytes": 184320,
+                          "meta_status": "ok"
+                        },
+                        "refs": [],
+                        "uploaded_by": "3f2b1c4d-5e6f-4a7b-8c9d-0e1f2a3b4c5d",
+                        "uploaded_by_username": "alice",
+                        "created_at": "2026-03-17T10:30:00Z",
+                        "updated_at": "2026-03-17T10:30:00Z"
+                      }
+                    },
+                    "summary": "File already exists"
                   }
                 }
               }
@@ -1022,25 +1436,64 @@
                   "$ref": "#/components/schemas/ImageUploadResponse"
                 },
                 "examples": {
-                  "ImageUploadedSuccessfully": {
+                  "ImageUploaded": {
                     "value": {
                       "message": "Image uploaded successfully",
                       "image": {
-                        "id": "550e8400-e29b-41d4-a716-446655440000",
-                        "file_hash": "a1b2c3d4e5f6...",
+                        "id": 42,
+                        "file_hash": "9f86d081884c7d659a2feaa0c55ad015a3bf4f1b2b0b822cd15d6c15b0f00a08",
                         "original_filename": "photo.jpg",
                         "file_extension": ".jpg",
+                        "type": "avatar",
+                        "prefix": "avatar",
                         "original_width": 1920,
                         "original_height": 1080,
                         "original_size": 2048576,
-                        "original_url": "/media/cdn/images/original/a1b2c3d4.jpg",
-                        "variant_720_url": "/media/cdn/images/720/a1b2c3d4.webp",
+                        "original_url": "/media/cdn/images/original/9f86d081884c7d659a2feaa0c55ad015a3bf4f1b2b0b822cd15d6c15b0f00a08.jpg",
+                        "variant_16_url": "/media/cdn/images/16/9f86d081884c7d659a2feaa0c55ad015a3bf4f1b2b0b822cd15d6c15b0f00a08.webp",
+                        "variant_32_url": "/media/cdn/images/32/9f86d081884c7d659a2feaa0c55ad015a3bf4f1b2b0b822cd15d6c15b0f00a08.webp",
+                        "variant_64_url": "/media/cdn/images/64/9f86d081884c7d659a2feaa0c55ad015a3bf4f1b2b0b822cd15d6c15b0f00a08.webp",
+                        "variant_120_url": "/media/cdn/images/120/9f86d081884c7d659a2feaa0c55ad015a3bf4f1b2b0b822cd15d6c15b0f00a08.webp",
+                        "variant_160_url": "/media/cdn/images/160/9f86d081884c7d659a2feaa0c55ad015a3bf4f1b2b0b822cd15d6c15b0f00a08.webp",
+                        "variant_240_url": "/media/cdn/images/240/9f86d081884c7d659a2feaa0c55ad015a3bf4f1b2b0b822cd15d6c15b0f00a08.webp",
+                        "variant_480_url": "/media/cdn/images/480/9f86d081884c7d659a2feaa0c55ad015a3bf4f1b2b0b822cd15d6c15b0f00a08.webp",
+                        "variant_560_url": "/media/cdn/images/560/9f86d081884c7d659a2feaa0c55ad015a3bf4f1b2b0b822cd15d6c15b0f00a08.webp",
+                        "variant_720_url": "/media/cdn/images/720/9f86d081884c7d659a2feaa0c55ad015a3bf4f1b2b0b822cd15d6c15b0f00a08.webp",
+                        "variant_1080_url": "/media/cdn/images/1080/9f86d081884c7d659a2feaa0c55ad015a3bf4f1b2b0b822cd15d6c15b0f00a08.webp",
+                        "variant_1440_url": "/media/cdn/images/1440/9f86d081884c7d659a2feaa0c55ad015a3bf4f1b2b0b822cd15d6c15b0f00a08.webp",
+                        "variant_2160_url": "/media/cdn/images/2160/9f86d081884c7d659a2feaa0c55ad015a3bf4f1b2b0b822cd15d6c15b0f00a08.webp",
+                        "variants_meta": [
+                          {
+                            "tier": 720,
+                            "branch": "w",
+                            "url": "/media/cdn/images/720/9f86d081884c7d659a2feaa0c55ad015a3bf4f1b2b0b822cd15d6c15b0f00a08.webp",
+                            "width": 720,
+                            "height": 405
+                          }
+                        ],
                         "variants_status": "pending",
                         "variants_ready_at": null,
-                        "is_processed": false
+                        "render_meta": {
+                          "ref": "avatar/9f86d081884c7d659a2feaa0c55ad015a3bf4f1b2b0b822cd15d6c15b0f00a08",
+                          "kind": "image",
+                          "mime": "image/jpeg",
+                          "ext": ".jpg",
+                          "bytes": 2048576,
+                          "meta_status": "ok",
+                          "width": 1920,
+                          "height": 1080,
+                          "aspect": 1.7778,
+                          "square": false,
+                          "animated": false
+                        },
+                        "is_processed": false,
+                        "uploaded_by": "3f2b1c4d-5e6f-4a7b-8c9d-0e1f2a3b4c5d",
+                        "uploaded_by_username": "alice",
+                        "created_at": "2026-03-17T10:30:00Z",
+                        "updated_at": "2026-03-17T10:30:00Z"
                       }
                     },
-                    "summary": "Image uploaded successfully"
+                    "summary": "Image uploaded"
                   }
                 }
               }
@@ -1058,8 +1511,57 @@
                     "value": {
                       "message": "Image already exists",
                       "image": {
-                        "id": "...",
-                        "file_hash": "..."
+                        "id": 42,
+                        "file_hash": "9f86d081884c7d659a2feaa0c55ad015a3bf4f1b2b0b822cd15d6c15b0f00a08",
+                        "original_filename": "photo.jpg",
+                        "file_extension": ".jpg",
+                        "type": "avatar",
+                        "prefix": "avatar",
+                        "original_width": 1920,
+                        "original_height": 1080,
+                        "original_size": 2048576,
+                        "original_url": "/media/cdn/images/original/9f86d081884c7d659a2feaa0c55ad015a3bf4f1b2b0b822cd15d6c15b0f00a08.jpg",
+                        "variant_16_url": "/media/cdn/images/16/9f86d081884c7d659a2feaa0c55ad015a3bf4f1b2b0b822cd15d6c15b0f00a08.webp",
+                        "variant_32_url": "/media/cdn/images/32/9f86d081884c7d659a2feaa0c55ad015a3bf4f1b2b0b822cd15d6c15b0f00a08.webp",
+                        "variant_64_url": "/media/cdn/images/64/9f86d081884c7d659a2feaa0c55ad015a3bf4f1b2b0b822cd15d6c15b0f00a08.webp",
+                        "variant_120_url": "/media/cdn/images/120/9f86d081884c7d659a2feaa0c55ad015a3bf4f1b2b0b822cd15d6c15b0f00a08.webp",
+                        "variant_160_url": "/media/cdn/images/160/9f86d081884c7d659a2feaa0c55ad015a3bf4f1b2b0b822cd15d6c15b0f00a08.webp",
+                        "variant_240_url": "/media/cdn/images/240/9f86d081884c7d659a2feaa0c55ad015a3bf4f1b2b0b822cd15d6c15b0f00a08.webp",
+                        "variant_480_url": "/media/cdn/images/480/9f86d081884c7d659a2feaa0c55ad015a3bf4f1b2b0b822cd15d6c15b0f00a08.webp",
+                        "variant_560_url": "/media/cdn/images/560/9f86d081884c7d659a2feaa0c55ad015a3bf4f1b2b0b822cd15d6c15b0f00a08.webp",
+                        "variant_720_url": "/media/cdn/images/720/9f86d081884c7d659a2feaa0c55ad015a3bf4f1b2b0b822cd15d6c15b0f00a08.webp",
+                        "variant_1080_url": "/media/cdn/images/1080/9f86d081884c7d659a2feaa0c55ad015a3bf4f1b2b0b822cd15d6c15b0f00a08.webp",
+                        "variant_1440_url": "/media/cdn/images/1440/9f86d081884c7d659a2feaa0c55ad015a3bf4f1b2b0b822cd15d6c15b0f00a08.webp",
+                        "variant_2160_url": "/media/cdn/images/2160/9f86d081884c7d659a2feaa0c55ad015a3bf4f1b2b0b822cd15d6c15b0f00a08.webp",
+                        "variants_meta": [
+                          {
+                            "tier": 720,
+                            "branch": "w",
+                            "url": "/media/cdn/images/720/9f86d081884c7d659a2feaa0c55ad015a3bf4f1b2b0b822cd15d6c15b0f00a08.webp",
+                            "width": 720,
+                            "height": 405
+                          }
+                        ],
+                        "variants_status": "pending",
+                        "variants_ready_at": null,
+                        "render_meta": {
+                          "ref": "avatar/9f86d081884c7d659a2feaa0c55ad015a3bf4f1b2b0b822cd15d6c15b0f00a08",
+                          "kind": "image",
+                          "mime": "image/jpeg",
+                          "ext": ".jpg",
+                          "bytes": 2048576,
+                          "meta_status": "ok",
+                          "width": 1920,
+                          "height": 1080,
+                          "aspect": 1.7778,
+                          "square": false,
+                          "animated": false
+                        },
+                        "is_processed": false,
+                        "uploaded_by": "3f2b1c4d-5e6f-4a7b-8c9d-0e1f2a3b4c5d",
+                        "uploaded_by_username": "alice",
+                        "created_at": "2026-03-17T10:30:00Z",
+                        "updated_at": "2026-03-17T10:30:00Z"
                       }
                     },
                     "summary": "Image already exists"
@@ -1152,10 +1654,47 @@
                   "$ref": "#/components/schemas/VideoUploadResponse"
                 },
                 "examples": {
-                  "VideoUploadResponse": {
+                  "VideoUploaded": {
                     "value": {
-                      "message": "Video uploaded successfully"
-                    }
+                      "message": "Video uploaded successfully (variant generation not yet implemented)",
+                      "video": {
+                        "id": 7,
+                        "file_hash": "9f86d081884c7d659a2feaa0c55ad015a3bf4f1b2b0b822cd15d6c15b0f00a08",
+                        "original_filename": "clip.mp4",
+                        "file_extension": ".mp4",
+                        "original_width": 1920,
+                        "original_height": 1080,
+                        "original_size": 15728640,
+                        "duration": 12.5,
+                        "original_url": "/media/cdn/videos/original/9f86d081884c7d659a2feaa0c55ad015a3bf4f1b2b0b822cd15d6c15b0f00a08.mp4",
+                        "variant_16p_url": null,
+                        "variant_32p_url": null,
+                        "variant_240p_url": null,
+                        "variant_480p_url": null,
+                        "variant_720p_url": null,
+                        "variant_1080p_url": null,
+                        "variant_2160p_url": null,
+                        "poster_url": null,
+                        "render_meta": {
+                          "ref": "video/9f86d081884c7d659a2feaa0c55ad015a3bf4f1b2b0b822cd15d6c15b0f00a08",
+                          "kind": "video",
+                          "mime": "video/mp4",
+                          "ext": ".mp4",
+                          "bytes": 15728640,
+                          "meta_status": "ok",
+                          "width": 1920,
+                          "height": 1080,
+                          "aspect": 1.7778,
+                          "duration_ms": 12500
+                        },
+                        "is_processed": false,
+                        "uploaded_by": "3f2b1c4d-5e6f-4a7b-8c9d-0e1f2a3b4c5d",
+                        "uploaded_by_username": "alice",
+                        "created_at": "2026-03-17T10:30:00Z",
+                        "updated_at": "2026-03-17T10:30:00Z"
+                      }
+                    },
+                    "summary": "Video uploaded"
                   }
                 }
               }
@@ -1169,10 +1708,47 @@
                   "$ref": "#/components/schemas/VideoUploadResponse"
                 },
                 "examples": {
-                  "VideoUploadResponse": {
+                  "VideoAlreadyExists": {
                     "value": {
-                      "message": "Video uploaded successfully"
-                    }
+                      "message": "Video already exists",
+                      "video": {
+                        "id": 7,
+                        "file_hash": "9f86d081884c7d659a2feaa0c55ad015a3bf4f1b2b0b822cd15d6c15b0f00a08",
+                        "original_filename": "clip.mp4",
+                        "file_extension": ".mp4",
+                        "original_width": 1920,
+                        "original_height": 1080,
+                        "original_size": 15728640,
+                        "duration": 12.5,
+                        "original_url": "/media/cdn/videos/original/9f86d081884c7d659a2feaa0c55ad015a3bf4f1b2b0b822cd15d6c15b0f00a08.mp4",
+                        "variant_16p_url": null,
+                        "variant_32p_url": null,
+                        "variant_240p_url": null,
+                        "variant_480p_url": null,
+                        "variant_720p_url": null,
+                        "variant_1080p_url": null,
+                        "variant_2160p_url": null,
+                        "poster_url": null,
+                        "render_meta": {
+                          "ref": "video/9f86d081884c7d659a2feaa0c55ad015a3bf4f1b2b0b822cd15d6c15b0f00a08",
+                          "kind": "video",
+                          "mime": "video/mp4",
+                          "ext": ".mp4",
+                          "bytes": 15728640,
+                          "meta_status": "ok",
+                          "width": 1920,
+                          "height": 1080,
+                          "aspect": 1.7778,
+                          "duration_ms": 12500
+                        },
+                        "is_processed": false,
+                        "uploaded_by": "3f2b1c4d-5e6f-4a7b-8c9d-0e1f2a3b4c5d",
+                        "uploaded_by_username": "alice",
+                        "created_at": "2026-03-17T10:30:00Z",
+                        "updated_at": "2026-03-17T10:30:00Z"
+                      }
+                    },
+                    "summary": "Video already exists"
                   }
                 }
               }
@@ -1603,7 +2179,7 @@
         "description": "File existence check result.",
         "properties": {
           "file": {
-            "oneOf": [
+            "anyOf": [
               {
                 "$ref": "#/components/schemas/Image"
               },

@@ -179,32 +179,13 @@ def _emission_deployment(tmp_path):
 # ─────────────────────────────────────────────────────────────────────────────
 
 
-def _undiscriminated_union(node):
-    """A ``oneOf`` whose branches OVERLAP by construction.
-
-    ``FileExistsResponse.file`` is emitted as ``oneOf: [Image, Video, Audio,
-    FileModel]``. None of the four forbids the others' properties, and
-    ``FileModel``'s required list is a SUBSET of ``Image``'s — so an image
-    body satisfies two branches and an exclusive ``oneOf`` rejects exactly
-    what the document plainly describes. The union carries no
-    ``discriminator`` to tell the branches apart, so it is read as
-    alternatives: this is a generator idiom colliding with ``oneOf``
-    exclusivity, not a claim the wire breaks.
-    """
-    branches = node.get("oneOf")
-    if not isinstance(branches, list) or "discriminator" in node:
-        return False
-    return len(branches) > 1
-
-
 def _json_schema(node):
     """OpenAPI 3.0 → JSON Schema, for the divergences that matter here.
 
     OAS 3.0 spells "may be null" as ``nullable: true`` beside a ``type`` (or
-    beside a ``oneOf``, which is how ``FileExistsResponse.file`` is emitted);
+    beside an ``anyOf``, which is how ``FileExistsResponse.file`` is emitted);
     JSON Schema has no such keyword and would refuse the null — which is
-    exactly the value the "not found" branch answers. The second conversion
-    is the overlapping union above. Everything else drf-spectacular emits
+    exactly the value the "not found" branch answers. Everything else drf-spectacular emits
     (``$ref``, ``allOf``, ``enum``, ``format``, ``required``, ``readOnly``)
     is JSON Schema as written, or inert.
     """
@@ -213,8 +194,6 @@ def _json_schema(node):
     if not isinstance(node, dict):
         return node
     rebuilt = {k: _json_schema(v) for k, v in node.items() if k != "nullable"}
-    if _undiscriminated_union(rebuilt):
-        rebuilt["anyOf"] = rebuilt.pop("oneOf")
     if node.get("nullable"):
         return {"anyOf": [rebuilt, {"type": "null"}]}
     return rebuilt

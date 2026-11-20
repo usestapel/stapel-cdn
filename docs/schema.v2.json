@@ -1,0 +1,3457 @@
+{
+  "openapi": "3.0.3",
+  "info": {
+    "title": "",
+    "version": "0.0.0",
+    "x-stapel-contract": 2
+  },
+  "paths": {
+    "/cdn/api/v1/describe/": {
+      "post": {
+        "operationId": "describe_media",
+        "description": "Resolve up to 50 media refs to the\nrender-metadata snapshot a UI needs to draw them with no second round trip and\nno layout jump: aspect box, byte size, an inline `preview_b64` placeholder,\n`preview_kind` (known even while `preview_b64` is still null, so the box can be\nreserved in the right shape), and `duration_ms` for time-based media.\n\nThis is the HTTP form of the `cdn.describe_many` comm Function and returns the\nidentical object — the same snapshot the upload endpoints inline as\n`render_meta`.\n\n**Unknown refs are data, not an error.** A ref that was deleted, never stored,\nor is malformed comes back in `missing`; the call still succeeds and the other\nsnapshots still arrive, so one dead attachment does not cost a page its other\nthirty-nine.\n\n**Duplicates collapse** before the 50-ref ceiling is\napplied. Over the ceiling the answer is `error.400.too_many_refs` with `count`\nand `max` in the params — page the batch. The ceiling exists because every\nsnapshot may inline a preview, so batch size is response size.\n\n**Private and protected objects.** URLs to their bytes are returned only to\nthe caller holding the ref (its uploader) or a service caller\n(`STAPEL_CDN[\"PRIVATE_URL_AUDIENCE\"]`). Anyone else gets the snapshot's\nmetadata with `meta_reason: \"not_authorized\"` and no URL — the batch is not\nrefused, so public items in it still describe. A front end draws someone\nelse's private media through the service that decides who may see it.\n\n**Keep the facts, not the URLs.** Geometry, size, duration and the preview do\nnot expire; a URL to a private object is signed and does.\n",
+        "summary": "Render metadata for a batch of media refs",
+        "tags": [
+          "Media"
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/DescribeManyRequest"
+              },
+              "examples": {
+                "DescribeThreeAttachments,OneOfThemGone": {
+                  "value": {
+                    "refs": [
+                      "avatar/a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1",
+                      "video/b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2",
+                      "product/c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3"
+                    ]
+                  },
+                  "summary": "Describe three attachments, one of them gone"
+                }
+              }
+            },
+            "application/x-www-form-urlencoded": {
+              "schema": {
+                "$ref": "#/components/schemas/DescribeManyRequest"
+              }
+            },
+            "multipart/form-data": {
+              "schema": {
+                "$ref": "#/components/schemas/DescribeManyRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "security": [
+          {
+            "JWTCookieAuth": []
+          },
+          {
+            "JWTBearerAuth": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DescribeManyResponse"
+                },
+                "examples": {
+                  "OneResolved,OneMissing": {
+                    "value": {
+                      "items": {
+                        "avatar/a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1": {
+                          "ref": "avatar/a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1",
+                          "kind": "image",
+                          "mime": "image/jpeg",
+                          "ext": ".jpg",
+                          "bytes": 51234,
+                          "width": 1600,
+                          "height": 900,
+                          "aspect": 1.777778,
+                          "square": false,
+                          "animated": false,
+                          "duration_ms": null,
+                          "preview_b64": "data:image/webp;base64,UklGRh...",
+                          "preview_kind": "blur",
+                          "poster_url": null,
+                          "meta_status": "ok",
+                          "meta_reason": null,
+                          "variants": []
+                        }
+                      },
+                      "missing": [
+                        "product/c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3"
+                      ]
+                    },
+                    "summary": "One resolved, one missing"
+                  }
+                }
+              }
+            },
+            "description": ""
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/StapelError"
+                }
+              }
+            },
+            "description": "",
+            "x-stapel-errors": [
+              "error.400.too_many_refs"
+            ]
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/StapelError"
+                }
+              }
+            },
+            "description": ""
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/StapelError"
+                }
+              }
+            },
+            "description": ""
+          },
+          "429": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/StapelError"
+                }
+              }
+            },
+            "description": ""
+          }
+        }
+      }
+    },
+    "/cdn/api/v1/file/exists/": {
+      "get": {
+        "operationId": "check_file_exists_get",
+        "description": "Check if a file with the given hash already exists in the CDN.\n\nUse this before uploading to avoid duplicate uploads.\n\n**How to calculate hash:**\n```python\nimport hashlib\n\ndef calculate_file_hash(file_content: bytes) -> str:\n    return hashlib.sha256(file_content).hexdigest()\n```\n\n**Response:**\n- `exists: true` - file found, returns file details\n- `exists: false` - file not found, `type` and `file` are null\n\n\n**Permissions:** `OperandHolder`",
+        "summary": "Check if file exists (GET)",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "file_hash",
+            "schema": {
+              "type": "string"
+            },
+            "description": "SHA-256 hash of the file (64 hex characters)",
+            "required": true,
+            "examples": {
+              "ExampleHash": {
+                "value": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+                "summary": "Example hash"
+              }
+            }
+          }
+        ],
+        "tags": [
+          "Files"
+        ],
+        "security": [
+          {
+            "JWTCookieAuth": []
+          },
+          {
+            "JWTBearerAuth": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/FileExistsResponse"
+                },
+                "examples": {
+                  "FileFound(image)": {
+                    "value": {
+                      "exists": true,
+                      "type": "image",
+                      "file": {
+                        "id": 42,
+                        "file_hash": "9f86d081884c7d659a2feaa0c55ad015a3bf4f1b2b0b822cd15d6c15b0f00a08",
+                        "original_filename": "photo.jpg",
+                        "file_extension": ".jpg",
+                        "type": "avatar",
+                        "prefix": "avatar",
+                        "original_width": 1920,
+                        "original_height": 1080,
+                        "original_size": 2048576,
+                        "original_url": "/media/cdn/images/original/9f86d081884c7d659a2feaa0c55ad015a3bf4f1b2b0b822cd15d6c15b0f00a08.jpg",
+                        "variant_16_url": "/media/cdn/images/16/9f86d081884c7d659a2feaa0c55ad015a3bf4f1b2b0b822cd15d6c15b0f00a08.webp",
+                        "variant_32_url": "/media/cdn/images/32/9f86d081884c7d659a2feaa0c55ad015a3bf4f1b2b0b822cd15d6c15b0f00a08.webp",
+                        "variant_64_url": "/media/cdn/images/64/9f86d081884c7d659a2feaa0c55ad015a3bf4f1b2b0b822cd15d6c15b0f00a08.webp",
+                        "variant_120_url": "/media/cdn/images/120/9f86d081884c7d659a2feaa0c55ad015a3bf4f1b2b0b822cd15d6c15b0f00a08.webp",
+                        "variant_160_url": "/media/cdn/images/160/9f86d081884c7d659a2feaa0c55ad015a3bf4f1b2b0b822cd15d6c15b0f00a08.webp",
+                        "variant_240_url": "/media/cdn/images/240/9f86d081884c7d659a2feaa0c55ad015a3bf4f1b2b0b822cd15d6c15b0f00a08.webp",
+                        "variant_480_url": "/media/cdn/images/480/9f86d081884c7d659a2feaa0c55ad015a3bf4f1b2b0b822cd15d6c15b0f00a08.webp",
+                        "variant_560_url": "/media/cdn/images/560/9f86d081884c7d659a2feaa0c55ad015a3bf4f1b2b0b822cd15d6c15b0f00a08.webp",
+                        "variant_720_url": "/media/cdn/images/720/9f86d081884c7d659a2feaa0c55ad015a3bf4f1b2b0b822cd15d6c15b0f00a08.webp",
+                        "variant_1080_url": "/media/cdn/images/1080/9f86d081884c7d659a2feaa0c55ad015a3bf4f1b2b0b822cd15d6c15b0f00a08.webp",
+                        "variant_1440_url": "/media/cdn/images/1440/9f86d081884c7d659a2feaa0c55ad015a3bf4f1b2b0b822cd15d6c15b0f00a08.webp",
+                        "variant_2160_url": "/media/cdn/images/2160/9f86d081884c7d659a2feaa0c55ad015a3bf4f1b2b0b822cd15d6c15b0f00a08.webp",
+                        "variants_meta": [
+                          {
+                            "tier": 720,
+                            "branch": "w",
+                            "url": "/media/cdn/images/720/9f86d081884c7d659a2feaa0c55ad015a3bf4f1b2b0b822cd15d6c15b0f00a08.webp",
+                            "width": 720,
+                            "height": 405
+                          }
+                        ],
+                        "variants_status": "pending",
+                        "variants_ready_at": null,
+                        "render_meta": {
+                          "ref": "avatar/9f86d081884c7d659a2feaa0c55ad015a3bf4f1b2b0b822cd15d6c15b0f00a08",
+                          "kind": "image",
+                          "mime": "image/jpeg",
+                          "ext": ".jpg",
+                          "bytes": 2048576,
+                          "meta_status": "ok",
+                          "width": 1920,
+                          "height": 1080,
+                          "aspect": 1.7778,
+                          "square": false,
+                          "animated": false
+                        },
+                        "is_processed": false,
+                        "uploaded_by": "3f2b1c4d-5e6f-4a7b-8c9d-0e1f2a3b4c5d",
+                        "uploaded_by_username": "alice",
+                        "created_at": "2026-03-17T10:30:00Z",
+                        "updated_at": "2026-03-17T10:30:00Z"
+                      }
+                    },
+                    "summary": "File found (image)"
+                  },
+                  "FileNotFound": {
+                    "value": {
+                      "exists": false,
+                      "type": null,
+                      "file": null
+                    },
+                    "summary": "File not found"
+                  }
+                }
+              }
+            },
+            "description": ""
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/StapelError"
+                }
+              }
+            },
+            "description": "",
+            "x-stapel-errors": [
+              "error.400.file_hash_required"
+            ]
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/StapelError"
+                }
+              }
+            },
+            "description": ""
+          }
+        }
+      },
+      "post": {
+        "operationId": "check_file_exists_post",
+        "description": "Check if a file with the given hash already exists in the CDN.\n\nSame as GET method but accepts hash in request body.\nUseful when hash is very long or contains special characters.\n\n\n**Permissions:** `OperandHolder`",
+        "summary": "Check if file exists (POST)",
+        "tags": [
+          "Files"
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/FileExists"
+              }
+            },
+            "application/x-www-form-urlencoded": {
+              "schema": {
+                "$ref": "#/components/schemas/FileExists"
+              }
+            },
+            "multipart/form-data": {
+              "schema": {
+                "$ref": "#/components/schemas/FileExists"
+              }
+            }
+          },
+          "required": true
+        },
+        "security": [
+          {
+            "JWTCookieAuth": []
+          },
+          {
+            "JWTBearerAuth": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/FileExistsResponse"
+                },
+                "examples": {
+                  "FileFound(image)": {
+                    "value": {
+                      "exists": true,
+                      "type": "image",
+                      "file": {
+                        "id": 42,
+                        "file_hash": "9f86d081884c7d659a2feaa0c55ad015a3bf4f1b2b0b822cd15d6c15b0f00a08",
+                        "original_filename": "photo.jpg",
+                        "file_extension": ".jpg",
+                        "type": "avatar",
+                        "prefix": "avatar",
+                        "original_width": 1920,
+                        "original_height": 1080,
+                        "original_size": 2048576,
+                        "original_url": "/media/cdn/images/original/9f86d081884c7d659a2feaa0c55ad015a3bf4f1b2b0b822cd15d6c15b0f00a08.jpg",
+                        "variant_16_url": "/media/cdn/images/16/9f86d081884c7d659a2feaa0c55ad015a3bf4f1b2b0b822cd15d6c15b0f00a08.webp",
+                        "variant_32_url": "/media/cdn/images/32/9f86d081884c7d659a2feaa0c55ad015a3bf4f1b2b0b822cd15d6c15b0f00a08.webp",
+                        "variant_64_url": "/media/cdn/images/64/9f86d081884c7d659a2feaa0c55ad015a3bf4f1b2b0b822cd15d6c15b0f00a08.webp",
+                        "variant_120_url": "/media/cdn/images/120/9f86d081884c7d659a2feaa0c55ad015a3bf4f1b2b0b822cd15d6c15b0f00a08.webp",
+                        "variant_160_url": "/media/cdn/images/160/9f86d081884c7d659a2feaa0c55ad015a3bf4f1b2b0b822cd15d6c15b0f00a08.webp",
+                        "variant_240_url": "/media/cdn/images/240/9f86d081884c7d659a2feaa0c55ad015a3bf4f1b2b0b822cd15d6c15b0f00a08.webp",
+                        "variant_480_url": "/media/cdn/images/480/9f86d081884c7d659a2feaa0c55ad015a3bf4f1b2b0b822cd15d6c15b0f00a08.webp",
+                        "variant_560_url": "/media/cdn/images/560/9f86d081884c7d659a2feaa0c55ad015a3bf4f1b2b0b822cd15d6c15b0f00a08.webp",
+                        "variant_720_url": "/media/cdn/images/720/9f86d081884c7d659a2feaa0c55ad015a3bf4f1b2b0b822cd15d6c15b0f00a08.webp",
+                        "variant_1080_url": "/media/cdn/images/1080/9f86d081884c7d659a2feaa0c55ad015a3bf4f1b2b0b822cd15d6c15b0f00a08.webp",
+                        "variant_1440_url": "/media/cdn/images/1440/9f86d081884c7d659a2feaa0c55ad015a3bf4f1b2b0b822cd15d6c15b0f00a08.webp",
+                        "variant_2160_url": "/media/cdn/images/2160/9f86d081884c7d659a2feaa0c55ad015a3bf4f1b2b0b822cd15d6c15b0f00a08.webp",
+                        "variants_meta": [
+                          {
+                            "tier": 720,
+                            "branch": "w",
+                            "url": "/media/cdn/images/720/9f86d081884c7d659a2feaa0c55ad015a3bf4f1b2b0b822cd15d6c15b0f00a08.webp",
+                            "width": 720,
+                            "height": 405
+                          }
+                        ],
+                        "variants_status": "pending",
+                        "variants_ready_at": null,
+                        "render_meta": {
+                          "ref": "avatar/9f86d081884c7d659a2feaa0c55ad015a3bf4f1b2b0b822cd15d6c15b0f00a08",
+                          "kind": "image",
+                          "mime": "image/jpeg",
+                          "ext": ".jpg",
+                          "bytes": 2048576,
+                          "meta_status": "ok",
+                          "width": 1920,
+                          "height": 1080,
+                          "aspect": 1.7778,
+                          "square": false,
+                          "animated": false
+                        },
+                        "is_processed": false,
+                        "uploaded_by": "3f2b1c4d-5e6f-4a7b-8c9d-0e1f2a3b4c5d",
+                        "uploaded_by_username": "alice",
+                        "created_at": "2026-03-17T10:30:00Z",
+                        "updated_at": "2026-03-17T10:30:00Z"
+                      }
+                    },
+                    "summary": "File found (image)"
+                  },
+                  "FileNotFound": {
+                    "value": {
+                      "exists": false,
+                      "type": null,
+                      "file": null
+                    },
+                    "summary": "File not found"
+                  }
+                }
+              }
+            },
+            "description": ""
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/StapelError"
+                }
+              }
+            },
+            "description": ""
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/StapelError"
+                }
+              }
+            },
+            "description": ""
+          }
+        }
+      }
+    },
+    "/cdn/api/v1/images/{image_type}/{file_hash}/original/": {
+      "get": {
+        "operationId": "cdn_image_original",
+        "description": "The uploader's own original, when it is kept off the public route.\n\nA watermarked image's original is protected (``stapel_cdn.protected``);\nthe person who uploaded it may still download it, and so may an internal\nservice call. Everyone else gets the same 404 as for a missing image.\n\n**Permissions:** `OperandHolder`",
+        "summary": "Download my original upload",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "file_hash",
+            "schema": {
+              "type": "string"
+            },
+            "required": true
+          },
+          {
+            "in": "path",
+            "name": "image_type",
+            "schema": {
+              "type": "string"
+            },
+            "required": true
+          }
+        ],
+        "tags": [
+          "Images"
+        ],
+        "security": [
+          {
+            "JWTCookieAuth": []
+          },
+          {
+            "JWTBearerAuth": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/octet-stream": {
+                "schema": {
+                  "type": "string",
+                  "format": "binary"
+                }
+              }
+            },
+            "description": ""
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/StapelError"
+                }
+              }
+            },
+            "description": ""
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/StapelError"
+                }
+              }
+            },
+            "description": "",
+            "x-stapel-errors": [
+              "error.404.media_not_found"
+            ]
+          }
+        }
+      }
+    },
+    "/cdn/api/v1/images/{image_type}/random/": {
+      "get": {
+        "operationId": "random_image",
+        "description": "Get a random image of the specified type.\n\n**Available types:** every entry of `STAPEL_CDN[\"ASSET_TYPES\"]` — the same\nsetting `TypeEnum` in this document is generated from. The zero-infra\ndefault is `(\"avatar\",)`; anything else answers\n`error.400.invalid_image_type`.\n\n**Requires:** Staff user or API key authentication.\n\n**Use case:** Admin UI for quickly selecting test images.\n\n\n**Permissions:** `IsStaffUser`",
+        "summary": "Get random image by type",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "image_type",
+            "schema": {
+              "type": "string"
+            },
+            "required": true
+          }
+        ],
+        "tags": [
+          "Images"
+        ],
+        "security": [
+          {
+            "JWTCookieAuth": []
+          },
+          {
+            "JWTBearerAuth": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Image"
+                }
+              }
+            },
+            "description": ""
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/StapelError"
+                }
+              }
+            },
+            "description": "",
+            "x-stapel-errors": [
+              "error.400.invalid_image_type"
+            ]
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/StapelError"
+                }
+              }
+            },
+            "description": "",
+            "x-stapel-errors": [
+              "error.404.no_images"
+            ]
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/StapelError"
+                }
+              }
+            },
+            "description": ""
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/StapelError"
+                }
+              }
+            },
+            "description": ""
+          }
+        }
+      }
+    },
+    "/cdn/api/v1/images/{image_type}/upload/": {
+      "post": {
+        "operationId": "upload_typed_image",
+        "description": "Upload an image file with a caller-chosen type.\n\n**Supported formats:** JPEG, PNG, GIF, WebP, BMP, HEIC, HEIF\n\n**Available types:** every entry of `STAPEL_CDN[\"ASSET_TYPES\"]` — the same\nsetting `TypeEnum` in this document is generated from. The zero-infra\ndefault is `(\"avatar\",)`; anything else answers\n`error.400.invalid_image_type`.\n\n**Maximum file size:** `STAPEL_CDN[\"MAX_IMAGE_SIZE\"]`, 20MB by default.\nEnforced before the body is hashed; over it the answer is 413.\n\n\n**Permissions:** `IsNotAnonymousUser`",
+        "summary": "Upload an image with specific type",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "image_type",
+            "schema": {
+              "type": "string"
+            },
+            "required": true
+          }
+        ],
+        "tags": [
+          "Images"
+        ],
+        "requestBody": {
+          "content": {
+            "multipart/form-data": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "file": {
+                    "type": "string",
+                    "format": "binary",
+                    "description": "Image file to upload"
+                  }
+                },
+                "required": [
+                  "file"
+                ]
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "JWTCookieAuth": []
+          },
+          {
+            "JWTBearerAuth": []
+          }
+        ],
+        "responses": {
+          "201": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ImageUploadResponse"
+                },
+                "examples": {
+                  "ImageUploaded": {
+                    "value": {
+                      "message": "Image uploaded successfully",
+                      "image": {
+                        "id": 42,
+                        "file_hash": "9f86d081884c7d659a2feaa0c55ad015a3bf4f1b2b0b822cd15d6c15b0f00a08",
+                        "original_filename": "photo.jpg",
+                        "file_extension": ".jpg",
+                        "type": "avatar",
+                        "prefix": "avatar",
+                        "original_width": 1920,
+                        "original_height": 1080,
+                        "original_size": 2048576,
+                        "original_url": "/media/cdn/images/original/9f86d081884c7d659a2feaa0c55ad015a3bf4f1b2b0b822cd15d6c15b0f00a08.jpg",
+                        "variant_16_url": "/media/cdn/images/16/9f86d081884c7d659a2feaa0c55ad015a3bf4f1b2b0b822cd15d6c15b0f00a08.webp",
+                        "variant_32_url": "/media/cdn/images/32/9f86d081884c7d659a2feaa0c55ad015a3bf4f1b2b0b822cd15d6c15b0f00a08.webp",
+                        "variant_64_url": "/media/cdn/images/64/9f86d081884c7d659a2feaa0c55ad015a3bf4f1b2b0b822cd15d6c15b0f00a08.webp",
+                        "variant_120_url": "/media/cdn/images/120/9f86d081884c7d659a2feaa0c55ad015a3bf4f1b2b0b822cd15d6c15b0f00a08.webp",
+                        "variant_160_url": "/media/cdn/images/160/9f86d081884c7d659a2feaa0c55ad015a3bf4f1b2b0b822cd15d6c15b0f00a08.webp",
+                        "variant_240_url": "/media/cdn/images/240/9f86d081884c7d659a2feaa0c55ad015a3bf4f1b2b0b822cd15d6c15b0f00a08.webp",
+                        "variant_480_url": "/media/cdn/images/480/9f86d081884c7d659a2feaa0c55ad015a3bf4f1b2b0b822cd15d6c15b0f00a08.webp",
+                        "variant_560_url": "/media/cdn/images/560/9f86d081884c7d659a2feaa0c55ad015a3bf4f1b2b0b822cd15d6c15b0f00a08.webp",
+                        "variant_720_url": "/media/cdn/images/720/9f86d081884c7d659a2feaa0c55ad015a3bf4f1b2b0b822cd15d6c15b0f00a08.webp",
+                        "variant_1080_url": "/media/cdn/images/1080/9f86d081884c7d659a2feaa0c55ad015a3bf4f1b2b0b822cd15d6c15b0f00a08.webp",
+                        "variant_1440_url": "/media/cdn/images/1440/9f86d081884c7d659a2feaa0c55ad015a3bf4f1b2b0b822cd15d6c15b0f00a08.webp",
+                        "variant_2160_url": "/media/cdn/images/2160/9f86d081884c7d659a2feaa0c55ad015a3bf4f1b2b0b822cd15d6c15b0f00a08.webp",
+                        "variants_meta": [
+                          {
+                            "tier": 720,
+                            "branch": "w",
+                            "url": "/media/cdn/images/720/9f86d081884c7d659a2feaa0c55ad015a3bf4f1b2b0b822cd15d6c15b0f00a08.webp",
+                            "width": 720,
+                            "height": 405
+                          }
+                        ],
+                        "variants_status": "pending",
+                        "variants_ready_at": null,
+                        "render_meta": {
+                          "ref": "avatar/9f86d081884c7d659a2feaa0c55ad015a3bf4f1b2b0b822cd15d6c15b0f00a08",
+                          "kind": "image",
+                          "mime": "image/jpeg",
+                          "ext": ".jpg",
+                          "bytes": 2048576,
+                          "meta_status": "ok",
+                          "width": 1920,
+                          "height": 1080,
+                          "aspect": 1.7778,
+                          "square": false,
+                          "animated": false
+                        },
+                        "is_processed": false,
+                        "uploaded_by": "3f2b1c4d-5e6f-4a7b-8c9d-0e1f2a3b4c5d",
+                        "uploaded_by_username": "alice",
+                        "created_at": "2026-03-17T10:30:00Z",
+                        "updated_at": "2026-03-17T10:30:00Z"
+                      }
+                    },
+                    "summary": "Image uploaded"
+                  }
+                }
+              }
+            },
+            "description": ""
+          },
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ImageUploadResponse"
+                },
+                "examples": {
+                  "ImageAlreadyExists": {
+                    "value": {
+                      "message": "Image already exists",
+                      "image": {
+                        "id": 42,
+                        "file_hash": "9f86d081884c7d659a2feaa0c55ad015a3bf4f1b2b0b822cd15d6c15b0f00a08",
+                        "original_filename": "photo.jpg",
+                        "file_extension": ".jpg",
+                        "type": "avatar",
+                        "prefix": "avatar",
+                        "original_width": 1920,
+                        "original_height": 1080,
+                        "original_size": 2048576,
+                        "original_url": "/media/cdn/images/original/9f86d081884c7d659a2feaa0c55ad015a3bf4f1b2b0b822cd15d6c15b0f00a08.jpg",
+                        "variant_16_url": "/media/cdn/images/16/9f86d081884c7d659a2feaa0c55ad015a3bf4f1b2b0b822cd15d6c15b0f00a08.webp",
+                        "variant_32_url": "/media/cdn/images/32/9f86d081884c7d659a2feaa0c55ad015a3bf4f1b2b0b822cd15d6c15b0f00a08.webp",
+                        "variant_64_url": "/media/cdn/images/64/9f86d081884c7d659a2feaa0c55ad015a3bf4f1b2b0b822cd15d6c15b0f00a08.webp",
+                        "variant_120_url": "/media/cdn/images/120/9f86d081884c7d659a2feaa0c55ad015a3bf4f1b2b0b822cd15d6c15b0f00a08.webp",
+                        "variant_160_url": "/media/cdn/images/160/9f86d081884c7d659a2feaa0c55ad015a3bf4f1b2b0b822cd15d6c15b0f00a08.webp",
+                        "variant_240_url": "/media/cdn/images/240/9f86d081884c7d659a2feaa0c55ad015a3bf4f1b2b0b822cd15d6c15b0f00a08.webp",
+                        "variant_480_url": "/media/cdn/images/480/9f86d081884c7d659a2feaa0c55ad015a3bf4f1b2b0b822cd15d6c15b0f00a08.webp",
+                        "variant_560_url": "/media/cdn/images/560/9f86d081884c7d659a2feaa0c55ad015a3bf4f1b2b0b822cd15d6c15b0f00a08.webp",
+                        "variant_720_url": "/media/cdn/images/720/9f86d081884c7d659a2feaa0c55ad015a3bf4f1b2b0b822cd15d6c15b0f00a08.webp",
+                        "variant_1080_url": "/media/cdn/images/1080/9f86d081884c7d659a2feaa0c55ad015a3bf4f1b2b0b822cd15d6c15b0f00a08.webp",
+                        "variant_1440_url": "/media/cdn/images/1440/9f86d081884c7d659a2feaa0c55ad015a3bf4f1b2b0b822cd15d6c15b0f00a08.webp",
+                        "variant_2160_url": "/media/cdn/images/2160/9f86d081884c7d659a2feaa0c55ad015a3bf4f1b2b0b822cd15d6c15b0f00a08.webp",
+                        "variants_meta": [
+                          {
+                            "tier": 720,
+                            "branch": "w",
+                            "url": "/media/cdn/images/720/9f86d081884c7d659a2feaa0c55ad015a3bf4f1b2b0b822cd15d6c15b0f00a08.webp",
+                            "width": 720,
+                            "height": 405
+                          }
+                        ],
+                        "variants_status": "pending",
+                        "variants_ready_at": null,
+                        "render_meta": {
+                          "ref": "avatar/9f86d081884c7d659a2feaa0c55ad015a3bf4f1b2b0b822cd15d6c15b0f00a08",
+                          "kind": "image",
+                          "mime": "image/jpeg",
+                          "ext": ".jpg",
+                          "bytes": 2048576,
+                          "meta_status": "ok",
+                          "width": 1920,
+                          "height": 1080,
+                          "aspect": 1.7778,
+                          "square": false,
+                          "animated": false
+                        },
+                        "is_processed": false,
+                        "uploaded_by": "3f2b1c4d-5e6f-4a7b-8c9d-0e1f2a3b4c5d",
+                        "uploaded_by_username": "alice",
+                        "created_at": "2026-03-17T10:30:00Z",
+                        "updated_at": "2026-03-17T10:30:00Z"
+                      }
+                    },
+                    "summary": "Image already exists"
+                  }
+                }
+              }
+            },
+            "description": ""
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/StapelError"
+                }
+              }
+            },
+            "description": "",
+            "x-stapel-errors": [
+              "error.400.file_type_not_allowed",
+              "error.400.invalid_format",
+              "error.400.invalid_image_type"
+            ]
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/StapelError"
+                }
+              }
+            },
+            "description": ""
+          },
+          "413": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/StapelError"
+                }
+              }
+            },
+            "description": "",
+            "x-stapel-errors": [
+              "error.413.file_too_large"
+            ]
+          },
+          "500": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/StapelError"
+                }
+              }
+            },
+            "description": "",
+            "x-stapel-errors": [
+              "error.500.internal"
+            ]
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/StapelError"
+                }
+              }
+            },
+            "description": "Forbidden",
+            "x-stapel-errors": [
+              "error.403.storage_quota_exceeded"
+            ]
+          },
+          "503": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/StapelError"
+                }
+              }
+            },
+            "description": "Service Unavailable",
+            "x-stapel-errors": [
+              "error.503.image_decoder_unavailable"
+            ]
+          }
+        }
+      }
+    },
+    "/cdn/api/v1/media/signed/{token}/": {
+      "get": {
+        "operationId": "cdn_signed_media",
+        "description": "Serve one protected file behind a short-lived signed token.\n\nThe token (``stapel_cdn.protected.signed_url``) is minted only for\ninternal readers — ``cdn.describe`` with ``{\"clean\": true}`` is a comm\nFunction — and names one path inside the protected tree. Anyone holding\nit may fetch until it expires (``SIGNED_MEDIA_TTL_SECONDS``): that is what\nlets a vision provider fetch the clean copy by URL. Expired, forged and\nunknown tokens all answer the same 404.",
+        "summary": "Fetch a protected file by signed token",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "token",
+            "schema": {
+              "type": "string"
+            },
+            "required": true
+          }
+        ],
+        "tags": [
+          "Media"
+        ],
+        "security": [
+          {}
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/octet-stream": {
+                "schema": {
+                  "type": "string",
+                  "format": "binary"
+                }
+              }
+            },
+            "description": ""
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/StapelError"
+                }
+              }
+            },
+            "description": "",
+            "x-stapel-errors": [
+              "error.404.media_not_found"
+            ]
+          }
+        }
+      }
+    },
+    "/cdn/api/v1/refs/sync/": {
+      "post": {
+        "operationId": "sync_refs",
+        "description": "Add/remove reference tracking for media files. Used by other services to track which entities reference which media.\n\n**Permissions:** `IsServiceRequest`",
+        "summary": "Sync media references",
+        "tags": [
+          "Refs"
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/RefSyncRequest"
+              }
+            },
+            "application/x-www-form-urlencoded": {
+              "schema": {
+                "$ref": "#/components/schemas/RefSyncRequest"
+              }
+            },
+            "multipart/form-data": {
+              "schema": {
+                "$ref": "#/components/schemas/RefSyncRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "security": [
+          {
+            "JWTCookieAuth": []
+          },
+          {
+            "JWTBearerAuth": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RefSyncResponse"
+                },
+                "examples": {
+                  "RefSyncResponse": {
+                    "value": {
+                      "added": 1,
+                      "removed": 1,
+                      "errors": [
+                        "product/nonexistent"
+                      ]
+                    }
+                  }
+                }
+              }
+            },
+            "description": ""
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/StapelError"
+                }
+              }
+            },
+            "description": "Bad Request",
+            "x-stapel-errors": [
+              "error.400.missing_fields"
+            ]
+          }
+        }
+      }
+    },
+    "/cdn/api/v1/upload/audio/": {
+      "post": {
+        "operationId": "upload_audio",
+        "description": "Upload a voice recording (chat voice message, call note).\n\n**Supported formats:** WebM, Ogg, Opus, M4A, MP3, WAV, FLAC, AAC\n(`STAPEL_CDN[\"ALLOWED_AUDIO_EXTENSIONS\"]`). WebM/Opus is what a browser's\n`MediaRecorder` produces, so it is the shape a chat client sends by default.\n\n**What happens on upload:**\n1. Size cap, extension allowlist and byte sniff run BEFORE the body is hashed\n2. File hash (SHA-256) is calculated for deduplication\n3. If the caller already holds these bytes, the existing recording is\n   returned (200 OK) and nothing new is stored\n4. Otherwise the recording is stored **as-is** — passthrough, no transcode —\n   and is immediately playable from `original_url`\n\n**Store `ref` (`audio/<hash>`)**, not the numeric id: it is the handle\n`cdn.describe` / `POST /describe/` resolve, and what a chat message carries.\n\n**`duration` and `preview_b64` are filled in asynchronously.** The waveform\nstrip (ffmpeg `showwavespic`) and the measured duration (ffprobe) are\nproduced by a background pass, so the 201 that creates the row carries\n`duration: null` and an empty `preview_b64`. That is not a broken upload:\nthe recording is already playable. Re-read the ref through `/describe/`\n(or this response's `render_meta.meta_status`) to pick the waveform up. A\ndeployment with no ffmpeg leaves both empty forever, with the reason named\nin `render_meta.meta_reason` rather than a fabricated zero.\n\n**Request format:** `multipart/form-data` with `file` field\n\n**Maximum file size:** `STAPEL_CDN[\"MAX_AUDIO_SIZE\"]`, 50MB by default.\nEnforced before the body is hashed; over it the answer is 413.\n\n**Quota:** recordings count towards the per-owner object and byte ceilings\n(`MAX_OBJECTS_PER_OWNER` / `MAX_BYTES_PER_OWNER`) like every other stored\nobject; over them the answer is 403.\n\n\n**Permissions:** `IsNotAnonymousUser`",
+        "summary": "Upload an audio recording",
+        "tags": [
+          "Audio"
+        ],
+        "requestBody": {
+          "content": {
+            "multipart/form-data": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "file": {
+                    "type": "string",
+                    "format": "binary",
+                    "description": "Audio recording to upload (webm, ogg, opus, m4a, mp3, wav, flac, aac)"
+                  }
+                },
+                "required": [
+                  "file"
+                ]
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "JWTCookieAuth": []
+          },
+          {
+            "JWTBearerAuth": []
+          }
+        ],
+        "responses": {
+          "201": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AudioUploadResponse"
+                },
+                "examples": {
+                  "AudioUploaded": {
+                    "value": {
+                      "message": "Audio uploaded successfully",
+                      "audio": {
+                        "id": 5,
+                        "ref": "audio/9f86d081884c7d659a2feaa0c55ad015a3bf4f1b2b0b822cd15d6c15b0f00a08",
+                        "file_hash": "9f86d081884c7d659a2feaa0c55ad015a3bf4f1b2b0b822cd15d6c15b0f00a08",
+                        "original_filename": "voice.ogg",
+                        "file_extension": ".ogg",
+                        "mime_type": "audio/ogg",
+                        "original_size": 48213,
+                        "duration": 3.9,
+                        "preview_b64": "",
+                        "original_url": "/media/cdn/audio/9f86d081884c7d659a2feaa0c55ad015a3bf4f1b2b0b822cd15d6c15b0f00a08.ogg",
+                        "render_meta": {
+                          "ref": "audio/9f86d081884c7d659a2feaa0c55ad015a3bf4f1b2b0b822cd15d6c15b0f00a08",
+                          "kind": "audio",
+                          "mime": "audio/ogg",
+                          "ext": ".ogg",
+                          "bytes": 48213,
+                          "meta_status": "ok",
+                          "duration_ms": 3900,
+                          "preview_kind": "waveform"
+                        },
+                        "refs": [],
+                        "is_compressed": true,
+                        "uploaded_by": "3f2b1c4d-5e6f-4a7b-8c9d-0e1f2a3b4c5d",
+                        "uploaded_by_username": "alice",
+                        "created_at": "2026-03-17T10:30:00Z",
+                        "updated_at": "2026-03-17T10:30:00Z"
+                      }
+                    },
+                    "summary": "Audio uploaded"
+                  }
+                }
+              }
+            },
+            "description": ""
+          },
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AudioUploadResponse"
+                },
+                "examples": {
+                  "AudioAlreadyExists": {
+                    "value": {
+                      "message": "Audio already exists",
+                      "audio": {
+                        "id": 5,
+                        "ref": "audio/9f86d081884c7d659a2feaa0c55ad015a3bf4f1b2b0b822cd15d6c15b0f00a08",
+                        "file_hash": "9f86d081884c7d659a2feaa0c55ad015a3bf4f1b2b0b822cd15d6c15b0f00a08",
+                        "original_filename": "voice.ogg",
+                        "file_extension": ".ogg",
+                        "mime_type": "audio/ogg",
+                        "original_size": 48213,
+                        "duration": 3.9,
+                        "preview_b64": "",
+                        "original_url": "/media/cdn/audio/9f86d081884c7d659a2feaa0c55ad015a3bf4f1b2b0b822cd15d6c15b0f00a08.ogg",
+                        "render_meta": {
+                          "ref": "audio/9f86d081884c7d659a2feaa0c55ad015a3bf4f1b2b0b822cd15d6c15b0f00a08",
+                          "kind": "audio",
+                          "mime": "audio/ogg",
+                          "ext": ".ogg",
+                          "bytes": 48213,
+                          "meta_status": "ok",
+                          "duration_ms": 3900,
+                          "preview_kind": "waveform"
+                        },
+                        "refs": [],
+                        "is_compressed": true,
+                        "uploaded_by": "3f2b1c4d-5e6f-4a7b-8c9d-0e1f2a3b4c5d",
+                        "uploaded_by_username": "alice",
+                        "created_at": "2026-03-17T10:30:00Z",
+                        "updated_at": "2026-03-17T10:30:00Z"
+                      }
+                    },
+                    "summary": "Audio already exists"
+                  }
+                }
+              }
+            },
+            "description": ""
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/StapelError"
+                }
+              }
+            },
+            "description": "",
+            "x-stapel-errors": [
+              "error.400.file_type_not_allowed",
+              "error.400.invalid_format"
+            ]
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/StapelError"
+                }
+              }
+            },
+            "description": ""
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/StapelError"
+                }
+              }
+            },
+            "description": "",
+            "x-stapel-errors": [
+              "error.403.storage_quota_exceeded"
+            ]
+          },
+          "413": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/StapelError"
+                }
+              }
+            },
+            "description": "",
+            "x-stapel-errors": [
+              "error.413.file_too_large"
+            ]
+          },
+          "500": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/StapelError"
+                }
+              }
+            },
+            "description": "",
+            "x-stapel-errors": [
+              "error.500.internal"
+            ]
+          }
+        }
+      }
+    },
+    "/cdn/api/v1/upload/avatar/": {
+      "post": {
+        "operationId": "upload_avatar",
+        "description": "Upload an avatar image file for processing.\n\n**Same as image upload but sets type to 'avatar'.**\n\n**Supported formats:** JPEG, PNG, GIF, WebP, BMP, HEIC, HEIF\n\n**Maximum file size:** `STAPEL_CDN[\"MAX_IMAGE_SIZE\"]`, 20MB by default.\nEnforced before the body is hashed; over it the answer is 413.\n\n\n**Permissions:** `IsAuthenticated`",
+        "summary": "Upload an avatar image",
+        "tags": [
+          "Images"
+        ],
+        "requestBody": {
+          "content": {
+            "multipart/form-data": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "file": {
+                    "type": "string",
+                    "format": "binary",
+                    "description": "Avatar image file to upload"
+                  }
+                },
+                "required": [
+                  "file"
+                ]
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "JWTCookieAuth": []
+          },
+          {
+            "JWTBearerAuth": []
+          }
+        ],
+        "responses": {
+          "201": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ImageUploadResponse"
+                },
+                "examples": {
+                  "AvatarUploaded": {
+                    "value": {
+                      "message": "Avatar uploaded successfully",
+                      "image": {
+                        "id": 42,
+                        "file_hash": "9f86d081884c7d659a2feaa0c55ad015a3bf4f1b2b0b822cd15d6c15b0f00a08",
+                        "original_filename": "photo.jpg",
+                        "file_extension": ".jpg",
+                        "type": "avatar",
+                        "prefix": "avatar",
+                        "original_width": 1920,
+                        "original_height": 1080,
+                        "original_size": 2048576,
+                        "original_url": "/media/cdn/images/original/9f86d081884c7d659a2feaa0c55ad015a3bf4f1b2b0b822cd15d6c15b0f00a08.jpg",
+                        "variant_16_url": "/media/cdn/images/16/9f86d081884c7d659a2feaa0c55ad015a3bf4f1b2b0b822cd15d6c15b0f00a08.webp",
+                        "variant_32_url": "/media/cdn/images/32/9f86d081884c7d659a2feaa0c55ad015a3bf4f1b2b0b822cd15d6c15b0f00a08.webp",
+                        "variant_64_url": "/media/cdn/images/64/9f86d081884c7d659a2feaa0c55ad015a3bf4f1b2b0b822cd15d6c15b0f00a08.webp",
+                        "variant_120_url": "/media/cdn/images/120/9f86d081884c7d659a2feaa0c55ad015a3bf4f1b2b0b822cd15d6c15b0f00a08.webp",
+                        "variant_160_url": "/media/cdn/images/160/9f86d081884c7d659a2feaa0c55ad015a3bf4f1b2b0b822cd15d6c15b0f00a08.webp",
+                        "variant_240_url": "/media/cdn/images/240/9f86d081884c7d659a2feaa0c55ad015a3bf4f1b2b0b822cd15d6c15b0f00a08.webp",
+                        "variant_480_url": "/media/cdn/images/480/9f86d081884c7d659a2feaa0c55ad015a3bf4f1b2b0b822cd15d6c15b0f00a08.webp",
+                        "variant_560_url": "/media/cdn/images/560/9f86d081884c7d659a2feaa0c55ad015a3bf4f1b2b0b822cd15d6c15b0f00a08.webp",
+                        "variant_720_url": "/media/cdn/images/720/9f86d081884c7d659a2feaa0c55ad015a3bf4f1b2b0b822cd15d6c15b0f00a08.webp",
+                        "variant_1080_url": "/media/cdn/images/1080/9f86d081884c7d659a2feaa0c55ad015a3bf4f1b2b0b822cd15d6c15b0f00a08.webp",
+                        "variant_1440_url": "/media/cdn/images/1440/9f86d081884c7d659a2feaa0c55ad015a3bf4f1b2b0b822cd15d6c15b0f00a08.webp",
+                        "variant_2160_url": "/media/cdn/images/2160/9f86d081884c7d659a2feaa0c55ad015a3bf4f1b2b0b822cd15d6c15b0f00a08.webp",
+                        "variants_meta": [
+                          {
+                            "tier": 720,
+                            "branch": "w",
+                            "url": "/media/cdn/images/720/9f86d081884c7d659a2feaa0c55ad015a3bf4f1b2b0b822cd15d6c15b0f00a08.webp",
+                            "width": 720,
+                            "height": 405
+                          }
+                        ],
+                        "variants_status": "pending",
+                        "variants_ready_at": null,
+                        "render_meta": {
+                          "ref": "avatar/9f86d081884c7d659a2feaa0c55ad015a3bf4f1b2b0b822cd15d6c15b0f00a08",
+                          "kind": "image",
+                          "mime": "image/jpeg",
+                          "ext": ".jpg",
+                          "bytes": 2048576,
+                          "meta_status": "ok",
+                          "width": 1920,
+                          "height": 1080,
+                          "aspect": 1.7778,
+                          "square": false,
+                          "animated": false
+                        },
+                        "is_processed": false,
+                        "uploaded_by": "3f2b1c4d-5e6f-4a7b-8c9d-0e1f2a3b4c5d",
+                        "uploaded_by_username": "alice",
+                        "created_at": "2026-03-17T10:30:00Z",
+                        "updated_at": "2026-03-17T10:30:00Z"
+                      }
+                    },
+                    "summary": "Avatar uploaded"
+                  }
+                }
+              }
+            },
+            "description": ""
+          },
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ImageUploadResponse"
+                },
+                "examples": {
+                  "AvatarAlreadyExists": {
+                    "value": {
+                      "message": "Avatar already exists",
+                      "image": {
+                        "id": 42,
+                        "file_hash": "9f86d081884c7d659a2feaa0c55ad015a3bf4f1b2b0b822cd15d6c15b0f00a08",
+                        "original_filename": "photo.jpg",
+                        "file_extension": ".jpg",
+                        "type": "avatar",
+                        "prefix": "avatar",
+                        "original_width": 1920,
+                        "original_height": 1080,
+                        "original_size": 2048576,
+                        "original_url": "/media/cdn/images/original/9f86d081884c7d659a2feaa0c55ad015a3bf4f1b2b0b822cd15d6c15b0f00a08.jpg",
+                        "variant_16_url": "/media/cdn/images/16/9f86d081884c7d659a2feaa0c55ad015a3bf4f1b2b0b822cd15d6c15b0f00a08.webp",
+                        "variant_32_url": "/media/cdn/images/32/9f86d081884c7d659a2feaa0c55ad015a3bf4f1b2b0b822cd15d6c15b0f00a08.webp",
+                        "variant_64_url": "/media/cdn/images/64/9f86d081884c7d659a2feaa0c55ad015a3bf4f1b2b0b822cd15d6c15b0f00a08.webp",
+                        "variant_120_url": "/media/cdn/images/120/9f86d081884c7d659a2feaa0c55ad015a3bf4f1b2b0b822cd15d6c15b0f00a08.webp",
+                        "variant_160_url": "/media/cdn/images/160/9f86d081884c7d659a2feaa0c55ad015a3bf4f1b2b0b822cd15d6c15b0f00a08.webp",
+                        "variant_240_url": "/media/cdn/images/240/9f86d081884c7d659a2feaa0c55ad015a3bf4f1b2b0b822cd15d6c15b0f00a08.webp",
+                        "variant_480_url": "/media/cdn/images/480/9f86d081884c7d659a2feaa0c55ad015a3bf4f1b2b0b822cd15d6c15b0f00a08.webp",
+                        "variant_560_url": "/media/cdn/images/560/9f86d081884c7d659a2feaa0c55ad015a3bf4f1b2b0b822cd15d6c15b0f00a08.webp",
+                        "variant_720_url": "/media/cdn/images/720/9f86d081884c7d659a2feaa0c55ad015a3bf4f1b2b0b822cd15d6c15b0f00a08.webp",
+                        "variant_1080_url": "/media/cdn/images/1080/9f86d081884c7d659a2feaa0c55ad015a3bf4f1b2b0b822cd15d6c15b0f00a08.webp",
+                        "variant_1440_url": "/media/cdn/images/1440/9f86d081884c7d659a2feaa0c55ad015a3bf4f1b2b0b822cd15d6c15b0f00a08.webp",
+                        "variant_2160_url": "/media/cdn/images/2160/9f86d081884c7d659a2feaa0c55ad015a3bf4f1b2b0b822cd15d6c15b0f00a08.webp",
+                        "variants_meta": [
+                          {
+                            "tier": 720,
+                            "branch": "w",
+                            "url": "/media/cdn/images/720/9f86d081884c7d659a2feaa0c55ad015a3bf4f1b2b0b822cd15d6c15b0f00a08.webp",
+                            "width": 720,
+                            "height": 405
+                          }
+                        ],
+                        "variants_status": "pending",
+                        "variants_ready_at": null,
+                        "render_meta": {
+                          "ref": "avatar/9f86d081884c7d659a2feaa0c55ad015a3bf4f1b2b0b822cd15d6c15b0f00a08",
+                          "kind": "image",
+                          "mime": "image/jpeg",
+                          "ext": ".jpg",
+                          "bytes": 2048576,
+                          "meta_status": "ok",
+                          "width": 1920,
+                          "height": 1080,
+                          "aspect": 1.7778,
+                          "square": false,
+                          "animated": false
+                        },
+                        "is_processed": false,
+                        "uploaded_by": "3f2b1c4d-5e6f-4a7b-8c9d-0e1f2a3b4c5d",
+                        "uploaded_by_username": "alice",
+                        "created_at": "2026-03-17T10:30:00Z",
+                        "updated_at": "2026-03-17T10:30:00Z"
+                      }
+                    },
+                    "summary": "Avatar already exists"
+                  }
+                }
+              }
+            },
+            "description": ""
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/StapelError"
+                }
+              }
+            },
+            "description": "",
+            "x-stapel-errors": [
+              "error.400.file_type_not_allowed",
+              "error.400.invalid_format"
+            ]
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/StapelError"
+                }
+              }
+            },
+            "description": ""
+          },
+          "413": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/StapelError"
+                }
+              }
+            },
+            "description": "",
+            "x-stapel-errors": [
+              "error.413.file_too_large"
+            ]
+          },
+          "500": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/StapelError"
+                }
+              }
+            },
+            "description": "",
+            "x-stapel-errors": [
+              "error.500.internal"
+            ]
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/StapelError"
+                }
+              }
+            },
+            "description": "Forbidden",
+            "x-stapel-errors": [
+              "error.403.storage_quota_exceeded"
+            ]
+          },
+          "503": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/StapelError"
+                }
+              }
+            },
+            "description": "Service Unavailable",
+            "x-stapel-errors": [
+              "error.503.image_decoder_unavailable"
+            ]
+          }
+        }
+      }
+    },
+    "/cdn/api/v1/upload/file/": {
+      "post": {
+        "operationId": "upload_file",
+        "description": "Upload a generic file (document, archive, etc.).\n\n**Permissions:** `IsNotAnonymousUser`",
+        "summary": "Upload a file",
+        "tags": [
+          "Files"
+        ],
+        "requestBody": {
+          "content": {
+            "multipart/form-data": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "file": {
+                    "type": "string",
+                    "format": "binary",
+                    "description": "File to upload"
+                  }
+                },
+                "required": [
+                  "file"
+                ]
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "JWTCookieAuth": []
+          },
+          {
+            "JWTBearerAuth": []
+          }
+        ],
+        "responses": {
+          "201": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/FileUploadResponse"
+                },
+                "examples": {
+                  "FileUploaded": {
+                    "value": {
+                      "message": "File uploaded successfully",
+                      "file": {
+                        "id": 11,
+                        "file_hash": "9f86d081884c7d659a2feaa0c55ad015a3bf4f1b2b0b822cd15d6c15b0f00a08",
+                        "original_filename": "invoice.pdf",
+                        "file_extension": ".pdf",
+                        "mime_type": "application/pdf",
+                        "original_size": 184320,
+                        "prefix": "file",
+                        "original_url": "/media/cdn/files/9f86d081884c7d659a2feaa0c55ad015a3bf4f1b2b0b822cd15d6c15b0f00a08.pdf",
+                        "render_meta": {
+                          "ref": "file/9f86d081884c7d659a2feaa0c55ad015a3bf4f1b2b0b822cd15d6c15b0f00a08",
+                          "kind": "file",
+                          "mime": "application/pdf",
+                          "ext": ".pdf",
+                          "bytes": 184320,
+                          "meta_status": "ok"
+                        },
+                        "refs": [],
+                        "uploaded_by": "3f2b1c4d-5e6f-4a7b-8c9d-0e1f2a3b4c5d",
+                        "uploaded_by_username": "alice",
+                        "created_at": "2026-03-17T10:30:00Z",
+                        "updated_at": "2026-03-17T10:30:00Z"
+                      }
+                    },
+                    "summary": "File uploaded"
+                  }
+                }
+              }
+            },
+            "description": ""
+          },
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/FileUploadResponse"
+                },
+                "examples": {
+                  "FileAlreadyExists": {
+                    "value": {
+                      "message": "File already exists",
+                      "file": {
+                        "id": 11,
+                        "file_hash": "9f86d081884c7d659a2feaa0c55ad015a3bf4f1b2b0b822cd15d6c15b0f00a08",
+                        "original_filename": "invoice.pdf",
+                        "file_extension": ".pdf",
+                        "mime_type": "application/pdf",
+                        "original_size": 184320,
+                        "prefix": "file",
+                        "original_url": "/media/cdn/files/9f86d081884c7d659a2feaa0c55ad015a3bf4f1b2b0b822cd15d6c15b0f00a08.pdf",
+                        "render_meta": {
+                          "ref": "file/9f86d081884c7d659a2feaa0c55ad015a3bf4f1b2b0b822cd15d6c15b0f00a08",
+                          "kind": "file",
+                          "mime": "application/pdf",
+                          "ext": ".pdf",
+                          "bytes": 184320,
+                          "meta_status": "ok"
+                        },
+                        "refs": [],
+                        "uploaded_by": "3f2b1c4d-5e6f-4a7b-8c9d-0e1f2a3b4c5d",
+                        "uploaded_by_username": "alice",
+                        "created_at": "2026-03-17T10:30:00Z",
+                        "updated_at": "2026-03-17T10:30:00Z"
+                      }
+                    },
+                    "summary": "File already exists"
+                  }
+                }
+              }
+            },
+            "description": ""
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/StapelError"
+                }
+              }
+            },
+            "description": "",
+            "x-stapel-errors": [
+              "error.400.file_type_not_allowed",
+              "error.400.invalid_format",
+              "error.400.no_file"
+            ]
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/StapelError"
+                }
+              }
+            },
+            "description": "Forbidden",
+            "x-stapel-errors": [
+              "error.403.storage_quota_exceeded"
+            ]
+          },
+          "500": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/StapelError"
+                }
+              }
+            },
+            "description": "Internal Server Error",
+            "x-stapel-errors": [
+              "error.500.internal"
+            ]
+          }
+        }
+      }
+    },
+    "/cdn/api/v1/upload/image/": {
+      "post": {
+        "operationId": "upload_image",
+        "description": "Upload an image file for processing.\n\n**Supported formats:** JPEG, PNG, GIF, WebP, BMP, HEIC, HEIF\n\n**What happens on upload:**\n1. File hash (SHA-256) is calculated for deduplication\n2. If file already exists, returns existing image data (200 OK)\n3. If new file, creates image record and generates variants via background task\n4. Variants are generated in WebP format at multiple resolutions\n\n**Generated variants (all WebP):**\n- 16px, 32px, 64px, 120px - min-side thumbnails\n- 160px, 240px, 480px, 560px, 720px, 1080px - w/h preview branches\n\n**`variants_status` — read it before you render a variant URL.** Every\n`variant_<size>_url` in this response is derived from `<type>/<hash>`, so\nall of them are present and well-formed in the 201 that creates the row,\n*before* the background task has written a single file. `variants_status`\nis `\"pending\"` until generation succeeds and `\"ready\"` afterwards\n(`variants_ready_at` carries the moment, null while pending). A `pending`\npayload's variant URLs are a prediction, not a resource; poll the media ref\n(`/file-exists/`) or fall back to `original_url` until it reads `ready`.\nA row that stays `pending` is a broken pipeline, not a slow one — see\n`checks.W008`.\n\n**Request format:** `multipart/form-data` with `file` field\n\n**Maximum file size:** `STAPEL_CDN[\"MAX_IMAGE_SIZE\"]`, 20MB by default.\nEnforced before the body is hashed; over it the answer is 413.\n\n**Stored type:** the `type` form field, validated against\n`STAPEL_CDN[\"ASSET_TYPES\"]` (400 `error.400.invalid_image_type` otherwise).\nWithout it: `STAPEL_CDN[\"DEFAULT_UPLOAD_TYPE\"]` when a deployment names one,\nelse the sole `ASSET_TYPES` entry. A deployment with several asset types and\nno `DEFAULT_UPLOAD_TYPE` has no default: the request answers\n400 `error.400.image_type_required`. A `DEFAULT_UPLOAD_TYPE` naming a value\nabsent from `ASSET_TYPES` is a misconfiguration: this endpoint answers 400 and\n`stapel_cdn.assets.W014` reports it at boot.\n\n\n**Permissions:** `IsNotAnonymousUser`",
+        "summary": "Upload an image",
+        "tags": [
+          "Images"
+        ],
+        "requestBody": {
+          "content": {
+            "multipart/form-data": {
+              "schema": {
+                "$ref": "#/components/schemas/ImageUploadRequest"
+              }
+            },
+            "application/x-www-form-urlencoded": {
+              "schema": {
+                "$ref": "#/components/schemas/ImageUploadRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "security": [
+          {
+            "JWTCookieAuth": []
+          },
+          {
+            "JWTBearerAuth": []
+          }
+        ],
+        "responses": {
+          "201": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ImageUploadResponse"
+                },
+                "examples": {
+                  "ImageUploaded": {
+                    "value": {
+                      "message": "Image uploaded successfully",
+                      "image": {
+                        "id": 42,
+                        "file_hash": "9f86d081884c7d659a2feaa0c55ad015a3bf4f1b2b0b822cd15d6c15b0f00a08",
+                        "original_filename": "photo.jpg",
+                        "file_extension": ".jpg",
+                        "type": "avatar",
+                        "prefix": "avatar",
+                        "original_width": 1920,
+                        "original_height": 1080,
+                        "original_size": 2048576,
+                        "original_url": "/media/cdn/images/original/9f86d081884c7d659a2feaa0c55ad015a3bf4f1b2b0b822cd15d6c15b0f00a08.jpg",
+                        "variant_16_url": "/media/cdn/images/16/9f86d081884c7d659a2feaa0c55ad015a3bf4f1b2b0b822cd15d6c15b0f00a08.webp",
+                        "variant_32_url": "/media/cdn/images/32/9f86d081884c7d659a2feaa0c55ad015a3bf4f1b2b0b822cd15d6c15b0f00a08.webp",
+                        "variant_64_url": "/media/cdn/images/64/9f86d081884c7d659a2feaa0c55ad015a3bf4f1b2b0b822cd15d6c15b0f00a08.webp",
+                        "variant_120_url": "/media/cdn/images/120/9f86d081884c7d659a2feaa0c55ad015a3bf4f1b2b0b822cd15d6c15b0f00a08.webp",
+                        "variant_160_url": "/media/cdn/images/160/9f86d081884c7d659a2feaa0c55ad015a3bf4f1b2b0b822cd15d6c15b0f00a08.webp",
+                        "variant_240_url": "/media/cdn/images/240/9f86d081884c7d659a2feaa0c55ad015a3bf4f1b2b0b822cd15d6c15b0f00a08.webp",
+                        "variant_480_url": "/media/cdn/images/480/9f86d081884c7d659a2feaa0c55ad015a3bf4f1b2b0b822cd15d6c15b0f00a08.webp",
+                        "variant_560_url": "/media/cdn/images/560/9f86d081884c7d659a2feaa0c55ad015a3bf4f1b2b0b822cd15d6c15b0f00a08.webp",
+                        "variant_720_url": "/media/cdn/images/720/9f86d081884c7d659a2feaa0c55ad015a3bf4f1b2b0b822cd15d6c15b0f00a08.webp",
+                        "variant_1080_url": "/media/cdn/images/1080/9f86d081884c7d659a2feaa0c55ad015a3bf4f1b2b0b822cd15d6c15b0f00a08.webp",
+                        "variant_1440_url": "/media/cdn/images/1440/9f86d081884c7d659a2feaa0c55ad015a3bf4f1b2b0b822cd15d6c15b0f00a08.webp",
+                        "variant_2160_url": "/media/cdn/images/2160/9f86d081884c7d659a2feaa0c55ad015a3bf4f1b2b0b822cd15d6c15b0f00a08.webp",
+                        "variants_meta": [
+                          {
+                            "tier": 720,
+                            "branch": "w",
+                            "url": "/media/cdn/images/720/9f86d081884c7d659a2feaa0c55ad015a3bf4f1b2b0b822cd15d6c15b0f00a08.webp",
+                            "width": 720,
+                            "height": 405
+                          }
+                        ],
+                        "variants_status": "pending",
+                        "variants_ready_at": null,
+                        "render_meta": {
+                          "ref": "avatar/9f86d081884c7d659a2feaa0c55ad015a3bf4f1b2b0b822cd15d6c15b0f00a08",
+                          "kind": "image",
+                          "mime": "image/jpeg",
+                          "ext": ".jpg",
+                          "bytes": 2048576,
+                          "meta_status": "ok",
+                          "width": 1920,
+                          "height": 1080,
+                          "aspect": 1.7778,
+                          "square": false,
+                          "animated": false
+                        },
+                        "is_processed": false,
+                        "uploaded_by": "3f2b1c4d-5e6f-4a7b-8c9d-0e1f2a3b4c5d",
+                        "uploaded_by_username": "alice",
+                        "created_at": "2026-03-17T10:30:00Z",
+                        "updated_at": "2026-03-17T10:30:00Z"
+                      }
+                    },
+                    "summary": "Image uploaded"
+                  }
+                }
+              }
+            },
+            "description": ""
+          },
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ImageUploadResponse"
+                },
+                "examples": {
+                  "ImageAlreadyExists": {
+                    "value": {
+                      "message": "Image already exists",
+                      "image": {
+                        "id": 42,
+                        "file_hash": "9f86d081884c7d659a2feaa0c55ad015a3bf4f1b2b0b822cd15d6c15b0f00a08",
+                        "original_filename": "photo.jpg",
+                        "file_extension": ".jpg",
+                        "type": "avatar",
+                        "prefix": "avatar",
+                        "original_width": 1920,
+                        "original_height": 1080,
+                        "original_size": 2048576,
+                        "original_url": "/media/cdn/images/original/9f86d081884c7d659a2feaa0c55ad015a3bf4f1b2b0b822cd15d6c15b0f00a08.jpg",
+                        "variant_16_url": "/media/cdn/images/16/9f86d081884c7d659a2feaa0c55ad015a3bf4f1b2b0b822cd15d6c15b0f00a08.webp",
+                        "variant_32_url": "/media/cdn/images/32/9f86d081884c7d659a2feaa0c55ad015a3bf4f1b2b0b822cd15d6c15b0f00a08.webp",
+                        "variant_64_url": "/media/cdn/images/64/9f86d081884c7d659a2feaa0c55ad015a3bf4f1b2b0b822cd15d6c15b0f00a08.webp",
+                        "variant_120_url": "/media/cdn/images/120/9f86d081884c7d659a2feaa0c55ad015a3bf4f1b2b0b822cd15d6c15b0f00a08.webp",
+                        "variant_160_url": "/media/cdn/images/160/9f86d081884c7d659a2feaa0c55ad015a3bf4f1b2b0b822cd15d6c15b0f00a08.webp",
+                        "variant_240_url": "/media/cdn/images/240/9f86d081884c7d659a2feaa0c55ad015a3bf4f1b2b0b822cd15d6c15b0f00a08.webp",
+                        "variant_480_url": "/media/cdn/images/480/9f86d081884c7d659a2feaa0c55ad015a3bf4f1b2b0b822cd15d6c15b0f00a08.webp",
+                        "variant_560_url": "/media/cdn/images/560/9f86d081884c7d659a2feaa0c55ad015a3bf4f1b2b0b822cd15d6c15b0f00a08.webp",
+                        "variant_720_url": "/media/cdn/images/720/9f86d081884c7d659a2feaa0c55ad015a3bf4f1b2b0b822cd15d6c15b0f00a08.webp",
+                        "variant_1080_url": "/media/cdn/images/1080/9f86d081884c7d659a2feaa0c55ad015a3bf4f1b2b0b822cd15d6c15b0f00a08.webp",
+                        "variant_1440_url": "/media/cdn/images/1440/9f86d081884c7d659a2feaa0c55ad015a3bf4f1b2b0b822cd15d6c15b0f00a08.webp",
+                        "variant_2160_url": "/media/cdn/images/2160/9f86d081884c7d659a2feaa0c55ad015a3bf4f1b2b0b822cd15d6c15b0f00a08.webp",
+                        "variants_meta": [
+                          {
+                            "tier": 720,
+                            "branch": "w",
+                            "url": "/media/cdn/images/720/9f86d081884c7d659a2feaa0c55ad015a3bf4f1b2b0b822cd15d6c15b0f00a08.webp",
+                            "width": 720,
+                            "height": 405
+                          }
+                        ],
+                        "variants_status": "pending",
+                        "variants_ready_at": null,
+                        "render_meta": {
+                          "ref": "avatar/9f86d081884c7d659a2feaa0c55ad015a3bf4f1b2b0b822cd15d6c15b0f00a08",
+                          "kind": "image",
+                          "mime": "image/jpeg",
+                          "ext": ".jpg",
+                          "bytes": 2048576,
+                          "meta_status": "ok",
+                          "width": 1920,
+                          "height": 1080,
+                          "aspect": 1.7778,
+                          "square": false,
+                          "animated": false
+                        },
+                        "is_processed": false,
+                        "uploaded_by": "3f2b1c4d-5e6f-4a7b-8c9d-0e1f2a3b4c5d",
+                        "uploaded_by_username": "alice",
+                        "created_at": "2026-03-17T10:30:00Z",
+                        "updated_at": "2026-03-17T10:30:00Z"
+                      }
+                    },
+                    "summary": "Image already exists"
+                  }
+                }
+              }
+            },
+            "description": ""
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/StapelError"
+                }
+              }
+            },
+            "description": "",
+            "x-stapel-errors": [
+              "error.400.file_type_not_allowed",
+              "error.400.image_type_required",
+              "error.400.invalid_format",
+              "error.400.invalid_image_type"
+            ]
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/StapelError"
+                }
+              }
+            },
+            "description": ""
+          },
+          "413": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/StapelError"
+                }
+              }
+            },
+            "description": "",
+            "x-stapel-errors": [
+              "error.413.file_too_large"
+            ]
+          },
+          "500": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/StapelError"
+                }
+              }
+            },
+            "description": "",
+            "x-stapel-errors": [
+              "error.500.internal"
+            ]
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/StapelError"
+                }
+              }
+            },
+            "description": "Forbidden",
+            "x-stapel-errors": [
+              "error.403.storage_quota_exceeded"
+            ]
+          },
+          "503": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/StapelError"
+                }
+              }
+            },
+            "description": "Service Unavailable",
+            "x-stapel-errors": [
+              "error.503.image_decoder_unavailable"
+            ]
+          }
+        }
+      }
+    },
+    "/cdn/api/v1/upload/video/": {
+      "post": {
+        "operationId": "upload_video",
+        "description": "Upload a video file for processing.\n\n**Supported formats:** MP4, WebM, MOV, AVI, MKV\n\n**What happens on upload:**\n1. File hash (SHA-256) is calculated for deduplication\n2. If file already exists, returns existing video data (200 OK)\n3. If new file, creates video record\n4. Variant generation via FFmpeg (TODO: not yet implemented)\n\n**Planned variants:**\n- 16p, 32p - animated thumbnails\n- 240p, 480p, 720p, 1080p, 2160p - video resolutions\n\n**Request format:** `multipart/form-data` with `file` field\n\n**Maximum file size:** `STAPEL_CDN[\"MAX_VIDEO_SIZE\"]`, 100MB by default.\nEnforced before the body is hashed; over it the answer is 413.\n\n\n**Permissions:** `IsNotAnonymousUser`",
+        "summary": "Upload a video",
+        "tags": [
+          "Videos"
+        ],
+        "requestBody": {
+          "content": {
+            "multipart/form-data": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "file": {
+                    "type": "string",
+                    "format": "binary",
+                    "description": "Video file to upload (mp4, webm, mov, avi, mkv)"
+                  }
+                },
+                "required": [
+                  "file"
+                ]
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "JWTCookieAuth": []
+          },
+          {
+            "JWTBearerAuth": []
+          }
+        ],
+        "responses": {
+          "201": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/VideoUploadResponse"
+                },
+                "examples": {
+                  "VideoUploaded": {
+                    "value": {
+                      "message": "Video uploaded successfully (variant generation not yet implemented)",
+                      "video": {
+                        "id": 7,
+                        "file_hash": "9f86d081884c7d659a2feaa0c55ad015a3bf4f1b2b0b822cd15d6c15b0f00a08",
+                        "original_filename": "clip.mp4",
+                        "file_extension": ".mp4",
+                        "original_width": 1920,
+                        "original_height": 1080,
+                        "original_size": 15728640,
+                        "duration": 12.5,
+                        "original_url": "/media/cdn/videos/original/9f86d081884c7d659a2feaa0c55ad015a3bf4f1b2b0b822cd15d6c15b0f00a08.mp4",
+                        "variant_16p_url": null,
+                        "variant_32p_url": null,
+                        "variant_240p_url": null,
+                        "variant_480p_url": null,
+                        "variant_720p_url": null,
+                        "variant_1080p_url": null,
+                        "variant_2160p_url": null,
+                        "poster_url": null,
+                        "render_meta": {
+                          "ref": "video/9f86d081884c7d659a2feaa0c55ad015a3bf4f1b2b0b822cd15d6c15b0f00a08",
+                          "kind": "video",
+                          "mime": "video/mp4",
+                          "ext": ".mp4",
+                          "bytes": 15728640,
+                          "meta_status": "ok",
+                          "width": 1920,
+                          "height": 1080,
+                          "aspect": 1.7778,
+                          "duration_ms": 12500
+                        },
+                        "is_processed": false,
+                        "uploaded_by": "3f2b1c4d-5e6f-4a7b-8c9d-0e1f2a3b4c5d",
+                        "uploaded_by_username": "alice",
+                        "created_at": "2026-03-17T10:30:00Z",
+                        "updated_at": "2026-03-17T10:30:00Z"
+                      }
+                    },
+                    "summary": "Video uploaded"
+                  }
+                }
+              }
+            },
+            "description": ""
+          },
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/VideoUploadResponse"
+                },
+                "examples": {
+                  "VideoAlreadyExists": {
+                    "value": {
+                      "message": "Video already exists",
+                      "video": {
+                        "id": 7,
+                        "file_hash": "9f86d081884c7d659a2feaa0c55ad015a3bf4f1b2b0b822cd15d6c15b0f00a08",
+                        "original_filename": "clip.mp4",
+                        "file_extension": ".mp4",
+                        "original_width": 1920,
+                        "original_height": 1080,
+                        "original_size": 15728640,
+                        "duration": 12.5,
+                        "original_url": "/media/cdn/videos/original/9f86d081884c7d659a2feaa0c55ad015a3bf4f1b2b0b822cd15d6c15b0f00a08.mp4",
+                        "variant_16p_url": null,
+                        "variant_32p_url": null,
+                        "variant_240p_url": null,
+                        "variant_480p_url": null,
+                        "variant_720p_url": null,
+                        "variant_1080p_url": null,
+                        "variant_2160p_url": null,
+                        "poster_url": null,
+                        "render_meta": {
+                          "ref": "video/9f86d081884c7d659a2feaa0c55ad015a3bf4f1b2b0b822cd15d6c15b0f00a08",
+                          "kind": "video",
+                          "mime": "video/mp4",
+                          "ext": ".mp4",
+                          "bytes": 15728640,
+                          "meta_status": "ok",
+                          "width": 1920,
+                          "height": 1080,
+                          "aspect": 1.7778,
+                          "duration_ms": 12500
+                        },
+                        "is_processed": false,
+                        "uploaded_by": "3f2b1c4d-5e6f-4a7b-8c9d-0e1f2a3b4c5d",
+                        "uploaded_by_username": "alice",
+                        "created_at": "2026-03-17T10:30:00Z",
+                        "updated_at": "2026-03-17T10:30:00Z"
+                      }
+                    },
+                    "summary": "Video already exists"
+                  }
+                }
+              }
+            },
+            "description": ""
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/StapelError"
+                }
+              }
+            },
+            "description": "",
+            "x-stapel-errors": [
+              "error.400.file_type_not_allowed",
+              "error.400.invalid_format"
+            ]
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/StapelError"
+                }
+              }
+            },
+            "description": ""
+          },
+          "413": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/StapelError"
+                }
+              }
+            },
+            "description": "",
+            "x-stapel-errors": [
+              "error.413.file_too_large"
+            ]
+          },
+          "500": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/StapelError"
+                }
+              }
+            },
+            "description": "",
+            "x-stapel-errors": [
+              "error.500.internal"
+            ]
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/StapelError"
+                }
+              }
+            },
+            "description": "Forbidden",
+            "x-stapel-errors": [
+              "error.403.storage_quota_exceeded"
+            ]
+          }
+        }
+      }
+    }
+  },
+  "components": {
+    "schemas": {
+      "Audio": {
+        "type": "object",
+        "description": "Serializer for the Audio model (voice recordings).\n\nA recording has no variant ladder and no picture geometry, so this is\ndeliberately much shorter than :class:`VideoSerializer`: the render\ncontract of a voice message is ``duration`` plus the waveform strip, and\nboth live in ``render_meta`` (``duration_ms`` + ``preview_b64``) as well\nas on their own fields.\n\n``ref`` is the field a consumer actually stores. Everything else here is\na view of one row; ``audio/<hash>`` is the durable handle that\n``cdn.describe`` / ``POST /describe/`` resolve later, and a chat message\nkeeps that string rather than a numeric id.",
+        "properties": {
+          "id": {
+            "type": "integer",
+            "readOnly": true
+          },
+          "ref": {
+            "type": "string",
+            "readOnly": true,
+            "description": "Durable media reference: audio/<hash>. Store THIS."
+          },
+          "file_hash": {
+            "type": "string",
+            "readOnly": true,
+            "description": "SHA-256 hash of the original file"
+          },
+          "original_filename": {
+            "type": "string",
+            "maxLength": 255
+          },
+          "file_extension": {
+            "type": "string",
+            "maxLength": 10
+          },
+          "mime_type": {
+            "type": "string",
+            "maxLength": 100
+          },
+          "original_size": {
+            "type": "integer",
+            "readOnly": true,
+            "description": "File size in bytes"
+          },
+          "duration": {
+            "type": "number",
+            "format": "double",
+            "readOnly": true,
+            "nullable": true,
+            "description": "Duration in seconds"
+          },
+          "preview_b64": {
+            "type": "string",
+            "readOnly": true,
+            "description": "Inline waveform strip: data:image/webp;base64,..."
+          },
+          "original_url": {
+            "type": "string",
+            "format": "uri",
+            "readOnly": true,
+            "description": "URL to the stored recording (always passthrough — no transcode)."
+          },
+          "render_meta": {
+            "type": "object",
+            "description": "cdn.describe snapshot for this recording (see RenderMeta).",
+            "properties": {
+              "ref": {
+                "type": "string"
+              },
+              "kind": {
+                "type": "string",
+                "nullable": true,
+                "description": "Open media-kind registry (STAPEL_CDN['MEDIA_KINDS']): image, gif, video, audio, file, or a host-defined kind."
+              },
+              "mime": {
+                "type": "string"
+              },
+              "ext": {
+                "type": "string",
+                "description": "Lowercase, dot-prefixed."
+              },
+              "bytes": {
+                "type": "integer"
+              },
+              "width": {
+                "type": "integer",
+                "nullable": true
+              },
+              "height": {
+                "type": "integer",
+                "nullable": true
+              },
+              "aspect": {
+                "type": "number",
+                "format": "float",
+                "nullable": true,
+                "description": "width / height, 6dp."
+              },
+              "square": {
+                "type": "boolean"
+              },
+              "animated": {
+                "type": "boolean"
+              },
+              "duration_ms": {
+                "type": "integer",
+                "nullable": true
+              },
+              "preview_b64": {
+                "type": "string",
+                "nullable": true,
+                "description": "data:image/webp;base64,... bounded by STAPEL_CDN['MICRO_PREVIEW_MAX_BYTES']; null when refused or not generated, with meta_reason saying which."
+              },
+              "preview_kind": {
+                "type": "string",
+                "enum": [
+                  "blur",
+                  "poster",
+                  "waveform"
+                ],
+                "nullable": true
+              },
+              "poster_url": {
+                "type": "string",
+                "nullable": true
+              },
+              "meta_status": {
+                "type": "string",
+                "enum": [
+                  "ok",
+                  "partial",
+                  "missing"
+                ]
+              },
+              "meta_reason": {
+                "type": "string",
+                "nullable": true,
+                "description": "stapel_cdn.metadata.REASONS; null when ok."
+              },
+              "variants": {
+                "type": "array",
+                "items": {
+                  "type": "object"
+                }
+              }
+            },
+            "required": [
+              "ref",
+              "mime",
+              "ext",
+              "bytes",
+              "meta_status"
+            ],
+            "readOnly": true
+          },
+          "refs": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "List of references: service/entity_type/entity_id"
+          },
+          "is_compressed": {
+            "type": "boolean",
+            "readOnly": true,
+            "description": "Whether ffmpeg-audio compression has run (opt-in submodule)"
+          },
+          "uploaded_by": {
+            "type": "string",
+            "format": "uuid",
+            "readOnly": true,
+            "nullable": true
+          },
+          "uploaded_by_username": {
+            "type": "string",
+            "readOnly": true
+          },
+          "created_at": {
+            "type": "string",
+            "format": "date-time",
+            "readOnly": true
+          },
+          "updated_at": {
+            "type": "string",
+            "format": "date-time",
+            "readOnly": true
+          }
+        },
+        "required": [
+          "created_at",
+          "duration",
+          "file_extension",
+          "file_hash",
+          "id",
+          "is_compressed",
+          "original_filename",
+          "original_size",
+          "original_url",
+          "preview_b64",
+          "ref",
+          "render_meta",
+          "updated_at",
+          "uploaded_by",
+          "uploaded_by_username"
+        ]
+      },
+      "AudioUploadResponse": {
+        "type": "object",
+        "description": "Successful audio (voice recording) upload.",
+        "properties": {
+          "audio": {
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/Audio"
+              }
+            ],
+            "description": "Uploaded recording object (serialized by AudioSerializer)"
+          },
+          "message": {
+            "type": "string",
+            "description": "Confirmation message",
+            "example": "Audio uploaded successfully"
+          }
+        },
+        "required": [
+          "audio",
+          "message"
+        ]
+      },
+      "DescribeManyRequest": {
+        "type": "object",
+        "description": "The refs one ``POST /describe/`` call asks about.\n\nShape only. The ceiling is NOT checked here: it belongs to\n``services.describe_refs``, the body the comm Function shares, so that the\nrule (dedup, then compare against ``DESCRIBE_MANY_LIMIT``) has exactly one\nimplementation and the two transports cannot drift apart on where the\nfifty-first ref stops being acceptable.\n\nA ref whose shape is wrong is not a 400 either: it resolves to nothing and\ncomes back in ``missing`` like any other unresolvable ref, so one\nmalformed entry never costs the caller the other forty-nine snapshots.",
+        "properties": {
+          "refs": {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "maxLength": 256
+            },
+            "description": "Media refs in <prefix>/<hash> form. Duplicates collapse before the 50-ref ceiling is applied."
+          }
+        },
+        "required": [
+          "refs"
+        ]
+      },
+      "DescribeManyResponse": {
+        "type": "object",
+        "description": "Batch render-metadata snapshots, plus the refs that resolved to nothing.",
+        "properties": {
+          "items": {
+            "type": "object",
+            "description": "Snapshot per ref that resolved, keyed by ref",
+            "additionalProperties": {
+              "type": "object",
+              "description": "Everything needed to render this attachment with no second round trip: aspect box, byte size, inline placeholder, and duration for time-based media. Identical to the cdn.describe comm Function's return value.",
+              "properties": {
+                "ref": {
+                  "type": "string"
+                },
+                "kind": {
+                  "type": "string",
+                  "nullable": true,
+                  "description": "Open media-kind registry (STAPEL_CDN['MEDIA_KINDS']): image, gif, video, audio, file, or a host-defined kind."
+                },
+                "mime": {
+                  "type": "string"
+                },
+                "ext": {
+                  "type": "string",
+                  "description": "Lowercase, dot-prefixed."
+                },
+                "bytes": {
+                  "type": "integer"
+                },
+                "width": {
+                  "type": "integer",
+                  "nullable": true
+                },
+                "height": {
+                  "type": "integer",
+                  "nullable": true
+                },
+                "aspect": {
+                  "type": "number",
+                  "format": "float",
+                  "nullable": true,
+                  "description": "width / height, 6dp."
+                },
+                "square": {
+                  "type": "boolean"
+                },
+                "animated": {
+                  "type": "boolean"
+                },
+                "duration_ms": {
+                  "type": "integer",
+                  "nullable": true
+                },
+                "preview_b64": {
+                  "type": "string",
+                  "nullable": true,
+                  "description": "data:image/webp;base64,... bounded by STAPEL_CDN['MICRO_PREVIEW_MAX_BYTES']; null when refused or not generated, with meta_reason saying which."
+                },
+                "preview_kind": {
+                  "type": "string",
+                  "enum": [
+                    "blur",
+                    "poster",
+                    "waveform"
+                  ],
+                  "nullable": true
+                },
+                "poster_url": {
+                  "type": "string",
+                  "nullable": true
+                },
+                "meta_status": {
+                  "type": "string",
+                  "enum": [
+                    "ok",
+                    "partial",
+                    "missing"
+                  ]
+                },
+                "meta_reason": {
+                  "type": "string",
+                  "nullable": true,
+                  "description": "stapel_cdn.metadata.REASONS; null when ok."
+                },
+                "variants": {
+                  "type": "array",
+                  "items": {
+                    "type": "object"
+                  }
+                }
+              },
+              "required": [
+                "ref",
+                "mime",
+                "ext",
+                "bytes",
+                "meta_status"
+              ]
+            },
+            "example": {
+              "avatar/<hash>": {
+                "ref": "avatar/<hash>",
+                "meta_status": "ok"
+              }
+            }
+          },
+          "missing": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "Refs that resolved to nothing — deleted, never existed, or malformed. Data, not an error",
+            "example": [
+              "product/deadbeef"
+            ]
+          }
+        },
+        "required": [
+          "items",
+          "missing"
+        ]
+      },
+      "FileExists": {
+        "type": "object",
+        "description": "Serializer for file existence check by hash.",
+        "properties": {
+          "file_hash": {
+            "type": "string",
+            "description": "SHA-256 hash of the file content (64 hex characters)",
+            "maxLength": 64
+          }
+        },
+        "required": [
+          "file_hash"
+        ]
+      },
+      "FileExistsResponse": {
+        "type": "object",
+        "description": "File existence check result.",
+        "properties": {
+          "file": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/Image"
+              },
+              {
+                "$ref": "#/components/schemas/Video"
+              },
+              {
+                "$ref": "#/components/schemas/Audio"
+              },
+              {
+                "$ref": "#/components/schemas/FileModel"
+              }
+            ],
+            "nullable": true,
+            "description": "File object if found, null otherwise"
+          },
+          "exists": {
+            "type": "boolean",
+            "description": "Whether the file exists",
+            "example": true
+          },
+          "type": {
+            "type": "string",
+            "nullable": true,
+            "description": "File type if found (image, video, audio or file)",
+            "example": "image"
+          }
+        },
+        "required": [
+          "exists",
+          "file",
+          "type"
+        ]
+      },
+      "FileModel": {
+        "type": "object",
+        "description": "Serializer for File model.",
+        "properties": {
+          "id": {
+            "type": "integer",
+            "readOnly": true
+          },
+          "file_hash": {
+            "type": "string",
+            "readOnly": true,
+            "description": "SHA-256 hash of the original file"
+          },
+          "original_filename": {
+            "type": "string",
+            "maxLength": 255
+          },
+          "file_extension": {
+            "type": "string",
+            "maxLength": 10
+          },
+          "mime_type": {
+            "type": "string",
+            "maxLength": 100
+          },
+          "original_size": {
+            "type": "integer",
+            "readOnly": true,
+            "description": "File size in bytes"
+          },
+          "prefix": {
+            "type": "string",
+            "readOnly": true,
+            "description": "URL prefix: file/<hash>"
+          },
+          "original_url": {
+            "type": "string",
+            "format": "uri",
+            "readOnly": true,
+            "description": "URL to original uploaded file"
+          },
+          "render_meta": {
+            "type": "object",
+            "description": "cdn.describe snapshot for this file (see RenderMeta).",
+            "properties": {
+              "ref": {
+                "type": "string"
+              },
+              "kind": {
+                "type": "string",
+                "nullable": true,
+                "description": "Open media-kind registry (STAPEL_CDN['MEDIA_KINDS']): image, gif, video, audio, file, or a host-defined kind."
+              },
+              "mime": {
+                "type": "string"
+              },
+              "ext": {
+                "type": "string",
+                "description": "Lowercase, dot-prefixed."
+              },
+              "bytes": {
+                "type": "integer"
+              },
+              "width": {
+                "type": "integer",
+                "nullable": true
+              },
+              "height": {
+                "type": "integer",
+                "nullable": true
+              },
+              "aspect": {
+                "type": "number",
+                "format": "float",
+                "nullable": true,
+                "description": "width / height, 6dp."
+              },
+              "square": {
+                "type": "boolean"
+              },
+              "animated": {
+                "type": "boolean"
+              },
+              "duration_ms": {
+                "type": "integer",
+                "nullable": true
+              },
+              "preview_b64": {
+                "type": "string",
+                "nullable": true,
+                "description": "data:image/webp;base64,... bounded by STAPEL_CDN['MICRO_PREVIEW_MAX_BYTES']; null when refused or not generated, with meta_reason saying which."
+              },
+              "preview_kind": {
+                "type": "string",
+                "enum": [
+                  "blur",
+                  "poster",
+                  "waveform"
+                ],
+                "nullable": true
+              },
+              "poster_url": {
+                "type": "string",
+                "nullable": true
+              },
+              "meta_status": {
+                "type": "string",
+                "enum": [
+                  "ok",
+                  "partial",
+                  "missing"
+                ]
+              },
+              "meta_reason": {
+                "type": "string",
+                "nullable": true,
+                "description": "stapel_cdn.metadata.REASONS; null when ok."
+              },
+              "variants": {
+                "type": "array",
+                "items": {
+                  "type": "object"
+                }
+              }
+            },
+            "required": [
+              "ref",
+              "mime",
+              "ext",
+              "bytes",
+              "meta_status"
+            ],
+            "readOnly": true
+          },
+          "refs": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "List of references: service/entity_type/entity_id"
+          },
+          "uploaded_by": {
+            "type": "string",
+            "format": "uuid",
+            "readOnly": true,
+            "nullable": true
+          },
+          "uploaded_by_username": {
+            "type": "string",
+            "readOnly": true
+          },
+          "created_at": {
+            "type": "string",
+            "format": "date-time",
+            "readOnly": true
+          },
+          "updated_at": {
+            "type": "string",
+            "format": "date-time",
+            "readOnly": true
+          }
+        },
+        "required": [
+          "created_at",
+          "file_extension",
+          "file_hash",
+          "id",
+          "original_filename",
+          "original_size",
+          "original_url",
+          "prefix",
+          "render_meta",
+          "updated_at",
+          "uploaded_by",
+          "uploaded_by_username"
+        ]
+      },
+      "FileUploadResponse": {
+        "type": "object",
+        "description": "Successful file upload.",
+        "properties": {
+          "file": {
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/FileModel"
+              }
+            ],
+            "description": "Uploaded file object"
+          },
+          "message": {
+            "type": "string",
+            "description": "Confirmation message",
+            "example": "File uploaded successfully"
+          }
+        },
+        "required": [
+          "file",
+          "message"
+        ]
+      },
+      "Image": {
+        "type": "object",
+        "description": "Serializer for Image model.\n\nReturns complete image information including all generated variants.\nVariants are auto-generated in WebP format for optimal compression.",
+        "properties": {
+          "id": {
+            "type": "integer",
+            "readOnly": true
+          },
+          "file_hash": {
+            "type": "string",
+            "readOnly": true,
+            "description": "SHA-256 hash of the original file"
+          },
+          "original_filename": {
+            "type": "string",
+            "maxLength": 255
+          },
+          "file_extension": {
+            "type": "string",
+            "maxLength": 10
+          },
+          "type": {
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/TypeEnum"
+              }
+            ],
+            "readOnly": true,
+            "default": "product",
+            "description": "Image type — validated against STAPEL_CDN['ASSET_TYPES'] (default ('avatar',); the historical 'product' default value here is only in scope for host projects that still add it).\n\n* `avatar` - Avatar"
+          },
+          "prefix": {
+            "type": "string",
+            "readOnly": true,
+            "description": "URL prefix: <type>/<hash>"
+          },
+          "original_width": {
+            "type": "integer",
+            "readOnly": true
+          },
+          "original_height": {
+            "type": "integer",
+            "readOnly": true
+          },
+          "original_size": {
+            "type": "integer",
+            "readOnly": true,
+            "description": "File size in bytes"
+          },
+          "original_url": {
+            "type": "string",
+            "format": "uri",
+            "readOnly": true,
+            "description": "URL to original uploaded image"
+          },
+          "variant_16_url": {
+            "type": "string",
+            "format": "uri",
+            "readOnly": true,
+            "description": "16px micro thumbnail, min-side (WebP)"
+          },
+          "variant_32_url": {
+            "type": "string",
+            "format": "uri",
+            "readOnly": true,
+            "description": "32px thumbnail, min-side (WebP)"
+          },
+          "variant_64_url": {
+            "type": "string",
+            "format": "uri",
+            "readOnly": true,
+            "description": "64px thumbnail, min-side (WebP)"
+          },
+          "variant_120_url": {
+            "type": "string",
+            "format": "uri",
+            "readOnly": true,
+            "description": "120px thumbnail, min-side (WebP)"
+          },
+          "variant_160_url": {
+            "type": "string",
+            "format": "uri",
+            "readOnly": true,
+            "description": "160px preview, w-branch (WebP)"
+          },
+          "variant_240_url": {
+            "type": "string",
+            "format": "uri",
+            "readOnly": true,
+            "description": "240px preview, w-branch (WebP)"
+          },
+          "variant_480_url": {
+            "type": "string",
+            "format": "uri",
+            "readOnly": true,
+            "description": "480px preview, w-branch (WebP)"
+          },
+          "variant_560_url": {
+            "type": "string",
+            "format": "uri",
+            "readOnly": true,
+            "description": "560px preview, w-branch (WebP)"
+          },
+          "variant_720_url": {
+            "type": "string",
+            "format": "uri",
+            "readOnly": true,
+            "description": "720px preview, w-branch (WebP)"
+          },
+          "variant_1080_url": {
+            "type": "string",
+            "format": "uri",
+            "readOnly": true,
+            "description": "1080px preview, w-branch (WebP)"
+          },
+          "variant_1440_url": {
+            "type": "string",
+            "format": "uri",
+            "readOnly": true,
+            "description": "1440px 2K (WebP)"
+          },
+          "variant_2160_url": {
+            "type": "string",
+            "format": "uri",
+            "readOnly": true,
+            "description": "2160px 4K (WebP)"
+          },
+          "variants_meta": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "tier": {
+                  "type": "integer"
+                },
+                "branch": {
+                  "type": "string",
+                  "enum": [
+                    "w",
+                    "h"
+                  ],
+                  "nullable": true,
+                  "description": "None for thumbnail-class (min-side) tiers."
+                },
+                "url": {
+                  "type": "string"
+                },
+                "width": {
+                  "type": "integer"
+                },
+                "height": {
+                  "type": "integer"
+                },
+                "watermarked": {
+                  "type": "boolean",
+                  "description": "Present (true) when this rendition carries a watermark."
+                },
+                "clean_url": {
+                  "type": "string",
+                  "description": "The same rendition without the watermark, for machine readers (moderation, vision models). Only on watermarked renditions with STAPEL_CDN['WATERMARK_KEEP_CLEAN']."
+                }
+              },
+              "required": [
+                "tier",
+                "url",
+                "width",
+                "height"
+              ]
+            },
+            "readOnly": true,
+            "description": "Generated variants with geometry: [{tier, branch, url, width, height}]"
+          },
+          "variants_status": {
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/VariantsStatusEnum"
+              }
+            ],
+            "readOnly": true,
+            "description": "'pending' — variant generation has not completed, every variant_<size>_url in this payload is a prediction; 'ready' — the ladder exists and the URLs resolve.\n\n* `pending` - pending\n* `ready` - ready"
+          },
+          "variants_ready_at": {
+            "type": "string",
+            "format": "date-time",
+            "readOnly": true,
+            "nullable": true,
+            "description": "When variant generation completed; null while pending."
+          },
+          "render_meta": {
+            "type": "object",
+            "description": "cdn.describe snapshot for this image (see RenderMeta).",
+            "properties": {
+              "ref": {
+                "type": "string"
+              },
+              "kind": {
+                "type": "string",
+                "nullable": true,
+                "description": "Open media-kind registry (STAPEL_CDN['MEDIA_KINDS']): image, gif, video, audio, file, or a host-defined kind."
+              },
+              "mime": {
+                "type": "string"
+              },
+              "ext": {
+                "type": "string",
+                "description": "Lowercase, dot-prefixed."
+              },
+              "bytes": {
+                "type": "integer"
+              },
+              "width": {
+                "type": "integer",
+                "nullable": true
+              },
+              "height": {
+                "type": "integer",
+                "nullable": true
+              },
+              "aspect": {
+                "type": "number",
+                "format": "float",
+                "nullable": true,
+                "description": "width / height, 6dp."
+              },
+              "square": {
+                "type": "boolean"
+              },
+              "animated": {
+                "type": "boolean"
+              },
+              "duration_ms": {
+                "type": "integer",
+                "nullable": true
+              },
+              "preview_b64": {
+                "type": "string",
+                "nullable": true,
+                "description": "data:image/webp;base64,... bounded by STAPEL_CDN['MICRO_PREVIEW_MAX_BYTES']; null when refused or not generated, with meta_reason saying which."
+              },
+              "preview_kind": {
+                "type": "string",
+                "enum": [
+                  "blur",
+                  "poster",
+                  "waveform"
+                ],
+                "nullable": true
+              },
+              "poster_url": {
+                "type": "string",
+                "nullable": true
+              },
+              "meta_status": {
+                "type": "string",
+                "enum": [
+                  "ok",
+                  "partial",
+                  "missing"
+                ]
+              },
+              "meta_reason": {
+                "type": "string",
+                "nullable": true,
+                "description": "stapel_cdn.metadata.REASONS; null when ok."
+              },
+              "variants": {
+                "type": "array",
+                "items": {
+                  "type": "object"
+                }
+              }
+            },
+            "required": [
+              "ref",
+              "mime",
+              "ext",
+              "bytes",
+              "meta_status"
+            ],
+            "readOnly": true
+          },
+          "is_processed": {
+            "type": "boolean",
+            "readOnly": true,
+            "description": "Whether variants have been generated"
+          },
+          "uploaded_by": {
+            "type": "string",
+            "format": "uuid",
+            "readOnly": true,
+            "nullable": true
+          },
+          "uploaded_by_username": {
+            "type": "string",
+            "readOnly": true
+          },
+          "created_at": {
+            "type": "string",
+            "format": "date-time",
+            "readOnly": true
+          },
+          "updated_at": {
+            "type": "string",
+            "format": "date-time",
+            "readOnly": true
+          }
+        },
+        "required": [
+          "created_at",
+          "file_extension",
+          "file_hash",
+          "id",
+          "is_processed",
+          "original_filename",
+          "original_height",
+          "original_size",
+          "original_url",
+          "original_width",
+          "prefix",
+          "render_meta",
+          "type",
+          "updated_at",
+          "uploaded_by",
+          "uploaded_by_username",
+          "variant_1080_url",
+          "variant_120_url",
+          "variant_1440_url",
+          "variant_160_url",
+          "variant_16_url",
+          "variant_2160_url",
+          "variant_240_url",
+          "variant_32_url",
+          "variant_480_url",
+          "variant_560_url",
+          "variant_64_url",
+          "variant_720_url",
+          "variants_meta",
+          "variants_ready_at",
+          "variants_status"
+        ]
+      },
+      "ImageUploadRequest": {
+        "type": "object",
+        "description": "``POST /upload/image/``: the file plus the asset type to store it as.",
+        "properties": {
+          "file": {
+            "type": "string",
+            "format": "uri",
+            "description": "The file to upload. Images: jpg, jpeg, png, gif, webp, avif, heic, heif. Videos: mp4, webm, mov, avi, mkv."
+          },
+          "type": {
+            "type": "string",
+            "description": "Asset type, one of STAPEL_CDN['ASSET_TYPES']. Required when the deployment has several types and no DEFAULT_UPLOAD_TYPE.",
+            "maxLength": 10
+          }
+        },
+        "required": [
+          "file"
+        ]
+      },
+      "ImageUploadResponse": {
+        "type": "object",
+        "description": "Successful image upload.",
+        "properties": {
+          "image": {
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/Image"
+              }
+            ],
+            "description": "Uploaded image object (serialized by ImageSerializer)"
+          },
+          "message": {
+            "type": "string",
+            "description": "Confirmation message",
+            "example": "Image uploaded successfully"
+          }
+        },
+        "required": [
+          "image",
+          "message"
+        ]
+      },
+      "RefSyncRequest": {
+        "type": "object",
+        "description": "CDN reference sync request.",
+        "properties": {
+          "service": {
+            "type": "string",
+            "description": "Service name",
+            "example": "auth"
+          },
+          "entity_type": {
+            "type": "string",
+            "description": "Entity type",
+            "example": "profile"
+          },
+          "entity_id": {
+            "type": "string",
+            "description": "Entity identifier",
+            "example": 464
+          },
+          "old_hashes": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "Previous media references",
+            "example": [
+              "product/hash1",
+              "product/hash2"
+            ]
+          },
+          "new_hashes": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "Current media references",
+            "example": [
+              "product/hash2",
+              "product/hash3"
+            ]
+          }
+        },
+        "required": [
+          "entity_id",
+          "entity_type",
+          "new_hashes",
+          "old_hashes",
+          "service"
+        ]
+      },
+      "RefSyncResponse": {
+        "type": "object",
+        "description": "CDN reference sync result.",
+        "properties": {
+          "added": {
+            "type": "integer",
+            "description": "Number of refs added",
+            "example": 1
+          },
+          "removed": {
+            "type": "integer",
+            "description": "Number of refs removed",
+            "example": 1
+          },
+          "errors": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "List of unresolved media references",
+            "example": [
+              "product/nonexistent"
+            ]
+          }
+        },
+        "required": [
+          "added",
+          "errors",
+          "removed"
+        ]
+      },
+      "StapelError": {
+        "type": "object",
+        "description": "Structured error returned by all Stapel API endpoints.",
+        "properties": {
+          "localizable_error": {
+            "type": "string",
+            "description": "Translation key for client-side localization",
+            "example": "error.404.not_found"
+          },
+          "error": {
+            "type": "string",
+            "description": "Human-readable fallback/debug message — not reliably English,"
+          },
+          "params": {
+            "type": "object",
+            "additionalProperties": {},
+            "description": "Context values for template placeholders",
+            "example": {
+              "retry_after": 30
+            }
+          },
+          "error_language": {
+            "type": "string",
+            "description": "The language `error` is written in (e.g. 'en', 'ru'),"
+          }
+        },
+        "required": [
+          "error",
+          "localizable_error"
+        ]
+      },
+      "TypeEnum": {
+        "enum": [
+          "avatar"
+        ],
+        "type": "string",
+        "description": "* `avatar` - Avatar"
+      },
+      "VariantsStatusEnum": {
+        "enum": [
+          "pending",
+          "ready"
+        ],
+        "type": "string",
+        "description": "* `pending` - pending\n* `ready` - ready"
+      },
+      "Video": {
+        "type": "object",
+        "description": "Serializer for Video model.",
+        "properties": {
+          "id": {
+            "type": "integer",
+            "readOnly": true
+          },
+          "file_hash": {
+            "type": "string",
+            "readOnly": true,
+            "description": "SHA-256 hash of the original file"
+          },
+          "original_filename": {
+            "type": "string",
+            "maxLength": 255
+          },
+          "file_extension": {
+            "type": "string",
+            "maxLength": 10
+          },
+          "original_width": {
+            "type": "integer",
+            "readOnly": true,
+            "nullable": true
+          },
+          "original_height": {
+            "type": "integer",
+            "readOnly": true,
+            "nullable": true
+          },
+          "original_size": {
+            "type": "integer",
+            "readOnly": true,
+            "description": "File size in bytes"
+          },
+          "duration": {
+            "type": "number",
+            "format": "double",
+            "readOnly": true,
+            "nullable": true,
+            "description": "Duration in seconds"
+          },
+          "original_url": {
+            "type": "string",
+            "format": "uri",
+            "readOnly": true
+          },
+          "variant_16p_url": {
+            "type": "string",
+            "format": "uri",
+            "nullable": true,
+            "readOnly": true
+          },
+          "variant_32p_url": {
+            "type": "string",
+            "format": "uri",
+            "nullable": true,
+            "readOnly": true
+          },
+          "variant_240p_url": {
+            "type": "string",
+            "format": "uri",
+            "nullable": true,
+            "readOnly": true
+          },
+          "variant_480p_url": {
+            "type": "string",
+            "format": "uri",
+            "nullable": true,
+            "readOnly": true
+          },
+          "variant_720p_url": {
+            "type": "string",
+            "format": "uri",
+            "nullable": true,
+            "readOnly": true
+          },
+          "variant_1080p_url": {
+            "type": "string",
+            "format": "uri",
+            "nullable": true,
+            "readOnly": true
+          },
+          "variant_2160p_url": {
+            "type": "string",
+            "format": "uri",
+            "nullable": true,
+            "readOnly": true
+          },
+          "poster_url": {
+            "type": "string",
+            "format": "uri",
+            "nullable": true,
+            "readOnly": true,
+            "description": "Derived poster frame; null until one has been written."
+          },
+          "render_meta": {
+            "type": "object",
+            "description": "cdn.describe snapshot for this video (see RenderMeta).",
+            "properties": {
+              "ref": {
+                "type": "string"
+              },
+              "kind": {
+                "type": "string",
+                "nullable": true,
+                "description": "Open media-kind registry (STAPEL_CDN['MEDIA_KINDS']): image, gif, video, audio, file, or a host-defined kind."
+              },
+              "mime": {
+                "type": "string"
+              },
+              "ext": {
+                "type": "string",
+                "description": "Lowercase, dot-prefixed."
+              },
+              "bytes": {
+                "type": "integer"
+              },
+              "width": {
+                "type": "integer",
+                "nullable": true
+              },
+              "height": {
+                "type": "integer",
+                "nullable": true
+              },
+              "aspect": {
+                "type": "number",
+                "format": "float",
+                "nullable": true,
+                "description": "width / height, 6dp."
+              },
+              "square": {
+                "type": "boolean"
+              },
+              "animated": {
+                "type": "boolean"
+              },
+              "duration_ms": {
+                "type": "integer",
+                "nullable": true
+              },
+              "preview_b64": {
+                "type": "string",
+                "nullable": true,
+                "description": "data:image/webp;base64,... bounded by STAPEL_CDN['MICRO_PREVIEW_MAX_BYTES']; null when refused or not generated, with meta_reason saying which."
+              },
+              "preview_kind": {
+                "type": "string",
+                "enum": [
+                  "blur",
+                  "poster",
+                  "waveform"
+                ],
+                "nullable": true
+              },
+              "poster_url": {
+                "type": "string",
+                "nullable": true
+              },
+              "meta_status": {
+                "type": "string",
+                "enum": [
+                  "ok",
+                  "partial",
+                  "missing"
+                ]
+              },
+              "meta_reason": {
+                "type": "string",
+                "nullable": true,
+                "description": "stapel_cdn.metadata.REASONS; null when ok."
+              },
+              "variants": {
+                "type": "array",
+                "items": {
+                  "type": "object"
+                }
+              }
+            },
+            "required": [
+              "ref",
+              "mime",
+              "ext",
+              "bytes",
+              "meta_status"
+            ],
+            "readOnly": true
+          },
+          "is_processed": {
+            "type": "boolean",
+            "readOnly": true,
+            "description": "Whether metadata/variants have been generated"
+          },
+          "uploaded_by": {
+            "type": "string",
+            "format": "uuid",
+            "readOnly": true,
+            "nullable": true
+          },
+          "uploaded_by_username": {
+            "type": "string",
+            "readOnly": true
+          },
+          "created_at": {
+            "type": "string",
+            "format": "date-time",
+            "readOnly": true
+          },
+          "updated_at": {
+            "type": "string",
+            "format": "date-time",
+            "readOnly": true
+          }
+        },
+        "required": [
+          "created_at",
+          "duration",
+          "file_extension",
+          "file_hash",
+          "id",
+          "is_processed",
+          "original_filename",
+          "original_height",
+          "original_size",
+          "original_url",
+          "original_width",
+          "poster_url",
+          "render_meta",
+          "updated_at",
+          "uploaded_by",
+          "uploaded_by_username",
+          "variant_1080p_url",
+          "variant_16p_url",
+          "variant_2160p_url",
+          "variant_240p_url",
+          "variant_32p_url",
+          "variant_480p_url",
+          "variant_720p_url"
+        ]
+      },
+      "VideoUploadResponse": {
+        "type": "object",
+        "description": "Successful video upload.",
+        "properties": {
+          "video": {
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/Video"
+              }
+            ],
+            "description": "Uploaded video object (serialized by VideoSerializer)"
+          },
+          "message": {
+            "type": "string",
+            "description": "Confirmation message",
+            "example": "Video uploaded successfully"
+          }
+        },
+        "required": [
+          "message",
+          "video"
+        ]
+      }
+    },
+    "securitySchemes": {
+      "JWTBearerAuth": {
+        "type": "http",
+        "scheme": "bearer",
+        "bearerFormat": "JWT",
+        "description": "JWT access token in the `Authorization: Bearer <token>` header — the credential a native client sends. When the JWT cookie is also present, the cookie wins."
+      },
+      "JWTCookieAuth": {
+        "type": "apiKey",
+        "in": "cookie",
+        "name": "stapel_jwt",
+        "description": "JWT token stored in cookie. Login via /auth/admin/ to get the cookie."
+      }
+    }
+  }
+}

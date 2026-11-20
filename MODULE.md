@@ -430,6 +430,11 @@ because every `variant_<size>_url` is derived from `<type>/<hash>` rather than
 from a file on disk, the upload still answered `201` with the full ladder — a
 201 whose URLs 404 forever.
 
+Celery is optional (the `celery` extra). Without it every job is a
+`tasks.InlineTask`: `delay`/`apply_async` run it in the calling process, so an
+upload is processed before the request returns and the queue settings below
+have no effect; schedule `retry_unprocessed` and `sweep_unclaimed` from cron.
+
 | Seam | What a host does |
 |---|---|
 | `STAPEL_CDN["THUMBNAILS_QUEUE"]` / `["PREVIEWS_QUEUE"]` | Leave unset for a single-queue worker (the tasks then carry no `queue` option at all). Set them to the names your workers consume (`-Q`) in a sharded fleet. Resolved per send, so `override_settings` works in tests. |

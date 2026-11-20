@@ -1,5 +1,11 @@
 """
-Celery tasks for image processing.
+Media processing jobs: celery tasks when celery is installed, inline otherwise.
+
+Celery is optional. With it installed every job below is a celery task under
+the same name as before. Without it each job is an :class:`InlineTask`:
+``delay``/``apply_async`` run the function in the calling process (what
+celery's eager mode does), so an upload is processed before the request
+returns instead of on a worker, and queue routing has no meaning.
 
 Queue routing is CONFIGURATION, not a literal
 ---------------------------------------------
@@ -36,11 +42,50 @@ is the safety net for exactly the class above (and for "ffmpeg was installed
 a week after the upload"), and it only runs if somebody schedules it: wire ``get_cdn_beat_schedule()`` into ``CELERY_BEAT_SCHEDULE``,
 on the cadence in ``STAPEL_CDN["RETRY_UNPROCESSED_SCHEDULE"]``.
 """
-from celery import shared_task
+import functools
 import logging
 from datetime import datetime, timedelta
 
+try:
+    from celery import shared_task as _shared_task
+except ImportError:
+    _shared_task = None
+
 logger = logging.getLogger(__name__)
+
+
+class InlineTask:
+    """A job without celery: ``delay``/``apply_async`` call it now.
+
+    Routing options (``queue``, ``countdown`` …) are accepted and ignored —
+    there is no broker to route through.
+    """
+
+    def __init__(self, fn, name: str):
+        functools.update_wrapper(self, fn)
+        self.run = fn
+        self.name = name
+
+    def __call__(self, *args, **kwargs):
+        return self.run(*args, **kwargs)
+
+    def delay(self, *args, **kwargs):
+        return self.run(*args, **kwargs)
+
+    def apply_async(self, args=None, kwargs=None, **options):
+        return self.run(*(args or ()), **(kwargs or {}))
+
+
+def task(name: str | None = None):
+    """``shared_task(name=…)`` when celery is installed, :class:`InlineTask` otherwise."""
+
+    def decorate(fn):
+        task_name = name or f"{__name__}.{fn.__name__}"
+        if _shared_task is not None:
+            return _shared_task(name=task_name)(fn)
+        return InlineTask(fn, task_name)
+
+    return decorate
 
 #: Stable task names — what a beat schedule, a ``task_routes`` map or a
 #: worker's ``-Q`` has to reference, kept out of the callers' reach so a
@@ -88,7 +133,14 @@ def get_cdn_beat_schedule() -> dict:
 
         CELERY_BEAT_SCHEDULE = {**get_cdn_beat_schedule(), ...}
     """
-    from celery.schedules import crontab
+    try:
+        from celery.schedules import crontab
+    except ImportError as exc:
+        raise ImportError(
+            "get_cdn_beat_schedule() builds celery crontab entries and needs "
+            "celery installed. Without celery, run stapel_cdn.tasks."
+            "retry_unprocessed and sweep_unclaimed from cron or a timer."
+        ) from exc
 
     from .conf import cdn_settings
 
@@ -115,7 +167,7 @@ def _append_log(image, log_text: str):
     image.save(update_fields=['processing_log'])
 
 
-@shared_task(name=THUMBNAILS_TASK_NAME)
+@task(name=THUMBNAILS_TASK_NAME)
 def generate_thumbnails(image_id: int):
     """Generate thumbnails (16, 32, 64, 120px).
 
@@ -143,7 +195,7 @@ def generate_thumbnails(image_id: int):
         raise
 
 
-@shared_task(name=PREVIEWS_TASK_NAME)
+@task(name=PREVIEWS_TASK_NAME)
 def generate_previews(image_id: int, watermark: bool = True):
     """Generate previews (160-1080px).
 
@@ -182,7 +234,7 @@ def generate_previews(image_id: int, watermark: bool = True):
         raise
 
 
-@shared_task
+@task()
 def process_image_async(image_id: int):
     """Schedule both thumbnail and preview generation."""
     from .models import Image
@@ -217,7 +269,7 @@ def process_image_async(image_id: int):
     _send(generate_previews, "PREVIEWS_QUEUE", args=(image_id,))
 
 
-@shared_task
+@task()
 def process_video_async(video_id: int):
     """Process video variants."""
     from .models import Video
@@ -235,7 +287,7 @@ def process_video_async(video_id: int):
         raise
 
 
-@shared_task
+@task()
 def process_audio_async(audio_id: int):
     """Measure duration and render the waveform strip for one recording.
 
@@ -256,7 +308,7 @@ def process_audio_async(audio_id: int):
     logger.info("Metadata extracted for audio %s", audio.file_hash)
 
 
-@shared_task
+@task()
 def retry_unprocessed():
     """
     Periodic task: re-queue media stuck without its derived metadata for
@@ -305,7 +357,7 @@ def retry_unprocessed():
 
 
 
-@shared_task(name=SWEEP_TASK_NAME)
+@task(name=SWEEP_TASK_NAME)
 def sweep_unclaimed():
     """Reap media that is zero-ref AND past ``UNCLAIMED_TTL_HOURS``.
 

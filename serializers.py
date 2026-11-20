@@ -191,16 +191,16 @@ class RenderMetaMapFieldExtension(OpenApiSerializerFieldExtension):
 
 
 class FileResultField(serializers.JSONField):
-    """``ImageSerializer | VideoSerializer | FileModelSerializer`` result.
+    """``ImageSerializer | VideoSerializer | AudioSerializer | FileModelSerializer`` result.
 
     The concrete shape is picked by a SIBLING field in the same envelope
     (``FileExistsResponse.type == "image"|"video"|"file"``, views.py
     ``_exists_response``), not by a key inside this object itself — so
     unlike ``FeatureDto``/``FeatureConfig`` elsewhere in the fleet, this
     cannot carry an OpenAPI ``discriminator`` (that requires the
-    discriminating property to live inside the oneOf'd object). A plain
-    ``oneOf`` of the three concrete serializers is still real typing, not
-    the `any` a bare ``JSONField`` described before.
+    discriminating property to live inside the object). It is an ``anyOf``,
+    not a ``oneOf``: the shapes overlap — an image carries every field a
+    file does — so under ``oneOf`` no image could ever validate.
     """
 
 
@@ -218,7 +218,7 @@ class FileResultFieldExtension(OpenApiSerializerFieldExtension):
         ):
             component = auto_schema.resolve_serializer(serializer_class, direction)
             refs.append({"$ref": f"#/components/schemas/{component.name}"})
-        return {"oneOf": refs, "nullable": True}
+        return {"anyOf": refs, "nullable": True}
 
 
 class ImageSerializer(serializers.ModelSerializer):

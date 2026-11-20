@@ -107,6 +107,7 @@ from .models import (
     get_default_upload_type,
     get_image_type_choices,
 )
+from ._examples import exists_examples, upload_examples
 from .serializers import (
     AudioSerializer,
     AudioUploadResponseSerializer,
@@ -320,39 +321,7 @@ absent from `ASSET_TYPES` is a misconfiguration: this endpoint answers 400 and
             413: StapelErrorSerializer,
             500: StapelErrorSerializer,
         },
-        examples=[
-            OpenApiExample(
-                name="Image uploaded successfully",
-                response_only=True,
-                status_codes=["201"],
-                value={
-                    "message": "Image uploaded successfully",
-                    "image": {
-                        "id": "550e8400-e29b-41d4-a716-446655440000",
-                        "file_hash": "a1b2c3d4e5f6...",
-                        "original_filename": "photo.jpg",
-                        "file_extension": ".jpg",
-                        "original_width": 1920,
-                        "original_height": 1080,
-                        "original_size": 2048576,
-                        "original_url": "/media/cdn/images/original/a1b2c3d4.jpg",
-                        "variant_720_url": "/media/cdn/images/720/a1b2c3d4.webp",
-                        "variants_status": "pending",
-                        "variants_ready_at": None,
-                        "is_processed": False,
-                    },
-                },
-            ),
-            OpenApiExample(
-                name="Image already exists",
-                response_only=True,
-                status_codes=["200"],
-                value={
-                    "message": "Image already exists",
-                    "image": {"id": "...", "file_hash": "..."},
-                },
-            ),
-        ],
+        examples=upload_examples("image", "Image"),
     )
     def post(self, request):  # noqa: R007
         """
@@ -490,6 +459,7 @@ Enforced before the body is hashed; over it the answer is 413.
             413: StapelErrorSerializer,
             500: StapelErrorSerializer,
         },
+        examples=upload_examples("video", "Video", "Video uploaded successfully (variant generation not yet implemented)"),
     )
     def post(self, request):  # noqa: R007
         """
@@ -633,36 +603,7 @@ object; over them the answer is 403.
             413: StapelErrorSerializer,
             500: StapelErrorSerializer,
         },
-        examples=[
-            OpenApiExample(
-                name="Recording stored",
-                response_only=True,
-                status_codes=["201"],
-                value={
-                    "message": "Audio uploaded successfully",
-                    "audio": {
-                        "id": 12,
-                        "ref": "audio/a1b2c3d4e5f6...",
-                        "file_hash": "a1b2c3d4e5f6...",
-                        "original_filename": "voice.webm",
-                        "file_extension": ".webm",
-                        "original_size": 18324,
-                        "duration": None,
-                        "preview_b64": "",
-                        "is_compressed": False,
-                    },
-                },
-            ),
-            OpenApiExample(
-                name="Audio already exists",
-                response_only=True,
-                status_codes=["200"],
-                value={
-                    "message": "Audio already exists",
-                    "audio": {"id": 12, "ref": "audio/a1b2c3d4e5f6..."},
-                },
-            ),
-        ],
+        examples=upload_examples("audio", "Audio"),
     )
     def post(self, request):  # noqa: R007
         """Store one recording; the waveform/duration pass runs after."""
@@ -857,29 +798,7 @@ def calculate_file_hash(file_content: bytes) -> str:
             400: StapelErrorSerializer,
             401: StapelErrorSerializer,
         },
-        examples=[
-            OpenApiExample(
-                name="File found (image)",
-                response_only=True,
-                status_codes=["200"],
-                value={
-                    "exists": True,
-                    "type": "image",
-                    "file": {
-                        "id": "550e8400-e29b-41d4-a716-446655440000",
-                        "file_hash": "e3b0c44298fc1c14...",
-                        "original_filename": "photo.jpg",
-                        "variant_720_url": "/media/cdn/images/720/e3b0c442.webp",
-                    },
-                },
-            ),
-            OpenApiExample(
-                name="File not found",
-                response_only=True,
-                status_codes=["200"],
-                value={"exists": False, "type": None, "file": None},
-            ),
-        ],
+        examples=exists_examples(),
     )
     def get(self, request):  # noqa: R007
         """
@@ -907,6 +826,7 @@ Useful when hash is very long or contains special characters.
             400: StapelErrorSerializer,
             401: StapelErrorSerializer,
         },
+        examples=exists_examples(),
     )
     def post(self, request):  # noqa: R007
         """
@@ -971,6 +891,7 @@ Enforced before the body is hashed; over it the answer is 413.
             413: StapelErrorSerializer,
             500: StapelErrorSerializer,
         },
+        examples=upload_examples("image", "Avatar"),
     )
     def post(self, request):  # noqa: R007
         """Upload an avatar image file. Sets type to 'avatar'."""
@@ -1079,6 +1000,7 @@ Enforced before the body is hashed; over it the answer is 413.
             413: StapelErrorSerializer,
             500: StapelErrorSerializer,
         },
+        examples=upload_examples("image", "Image"),
     )
     def post(self, request, image_type):  # noqa: R007
         """Upload an image file with the specified type."""
@@ -1375,6 +1297,7 @@ class GenericFileUploadView(SerializerSeamMixin, APIView):
             200: FileUploadResponseSerializer,
             400: StapelErrorSerializer,
         },
+        examples=upload_examples("file", "File"),
     )
     def post(self, request):  # noqa: R007
         if "file" not in request.FILES:

@@ -1,5 +1,31 @@
 # Changelog
 
+## [0.31.1] — 2026-11-20
+
+Patch. No migration. Requires stapel-core 0.99.2. A host that runs celery
+workers installs `stapel-cdn[celery]` (or keeps celery in its own
+requirements, as every worker host already does).
+
+- **Celery is optional.** `tasks.py` imported it at module level and the
+  package declared `celery>=5` for that import. With celery installed every
+  job is a celery task under its previous name; without it each is an
+  `InlineTask` whose `delay`/`apply_async` run it in the calling process.
+  New `celery` extra (in `all`). `tests/test_celery_optional.py` boots the
+  emission harness and imports every job with celery unimportable.
+- **Examples:** 14 of 18 response examples did not validate against their own
+  schema (partial or placeholder media objects, a string `id` for an integer,
+  upload answers documented without their `image`/`video`/`file`). Every
+  upload and existence example is now built from one complete object per
+  media kind (`_examples.py`); 19 of 19 validate.
+- **`FileExistsResponse.file` is `anyOf`, not `oneOf`.** The four shapes
+  overlap (an image carries every field a file does), so under `oneOf` no
+  image could validate; the wire test's reinterpretation of that `oneOf` is
+  removed.
+- **Contract profile 2:** `docs/schema.v2.json` beside the unchanged-profile
+  `docs/schema.json` (shipped in the wheel); `errors.json` under core 0.99.
+- Gates: `tests/test_contract_profile2.py` on stapel-tools 0.84.0's
+  `contract_gates`; CI runs `make contract-check` on the 3.12 leg.
+
 ## [0.31.0] — 2026-11-13
 
 Minor (pre-1.0: breaking). No migration.

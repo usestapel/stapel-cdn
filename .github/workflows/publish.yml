@@ -119,7 +119,7 @@ jobs:
         run: python -c "import stapel_cdn; print('import OK')"
 
       - name: Install stapel-tools (carries the emitter the drift gate measures against)
-        run: pip install stapel-tools --quiet
+        run: pip install "stapel-tools>=0.84.0,<1" --quiet
 
       - name: Install test dependencies
         # `.[test]` carries Pillow. It is NOT a dependency of the library —
