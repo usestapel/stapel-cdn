@@ -1,5 +1,16 @@
 # Changelog
 
+## [0.31.2] — 2026-11-20
+
+Patch. No migration.
+
+### Changed — the celery-optional shim is core's
+
+- Jobs are declared with `stapel_core.background.background_task`; the
+  package's own `InlineTask`/`task` copy is gone. `stapel_cdn.tasks.InlineTask`
+  stays importable (re-exported from core). Task names are unchanged.
+  Requires `stapel-core>=0.99.3`.
+
 ## [0.31.1] — 2026-11-20
 
 Patch. No migration. Requires stapel-core 0.99.2. A host that runs celery

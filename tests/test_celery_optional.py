@@ -2,9 +2,8 @@
 
 With celery installed every processing job is a celery task under the name it
 always had (beat schedules and ``task_routes`` reference those names). Without
-it the jobs are :class:`stapel_cdn.tasks.InlineTask`: ``delay`` and
-``apply_async`` run them in the calling process. The package used to import
-celery at module level and declare it as a hard dependency for that import.
+it the jobs are core's :class:`stapel_core.background.InlineTask`: ``delay``
+and ``apply_async`` run them in the calling process.
 """
 import subprocess
 import sys
@@ -57,17 +56,3 @@ def test_with_celery_every_job_is_a_task_under_its_name():
         assert not isinstance(job, tasks.InlineTask), attr
         assert job.name == name
 
-
-def test_an_inline_job_runs_now_and_ignores_routing():
-    calls = []
-
-    def job(a, b=0):
-        calls.append((a, b))
-        return a + b
-
-    inline = tasks.InlineTask(job, "x.job")
-    assert inline(1, b=2) == 3
-    assert inline.delay(2, b=3) == 5
-    assert inline.apply_async(args=[3], kwargs={"b": 4}, queue="thumbnails") == 7
-    assert calls == [(1, 2), (2, 3), (3, 4)]
-    assert inline.name == "x.job" and inline.__name__ == "job"
