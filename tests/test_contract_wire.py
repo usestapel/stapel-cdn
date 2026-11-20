@@ -1130,3 +1130,76 @@ def test_the_gate_is_not_blind():
         "these operations passed validation against {'type': 'string'} — the "
         "gate is not looking at the body it received:\n  " + "\n  ".join(survivors)
     )
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Every caller state
+# ─────────────────────────────────────────────────────────────────────────────
+
+#: The document a native client generates from (contract profile 2).
+SCHEMA_V2 = json.loads((Path(__file__).resolve().parent.parent / "docs" / "schema.v2.json").read_text())
+
+
+def _state_client(user=None):
+    from rest_framework.test import APIClient
+
+    client = APIClient()
+    if user is not None:
+        client.force_authenticate(user=user)
+    return client
+
+
+def _registered_stranger():
+    from django.contrib.auth import get_user_model
+
+    tag = uuid.uuid4().hex[:10]
+    return _state_client(
+        get_user_model().objects.create(username=f"wire_state_{tag}", email=f"state-{tag}@example.com")
+    )
+
+
+def _guest_session():
+    from stapel_core.django.users.models import User
+
+    return _state_client(User.create_anonymous_user())
+
+
+def _production_error_envelope():
+    """Refusals leave through core's exception handler in every deployment
+    (stapel_core.django.settings.REST_FRAMEWORK); a harness without it would
+    judge DRF's bare ``{"detail": ...}`` instead of the declared envelope."""
+    from django.conf import settings
+    from django.test import override_settings
+
+    current = dict(getattr(settings, "REST_FRAMEWORK", None) or {})
+    current["EXCEPTION_HANDLER"] = "stapel_core.django.api.errors.stapel_exception_handler"
+    return override_settings(REST_FRAMEWORK=current)
+
+
+#: The caller states every recipe request is replayed as. The recipe's own
+#: caller is the fourth (the owner or the operator the operation needs).
+CALLER_STATES = {"anonymous": _state_client, "guest": _guest_session, "member": _registered_stranger}
+_STATE_OPERATIONS = sorted({(m, p, c) for m, p, c, *_rest in OPERATIONS if (m, p) not in UNDRIVABLE})
+
+
+@pytest.mark.parametrize("method,path,code", _STATE_OPERATIONS, ids=[f"{m} {p} {c}" for m, p, c in _STATE_OPERATIONS])
+def test_every_caller_state_is_answered_as_declared(method, path, code):
+    """The recipe's requests, sent again with no session, as a guest and as a stranger.
+
+    A 2xx must be declared and its body must validate against schema.json and
+    schema.v2.json; a refusal is a 4xx; an operation open to callers without
+    a session does not refuse them 401.
+    """
+    from tests._contract_gates_next import AuthStateReplay
+
+    # The first document's `security` is the claim: profile 2 derives it from the
+    # running permission stack, profile 1 does not.
+    replay = AuthStateReplay({"schema.v2.json": SCHEMA_V2, "schema.json": SCHEMA}, CALLER_STATES)
+    with _production_error_envelope(), replay.watching(method, path):
+        for table in (RECIPES, EMPTY_STATE):
+            if (method, path, code) in table:
+                table[(method, path, code)](Call(method, path))
+    assert replay.replayed >= len(CALLER_STATES), (
+        f"{method} {path}: the recipe never reached the operation, nothing was replayed"
+    )
+    assert not replay.findings, "\n".join(str(f) for f in replay.findings)
