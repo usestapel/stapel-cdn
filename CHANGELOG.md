@@ -10,6 +10,8 @@ Patch. No migration.
   package's own `InlineTask`/`task` copy is gone. `stapel_cdn.tasks.InlineTask`
   stays importable (re-exported from core). Task names are unchanged.
   Requires `stapel-core>=0.99.3`.
+- Test fixture: wire-gate uploads carry unique bytes, so two images of one
+  user no longer collide on `(file_hash, type, uploaded_by)` by chance.
 
 ## [0.31.1] — 2026-11-20
 

@@ -264,7 +264,7 @@ def service_client():
     return client
 
 
-def image_bytes(color=(220, 40, 40), size=(64, 48)):
+def image_bytes(color=(220, 40, 40), size=(64, 48), tag=None):
     """Real JPEG bytes, from an encoder that is NOT the library under test.
 
     Pillow is a test-only dependency here on purpose (see conftest.py): a
@@ -274,14 +274,22 @@ def image_bytes(color=(220, 40, 40), size=(64, 48)):
     from PIL import Image as PILImage
 
     buffer = io.BytesIO()
-    PILImage.new("RGB", size, color=color).save(buffer, format="JPEG")
+    extra = {"comment": tag.encode()} if tag else {}
+    PILImage.new("RGB", size, color=color).save(buffer, format="JPEG", **extra)
     return buffer.getvalue()
 
 
 def image_upload(color=None):
+    """A JPEG whose bytes are unique unless *color* asks for a repeat: two
+    uploads by one user must not collide on ``(file_hash, type, uploaded_by)``
+    by chance (a random colour of 250 did, intermittently, in CI)."""
+    if color is not None:
+        return SimpleUploadedFile(
+            f"{_unique('photo-')}.jpg", image_bytes(color), content_type="image/jpeg"
+        )
     return SimpleUploadedFile(
         f"{_unique('photo-')}.jpg",
-        image_bytes(color or (uuid.uuid4().int % 250, 40, 40)),
+        image_bytes((uuid.uuid4().int % 250, 40, 40), tag=_unique("wire-")),
         content_type="image/jpeg",
     )
 
